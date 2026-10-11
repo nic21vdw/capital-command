@@ -216,7 +216,7 @@ function PieceCard({ event, cachedStat }: { event: MasterCalendarEvent; cachedSt
       <div className="min-w-0 flex-1">
         <div className="flex items-start gap-2">
           <p className="min-w-0 flex-1 text-sm font-medium leading-snug text-white">
-            <Link href={eventHref(event)} className="before:absolute before:inset-0 before:rounded-xl before:content-['']">
+            <Link href={eventHref(event)} className="before:absolute before:inset-0 before:rounded-xl before:content-[''] max-sm:-my-3 max-sm:inline-block max-sm:py-3">
               {event.title}
             </Link>
           </p>
@@ -378,7 +378,7 @@ function SourceSection({
         </div>
         <Link
           href={sourceHrefForDay(source.id, dateKey)}
-          className="flex shrink-0 items-center gap-1 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+          className="flex shrink-0 items-center gap-1 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white max-sm:min-h-10"
         >
           Manage in {source.hrefLabel}
           <ArrowUpRight className="h-3 w-3" />
@@ -702,7 +702,7 @@ function DaySummaryBody({
         actions={
           <Link
             href="/master-calendar"
-            className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+            className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white max-sm:min-h-10"
           >
             <CalendarRange className="h-3.5 w-3.5" />
             Open Master Calendar
@@ -721,28 +721,28 @@ function DaySummaryBody({
                 type="button"
                 onClick={() => setDateKey((current) => shiftDayKey(current, -1))}
                 aria-label="Previous day"
-                className="flex h-8 w-8 items-center justify-center text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+                className="flex h-8 w-8 items-center justify-center text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white max-sm:h-10 max-sm:w-10"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <button
                 type="button"
                 onClick={() => setDateKey(shiftDayKey(todayKey, -1))}
-                className="border-l border-[var(--border)] px-3 text-xs font-medium leading-8 text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+                className="border-l border-[var(--border)] px-3 text-xs font-medium leading-8 text-[var(--muted-foreground)] max-sm:leading-10 transition hover:bg-white/10 hover:text-white"
               >
                 Yesterday
               </button>
               <button
                 type="button"
                 onClick={() => setDateKey(todayKey)}
-                className="border-x border-[var(--border)] px-3 text-xs font-medium leading-8 text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+                className="border-x border-[var(--border)] px-3 text-xs font-medium leading-8 text-[var(--muted-foreground)] max-sm:leading-10 transition hover:bg-white/10 hover:text-white"
               >
                 Today
               </button>
               <button
                 type="button"
                 onClick={() => setDateKey(shiftDayKey(todayKey, 1))}
-                className="border-r border-[var(--border)] px-3 text-xs font-medium leading-8 text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+                className="border-r border-[var(--border)] px-3 text-xs font-medium leading-8 text-[var(--muted-foreground)] max-sm:leading-10 transition hover:bg-white/10 hover:text-white"
               >
                 Tomorrow
               </button>
@@ -750,7 +750,7 @@ function DaySummaryBody({
                 type="button"
                 onClick={() => setDateKey((current) => shiftDayKey(current, 1))}
                 aria-label="Next day"
-                className="flex h-8 w-8 items-center justify-center text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+                className="flex h-8 w-8 items-center justify-center text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white max-sm:h-10 max-sm:w-10"
               >
                 <ChevronRight className="h-4 w-4" />
               </button>
@@ -764,11 +764,12 @@ function DaySummaryBody({
           </div>
           <input
             type="date"
+            aria-label="Pick a date"
             value={dateKey}
             onChange={(changed) => {
               if (DATE_KEY_RE.test(changed.target.value)) setDateKey(changed.target.value);
             }}
-            className="rounded-lg border border-[var(--border)] bg-white/5 px-2.5 py-1.5 text-xs text-white [color-scheme:dark]"
+            className="rounded-lg border border-[var(--border)] bg-white/5 px-2.5 py-1.5 text-xs text-white [color-scheme:dark] max-sm:min-h-10"
           />
         </div>
       </Card>

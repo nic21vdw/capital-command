@@ -127,8 +127,10 @@ export function ProfileSettings() {
           </div>
         </div>
         <div className="flex-1">
-          <p className="mb-2 text-sm text-[var(--muted-foreground)]">Display name</p>
-          <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" maxLength={60} />
+          <label htmlFor="profile-display-name" className="mb-2 block text-sm text-[var(--muted-foreground)]">
+            Display name
+          </label>
+          <Input id="profile-display-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" maxLength={60} />
           <div className="mt-3">
             <Button
               onClick={() => void saveProfile({ displayName: trimmedName })}

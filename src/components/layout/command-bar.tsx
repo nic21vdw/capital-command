@@ -416,7 +416,7 @@ export function CommandBar() {
                   ? "Working — type to queue the next one"
                   : "Tell it what to do — show me the carousels"
             }
-            className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-[var(--muted-foreground)]"
+            className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none max-sm:min-h-10 placeholder:text-[var(--muted-foreground)]"
           />
 
           <button
@@ -425,7 +425,7 @@ export function CommandBar() {
             disabled={arming}
             title={shield.title}
             className={cn(
-              "flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition",
+              "flex shrink-0 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition max-sm:min-h-10 max-sm:min-w-10",
               shield.tone === "armed" && "border-amber-400/40 bg-amber-400/10 text-amber-200",
               shield.tone === "expired" && "border-red-400/50 bg-red-400/10 text-red-200 hover:bg-red-400/20",
               shield.tone === "read-only" && "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
@@ -461,7 +461,7 @@ export function CommandBar() {
             aria-label={listening ? "Stop listening" : "Speak a command"}
             aria-pressed={listening}
             className={cn(
-              "flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition",
+              "flex shrink-0 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition max-sm:min-h-10 max-sm:min-w-10",
               listening
                 ? "border-red-400/60 bg-red-400/15 text-red-200"
                 : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
@@ -477,7 +477,7 @@ export function CommandBar() {
               onClick={stop}
               title="Stop"
               aria-label="Stop command and clear queued commands"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-red-400/40 bg-red-400/10 text-red-200 transition hover:bg-red-400/20"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg max-sm:h-10 max-sm:w-10 border border-red-400/40 bg-red-400/10 text-red-200 transition hover:bg-red-400/20"
             >
               <Square className="h-3.5 w-3.5 fill-current" />
             </button>
@@ -487,7 +487,7 @@ export function CommandBar() {
               onClick={() => submit(value)}
               disabled={!value.trim()}
               aria-label="Send command"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--accent)] text-[var(--accent-contrast)] transition disabled:opacity-40"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg max-sm:h-10 max-sm:w-10 bg-[var(--accent)] text-[var(--accent-contrast)] transition disabled:opacity-40"
             >
               <SendHorizonal className="h-4 w-4" />
             </button>

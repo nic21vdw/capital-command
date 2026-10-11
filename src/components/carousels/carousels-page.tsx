@@ -946,7 +946,7 @@ function CarouselCard({
               <Link
                 href={`/uploading-center?item=${encodeURIComponent(booking.itemId)}`}
                 title="Open this post in the Uploading Center"
-                className="tone-success tone-edge tone-soft tone-text inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium hover:brightness-125"
+                className="tone-success tone-edge tone-soft tone-text inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium hover:brightness-125 max-sm:min-h-10 max-sm:px-3"
               >
                 <CalendarCheck className="h-3 w-3" /> {bookedChipText(booking, timeZone)}
               </Link>
@@ -964,7 +964,7 @@ function CarouselCard({
           <Select
             value={ratio}
             onChange={(event) => changeRatio(event.target.value as CarouselAspectRatio)}
-            className="h-8 w-auto px-2 py-0 text-xs"
+            className="h-8 w-auto px-2 py-0 text-xs max-sm:h-10"
             aria-label="Aspect ratio"
           >
             {ASPECT_RATIO_LIST.map((entry) => (
@@ -1060,7 +1060,7 @@ function CarouselCard({
                   event.stopPropagation();
                   setEditor({ index, mode: "preview" });
                 }}
-                className="pointer-events-auto inline-flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[10px] font-medium text-white backdrop-blur transition hover:bg-black/80"
+                className="pointer-events-auto inline-flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 max-sm:min-h-10 max-sm:px-3 text-[10px] font-medium text-white backdrop-blur transition hover:bg-black/80"
               >
                 <Eye className="h-3 w-3" /> Preview
               </button>
@@ -1070,7 +1070,7 @@ function CarouselCard({
                   event.stopPropagation();
                   setEditor({ index, mode: "edit" });
                 }}
-                className="pointer-events-auto inline-flex items-center gap-1 rounded-md bg-[var(--accent)]/90 px-2 py-1 text-[10px] font-medium text-[var(--accent-contrast)] backdrop-blur transition hover:bg-[var(--accent)]"
+                className="pointer-events-auto inline-flex items-center gap-1 rounded-md bg-[var(--accent)]/90 px-2 py-1 max-sm:min-h-10 max-sm:px-3 text-[10px] font-medium text-[var(--accent-contrast)] backdrop-blur transition hover:bg-[var(--accent)]"
               >
                 <Pencil className="h-3 w-3" /> Edit
               </button>

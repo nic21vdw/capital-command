@@ -159,7 +159,7 @@ export function WeekSummaryCard({
           const next = !(open ?? (typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches));
           setChosen(next);
         }}
-        className="flex w-full items-center gap-2 px-4 pt-3 text-left"
+        className="flex w-full items-center gap-2 px-4 pt-3 text-left max-sm:min-h-11"
       >
         <span className="text-sm font-semibold text-white">Last 7 days</span>
         {range ? <span className="text-xs text-[var(--muted-foreground)]">{range}</span> : null}

@@ -178,7 +178,7 @@ export function ScheduleBoard({
         <button
           type="button"
           onClick={onShowEarlier}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--border)] px-3 py-2 text-xs text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--border)] px-3 py-2 text-xs text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] max-sm:min-h-10"
         >
           <ChevronUp className="h-3.5 w-3.5" />
           Show {earlier.length} earlier day{earlier.length === 1 ? "" : "s"} with posts
@@ -509,7 +509,7 @@ function QueueEntryCard({
           target="_blank"
           rel="noreferrer"
           title={pictures > 1 ? `Open slide 1 of ${pictures}` : "Open the picture"}
-          className="relative block h-14 w-8 shrink-0 overflow-hidden rounded-md border border-[var(--border)] bg-black/40"
+          className="relative block h-14 w-8 shrink-0 overflow-hidden max-sm:w-10 rounded-md border border-[var(--border)] bg-black/40"
         >
           {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route, not a next/image loader */}
           {/* Contain, not cover: a slide is copy, and a crop of it is unreadable. */}
@@ -569,7 +569,7 @@ function QueueEntryCard({
               type="button"
               onClick={() => setShowSlides((shown) => !shown)}
               title={showSlides ? "Hide the files" : "Show every slide file"}
-              className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] transition hover:bg-white/20 hover:text-white"
+              className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] transition hover:bg-white/20 hover:text-white max-sm:min-h-10 max-sm:px-3"
             >
               {pictures > 1 ? `Carousel · ${pictures}` : "Image"}
             </button>
@@ -581,7 +581,7 @@ function QueueEntryCard({
               rel="noreferrer"
               aria-label="View the video"
               title="View the video"
-              className="shrink-0 text-[var(--accent)]"
+              className="flex shrink-0 items-center justify-center text-[var(--accent)] max-sm:h-10 max-sm:w-10"
             >
               <ExternalLink className="h-3.5 w-3.5" />
             </a>
@@ -593,7 +593,7 @@ function QueueEntryCard({
               rel="noreferrer"
               aria-label="Edit in YouTube Studio"
               title="Edit in YouTube Studio (title, description…)"
-              className="shrink-0 text-[var(--accent)]"
+              className="flex shrink-0 items-center justify-center text-[var(--accent)] max-sm:h-10 max-sm:w-10"
             >
               <Clapperboard className="h-3.5 w-3.5" />
             </a>
@@ -708,7 +708,7 @@ function QueueEntryCard({
                 href={imagePostUrl(item.id, index, { download: true })}
                 download
                 title={`Download slide ${index + 1}`}
-                className="rounded-md border border-[var(--border-strong)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/10"
+                className="inline-flex items-center justify-center rounded-md border border-[var(--border-strong)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/10 max-sm:min-h-10 max-sm:min-w-10"
               >
                 {index + 1}
               </a>
@@ -780,7 +780,7 @@ function QueueEntryCard({
                 <button
                   type="button"
                   onClick={() => setShowRaw((shown) => !shown)}
-                  className="text-[10px] font-medium text-[var(--muted-foreground)] underline-offset-2 transition hover:text-white hover:underline"
+                  className="text-[10px] font-medium text-[var(--muted-foreground)] underline-offset-2 transition hover:text-white hover:underline max-sm:min-h-10 max-sm:px-2"
                 >
                   {showRaw ? "Hide details" : "Details"}
                 </button>
@@ -888,11 +888,11 @@ function QueueEntryCard({
 
 /** The accent-outlined action under a card's failure line (Rename and retry, Connect TikTok, ...). */
 const INLINE_ACTION =
-  "inline-flex items-center gap-1 rounded-md border border-[var(--accent)]/50 px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/10";
+  "inline-flex items-center gap-1 rounded-md border border-[var(--accent)]/50 px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/10 max-sm:min-h-10 max-sm:px-3";
 
 /** The text-labelled action buttons on a post card. */
 const ACTION_BUTTON =
-  "inline-flex shrink-0 items-center gap-1 rounded-md px-1 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)] transition hover:bg-white/8 hover:text-white";
+  "inline-flex shrink-0 items-center gap-1 rounded-md px-1 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)] transition hover:bg-white/8 hover:text-white max-sm:min-h-10 max-sm:px-2.5";
 
 /**
  * A confirmation for an action that cannot be taken back from the board. It is
@@ -964,7 +964,7 @@ function ChannelEntryCard({
           rel="noreferrer"
           aria-label="View the video"
           title="View the video"
-          className="text-[var(--accent)]"
+          className="flex items-center justify-center text-[var(--accent)] max-sm:h-10 max-sm:w-10"
         >
           <ExternalLink className="h-3.5 w-3.5" />
         </a>
@@ -974,7 +974,7 @@ function ChannelEntryCard({
           rel="noreferrer"
           aria-label="Edit in YouTube Studio"
           title="Edit in YouTube Studio (title, description…)"
-          className="text-[var(--accent)]"
+          className="flex items-center justify-center text-[var(--accent)] max-sm:h-10 max-sm:w-10"
         >
           <Clapperboard className="h-3.5 w-3.5" />
         </a>
@@ -1070,7 +1070,7 @@ function OpenSlotCard({
       <button
         type="button"
         onClick={() => onRequestUpload(slot.utc)}
-        className="mt-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] opacity-70 transition hover:bg-[var(--accent)]/10 hover:opacity-100"
+        className="mt-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] opacity-70 transition hover:bg-[var(--accent)]/10 hover:opacity-100 max-sm:min-h-10 max-sm:px-3"
       >
         <Upload className="h-3 w-3" /> Upload clip
       </button>
@@ -1105,7 +1105,7 @@ function EditableTitle({
         onClick={() => onEditingChange(true)}
         aria-label="Rename video"
         title="Rename"
-        className="group flex min-w-0 flex-1 items-center gap-1 rounded text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+        className="group flex min-w-0 flex-1 items-center gap-1 rounded text-left max-sm:min-h-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
       >
         <span className="min-w-0 truncate text-xs font-medium text-white">{title}</span>
         <span className="inline-flex shrink-0 items-center rounded p-0.5 text-[var(--muted-foreground)] transition group-hover:bg-white/10 group-hover:text-white group-focus-visible:text-white">
@@ -1179,7 +1179,7 @@ function TitleInput({ title, onDone, onRename }: { title: string; onDone: () => 
           onClick={commit}
           aria-label="Save title"
           title="Save the new title (Enter)"
-          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--success)] transition hover:bg-white/10"
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded max-sm:h-10 max-sm:w-10 text-[var(--success)] transition hover:bg-white/10"
         >
           <Check className="h-3.5 w-3.5" aria-hidden />
         </button>
@@ -1189,7 +1189,7 @@ function TitleInput({ title, onDone, onRename }: { title: string; onDone: () => 
           onClick={cancel}
           aria-label="Cancel renaming"
           title="Keep the old title (Esc)"
-          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded max-sm:h-10 max-sm:w-10 text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
         >
           <X className="h-3.5 w-3.5" aria-hidden />
         </button>

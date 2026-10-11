@@ -110,7 +110,7 @@ export function HashtagChip({
       onClick={onClick}
       {...(toggles ? { "aria-pressed": selected } : { "aria-label": `Add ${hashtag} to the title` })}
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition",
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition max-sm:min-h-10 max-sm:px-3",
         className
       )}
     >
@@ -474,7 +474,7 @@ export function ClipCard({
                 onClick={onTailorCaption}
                 disabled={tailoring}
                 title={`Write a caption + hashtags tailored to ${targetLabel} (free AI)`}
-                className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-60"
+                className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-60 max-sm:min-h-10 max-sm:px-3"
               >
                 {tailoring ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                 {tailoring ? "Writing…" : `AI caption for ${targetLabel}`}

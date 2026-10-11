@@ -155,7 +155,7 @@ export function ScheduleCalendar({
                     }}
                     aria-label="Prepare for posting"
                     title="Render the slides now — ready to post"
-                    className="shrink-0 text-[var(--muted-foreground)] transition hover:text-[var(--accent)] disabled:opacity-50"
+                    className="flex shrink-0 items-center justify-center text-[var(--muted-foreground)] transition hover:text-[var(--accent)] disabled:opacity-50 max-sm:h-10 max-sm:w-10"
                   >
                     {preparing === occurrence.carouselId ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -168,7 +168,7 @@ export function ScheduleCalendar({
                     onClick={() => onUnschedule(occurrence.carouselId, [occurrence.scheduleId])}
                     aria-label="Remove reminder"
                     title="Remove this reminder"
-                    className="shrink-0 text-[var(--muted-foreground)] transition hover:text-[var(--danger)]"
+                    className="flex shrink-0 items-center justify-center text-[var(--muted-foreground)] transition hover:text-[var(--danger)] max-sm:h-10 max-sm:w-10"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>

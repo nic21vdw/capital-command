@@ -454,19 +454,31 @@ function ChannelAvatar({ channel, className }: { channel: ChannelSummary; classN
 function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
   const state = useConnections();
 
+  // The card is reserved at its connected height, in both the tall and the
+  // short-screen layouts, before the connections arrive and after they do:
+  // the skeleton, a connected channel, a "Connect accounts" prompt and a row of
+  // platform chips are all different heights, and the nav under them moved by
+  // the difference every time the fetch landed.
+  const reserve = collapsed
+    ? "min-h-[58px] [@media(max-height:960px)]:min-h-[42px]"
+    : "min-h-[94px] [@media(max-height:960px)]:min-h-[42px]";
+
   if (!state.loaded) {
     return (
-      <div
-        className={cn(
-          "flex items-center gap-3 rounded-xl border border-[var(--border)] bg-white/[0.03] px-3 py-2.5",
-          collapsed && "justify-center px-2"
-        )}
-      >
-        <span className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-white/10" />
-        <span className={cn("flex min-w-0 flex-1 flex-col gap-1.5", collapsed && "hidden")}>
-          <span className="h-2.5 w-24 animate-pulse rounded bg-white/10" />
-          <span className="h-2 w-16 animate-pulse rounded bg-white/5" />
-        </span>
+      <div className={reserve}>
+        <div
+          aria-hidden="true"
+          className={cn(
+            "flex items-center gap-3 rounded-xl border border-[var(--border)] bg-white/[0.03] px-3 py-2.5 [@media(max-height:960px)]:py-1.5",
+            collapsed && "justify-center px-2"
+          )}
+        >
+          <span className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-white/10 [@media(max-height:960px)]:h-7 [@media(max-height:960px)]:w-7" />
+          <span className={cn("flex min-w-0 flex-1 flex-col gap-1.5", collapsed && "hidden")}>
+            <span className="h-2.5 w-24 animate-pulse rounded bg-white/10" />
+            <span className="h-2 w-16 animate-pulse rounded bg-white/5 [@media(max-height:960px)]:hidden" />
+          </span>
+        </div>
       </div>
     );
   }
@@ -475,7 +487,7 @@ function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
   return (
     // On a short screen the account chips sit beside the channel instead of
     // under it: the row is worth more as height for the nav.
-    <div className={cn("space-y-2", !collapsed && "[@media(max-height:960px)]:flex [@media(max-height:960px)]:items-center [@media(max-height:960px)]:gap-1.5 [@media(max-height:960px)]:space-y-0")}>
+    <div className={cn("space-y-2", reserve, !collapsed && "[@media(max-height:960px)]:flex [@media(max-height:960px)]:items-center [@media(max-height:960px)]:gap-1.5 [@media(max-height:960px)]:space-y-0")}>
       {channel ? (
         <Link
           href={channel.reconnect ? "/api/auth/google" : "/uploading-center"}
@@ -935,7 +947,7 @@ function NarrowChrome({ pathname }: { pathname: string }) {
             aria-expanded={menuOpen}
             aria-controls={menuId}
             aria-label={`${current.label} — ${menuOpen ? "close" : "open"} navigation`}
-            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-white/5"
+            className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-white/5"
           >
             <CurrentIcon className="h-4 w-4 shrink-0 text-[var(--accent)]" />
             <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">{current.label}</span>
@@ -1011,7 +1023,7 @@ function NarrowNavItem({ item, active, onSelect }: { item: NavItem; active: bool
       onClick={onSelect}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex items-center gap-2 rounded-lg px-2 py-2 text-xs transition",
+        "flex items-center gap-2 rounded-lg px-2 py-2 text-xs transition max-sm:min-h-10",
         active ? "bg-white/8 font-medium text-white" : "text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white"
       )}
     >
@@ -1166,6 +1178,14 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
         hosted && "gap-4 px-2 py-2 sm:px-3 sm:py-3 lg:px-3"
       )}
     >
+      {/* First stop in the tab order: the rail and the mobile bar are a couple
+          of dozen stops before the page itself, so a keyboard gets a way past. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100] focus:rounded-lg focus:bg-[var(--accent)] focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-[var(--accent-contrast)] focus:shadow-lg"
+      >
+        Skip to content
+      </a>
       <aside
         className={cn(
           "hidden shrink-0 transition-[width] duration-300 lg:block",
@@ -1243,7 +1263,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
           </div>
         </div>
       </aside>
-      <main className={cn("min-w-0 flex-1", frame && "app-frame-pane")}>
+      <main id="main-content" tabIndex={-1} className={cn("min-w-0 flex-1 focus:outline-none", frame && "app-frame-pane")}>
         {/* Above everything, on every page: a release waiting on `dev` is the
             one thing worth interrupting whatever is on screen for. */}
         <UpdateBanner />
@@ -1282,7 +1302,7 @@ function MobileChannelChip() {
           prefetch={state.channel.reconnect ? false : undefined}
           aria-label={state.channel.reconnect ? reconnectBlocker("YouTube") : `${state.channel.title} — YouTube`}
           title={state.channel.reconnect ? "Reconnect YouTube" : handleLabel(state.channel, "YouTube")}
-          className="flex shrink-0"
+          className="-my-1.5 flex shrink-0 p-1.5"
         >
           <ChannelAvatar channel={state.channel} className="h-7 w-7" />
         </Link>
@@ -1291,9 +1311,11 @@ function MobileChannelChip() {
           href="/settings#accounts"
           aria-label="Connect accounts"
           title="Connect accounts"
-          className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--accent)]/15 text-[var(--accent)] transition hover:bg-[var(--accent)]/25"
+          className="group -m-1.5 flex h-10 w-10 items-center justify-center"
         >
-          <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--accent)]/15 text-[var(--accent)] transition group-hover:bg-[var(--accent)]/25">
+            <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
+          </span>
         </Link>
       ) : null}
       {others.map((row) => {
@@ -1306,7 +1328,7 @@ function MobileChannelChip() {
             prefetch={row.reconnectAccountId ? false : undefined}
             aria-label={label}
             title={label}
-            className="relative block h-6 w-6 shrink-0"
+            className="relative -my-2 block h-10 w-10 shrink-0 p-2"
           >
             <span
               className={cn(

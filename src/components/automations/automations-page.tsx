@@ -40,7 +40,7 @@ function CopyCommand({ text }: { text: string }) {
       {text}
       <button
         type="button"
-        className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-sans text-[11px] text-[var(--accent)] hover:bg-white/10"
+        className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-sans text-[11px] text-[var(--accent)] hover:bg-white/10 max-sm:min-h-10 max-sm:px-3"
         onClick={() => {
           void navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => toast.error("Clipboard unavailable - select and copy the command."));
         }}
@@ -54,7 +54,7 @@ function CopyCommand({ text }: { text: string }) {
 function KeepAwake() {
   return (
     <details className="mt-4 rounded-xl border border-[var(--border)] p-3 text-xs text-[var(--muted-foreground)]">
-      <summary className="flex cursor-pointer items-center gap-2 font-medium text-white"><Moon className="h-3.5 w-3.5 text-[var(--accent)]" />Keep this PC awake</summary>
+      <summary className="flex cursor-pointer items-center gap-2 font-medium text-white max-sm:min-h-10"><Moon className="h-3.5 w-3.5 text-[var(--accent)]" />Keep this PC awake</summary>
       <p className="mt-2">A sleeping PC posts nothing, and the failure is silent: the night&apos;s slots are simply missed. The background runner cannot wake the machine itself. To keep it awake (the screen can still turn off), run these once in PowerShell:</p>
       <ul className="mt-2 space-y-1">{KEEP_AWAKE.map((command) => <li key={command}><CopyCommand text={command} /></li>)}</ul>
       <p className="mt-2">The runner also only works while you are signed in to Windows, unless it was installed from an Administrator PowerShell.</p>
@@ -78,7 +78,7 @@ function WarningList({ warnings }: { warnings: string[] }) {
       {shown.map((warning, index) => <Warning key={`${index}-${warning}`} text={warning} />)}
       {rest.length > 0 && (
         <details className="group">
-          <summary className="cursor-pointer text-xs font-medium text-amber-300 hover:text-amber-100">
+          <summary className="cursor-pointer text-xs font-medium text-amber-300 hover:text-amber-100 max-sm:py-3">
             <span className="group-open:hidden">Show {rest.length} more {rest.length === 1 ? "warning" : "warnings"}</span>
             <span className="hidden group-open:inline">Show fewer</span>
           </summary>
@@ -134,7 +134,7 @@ function AutomationPanel({ card, busy, stale, onPause }: {
       {card.id === "podcast" && <p className="mt-4 text-xs text-[var(--muted-foreground)]">An episode in the feed has been handed off. Spotify decides when it becomes live; check its delivery on Podcast / Spotify.</p>}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs">
         <span className="text-[var(--muted-foreground)]">{card.changedAt ? `Control saved ${at(card.changedAt, card.timezone)}` : "No pause override saved"}</span>
-        <Link href={card.itemHref ?? card.href} className="inline-flex items-center gap-1 font-medium text-[var(--accent)]">Manage details <ArrowUpRight className="h-3.5 w-3.5" /></Link>
+        <Link href={card.itemHref ?? card.href} className="inline-flex items-center gap-1 font-medium text-[var(--accent)] max-sm:min-h-10">Manage details <ArrowUpRight className="h-3.5 w-3.5" /></Link>
       </div>
     </section>
   );
@@ -152,9 +152,9 @@ function ShouldBeLivePanel({ posts, total, timezone }: { posts: HeldPost[]; tota
         {posts.map((post) => (
           <li key={post.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
             <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium text-white">{post.platform}</span>
-            <Link href={post.href} className="min-w-0 flex-1 truncate text-white hover:text-[var(--accent)]">{post.title}</Link>
+            <Link href={post.href} className="min-w-0 flex-1 truncate text-white hover:text-[var(--accent)] max-sm:py-2.5">{post.title}</Link>
             <time dateTime={post.goesLiveAt} className="text-xs tabular-nums text-amber-100/80">Was due {at(post.goesLiveAt, timezone)}</time>
-            {post.externalUrl && <a href={post.externalUrl} target="_blank" rel="noreferrer" title={post.shouldBeLive?.hint} className="inline-flex items-center gap-1 text-xs font-medium text-[var(--accent)]">{post.shouldBeLive?.linkLabel ?? post.externalLabel ?? "Open"}<ExternalLink className="h-3 w-3" /></a>}
+            {post.externalUrl && <a href={post.externalUrl} target="_blank" rel="noreferrer" title={post.shouldBeLive?.hint} className="inline-flex items-center gap-1 text-xs font-medium text-[var(--accent)] max-sm:min-h-10">{post.shouldBeLive?.linkLabel ?? post.externalLabel ?? "Open"}<ExternalLink className="h-3 w-3" /></a>}
           </li>
         ))}
       </ul>
@@ -173,9 +173,9 @@ function HeldPanel({ held, total, timezone, pastTotal }: { held: HeldPost[]; tot
           {held.map((post) => (
             <li key={post.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
               <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium text-white">{post.platform}</span>
-              <Link href={post.href} className="min-w-0 flex-1 truncate text-white hover:text-[var(--accent)]">{post.title}</Link>
+              <Link href={post.href} className="min-w-0 flex-1 truncate text-white hover:text-[var(--accent)] max-sm:py-2.5">{post.title}</Link>
               <time dateTime={post.goesLiveAt} className="text-xs tabular-nums text-[var(--muted-foreground)]">Goes live {at(post.goesLiveAt, timezone)}</time>
-              {post.externalUrl && <a href={post.externalUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-[var(--accent)]">{post.externalLabel ?? "Open"}<ExternalLink className="h-3 w-3" /></a>}
+              {post.externalUrl && <a href={post.externalUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-[var(--accent)] max-sm:min-h-10">{post.externalLabel ?? "Open"}<ExternalLink className="h-3 w-3" /></a>}
             </li>
           ))}
         </ul>
@@ -206,12 +206,12 @@ function TimeListEditor({ label, times, onChange, disabled }: { label: string; t
               value={time}
               disabled={disabled}
               onChange={(event) => onChange(times.map((current, at) => (at === index ? event.target.value : current)))}
-              className="rounded-md border border-[var(--border)] bg-black/30 px-2 py-1 text-sm text-white"
+              className="rounded-md border border-[var(--border)] bg-black/30 px-2 py-1 text-sm text-white max-sm:py-2.5"
             />
-            <button type="button" aria-label={`Remove ${label} ${index + 1}`} disabled={disabled || times.length <= 1} onClick={() => onChange(times.filter((_, at) => at !== index))} className="rounded-md px-1.5 py-1 text-xs text-[var(--muted-foreground)] hover:bg-white/10 disabled:opacity-40">Remove</button>
+            <button type="button" aria-label={`Remove ${label} ${index + 1}`} disabled={disabled || times.length <= 1} onClick={() => onChange(times.filter((_, at) => at !== index))} className="rounded-md px-1.5 py-1 text-xs text-[var(--muted-foreground)] hover:bg-white/10 disabled:opacity-40 max-sm:min-h-10 max-sm:px-3">Remove</button>
           </li>
         ))}
-        <li><button type="button" disabled={disabled || times.length >= MAX_SLOT_TIMES} onClick={() => onChange([...times, nextFreeTime(times)])} className="rounded-md px-2 py-1 text-xs font-medium text-[var(--accent)] hover:bg-white/10 disabled:opacity-40">Add time</button></li>
+        <li><button type="button" disabled={disabled || times.length >= MAX_SLOT_TIMES} onClick={() => onChange([...times, nextFreeTime(times)])} className="rounded-md px-2 py-1 text-xs font-medium text-[var(--accent)] hover:bg-white/10 disabled:opacity-40 max-sm:min-h-10 max-sm:px-3">Add time</button></li>
       </ul>
     </fieldset>
   );
@@ -273,7 +273,7 @@ function CadencePanel({ rows, values, disabled, onSaved }: { rows: CadenceRow[];
                   <>
                     <dt className="text-xs text-[var(--muted-foreground)]"><label htmlFor="cadence-shorts">{row.label}</label></dt>
                     <dd className="mt-0.5">
-                      <select id="cadence-shorts" value={draft.shortsPerDay} disabled={saving} onChange={(event) => setDraft({ ...draft, shortsPerDay: Number(event.target.value) })} className="rounded-md border border-[var(--border)] bg-black/30 px-2 py-1 text-sm text-white">
+                      <select id="cadence-shorts" value={draft.shortsPerDay} disabled={saving} onChange={(event) => setDraft({ ...draft, shortsPerDay: Number(event.target.value) })} className="rounded-md border border-[var(--border)] bg-black/30 px-2 py-1 text-sm text-white max-sm:py-2.5">
                         {Array.from({ length: MAX_SHORTS_PER_DAY - MIN_SHORTS_PER_DAY + 1 }, (_, index) => MIN_SHORTS_PER_DAY + index).map((count) => <option key={count} value={count}>{count}</option>)}
                       </select>
                     </dd>
@@ -292,7 +292,7 @@ function CadencePanel({ rows, values, disabled, onSaved }: { rows: CadenceRow[];
                         value={draft.threadsPostsPerDay ?? ""}
                         disabled={saving}
                         onChange={(event) => setDraft({ ...draft, threadsPostsPerDay: event.target.value === "" ? null : Number(event.target.value) })}
-                        className="w-24 rounded-md border border-[var(--border)] bg-black/30 px-2 py-1 text-sm text-white"
+                        className="w-24 rounded-md border border-[var(--border)] bg-black/30 px-2 py-1 text-sm text-white max-sm:py-2.5"
                       />
                       <span className="ml-2 text-xs text-[var(--muted-foreground)]">{MIN_THREADS_POSTS_PER_DAY} to {MAX_THREADS_POSTS_PER_DAY}, per account</span>
                     </dd>
@@ -317,7 +317,7 @@ function CadencePanel({ rows, values, disabled, onSaved }: { rows: CadenceRow[];
       </dl>
       <p className="mt-4 text-xs text-[var(--muted-foreground)]">These need a restart to change - see Advanced.</p>
       <details className="mt-2 text-xs text-[var(--muted-foreground)]">
-        <summary className="cursor-pointer font-medium hover:text-white">Advanced: set in .env</summary>
+        <summary className="cursor-pointer font-medium hover:text-white max-sm:py-3">Advanced: set in .env</summary>
         <p className="mt-2">Edit these in the <code className="rounded bg-black/30 px-1">.env</code> file, then restart the app.</p>
         <ul className="mt-2 space-y-1">{rows.map((row) => <li key={row.env}>{row.label}: <code className="rounded bg-black/30 px-1.5 py-0.5 text-[10px]">{row.env}</code></li>)}</ul>
       </details>
