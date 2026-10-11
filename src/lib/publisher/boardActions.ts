@@ -203,3 +203,19 @@ export function blockedLegControls(
     needsConnection: false
   };
 }
+
+/**
+ * The words on the Connect / Reconnect link. A title the channel refused is
+ * fixed by renaming, and Retry is only waiting on the connection - so beside
+ * Rename the link says what it is FOR ("Connect YouTube to retry"), or a card
+ * that offers both reads as two unrelated chores.
+ */
+export function connectLinkLabel(
+  controls: Pick<BlockedLegControls, "connect" | "needsConnection">,
+  advice: Pick<FailureAdvice, "kind"> | null,
+  platformLabel: string
+): string | null {
+  if (!controls.connect) return null;
+  const base = `${controls.connect} ${platformLabel}`;
+  return advice?.kind === "duplicate-title" && controls.needsConnection ? `${base} to retry` : base;
+}

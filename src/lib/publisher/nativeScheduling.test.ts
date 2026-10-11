@@ -7,6 +7,7 @@ import {
   preSchedules,
   preSchedulesItem,
   TIKTOK_INBOX_CHIP,
+  manualLabel,
   waitingForConnectionHint,
   waitingForConnectionLabel
 } from "@/lib/publisher/nativeScheduling";
@@ -147,10 +148,10 @@ describe("a pending leg whose account is not connected", () => {
   const future = { publishAt: "2026-10-14T11:30:00.000Z" };
 
   it("is waiting for the connection, never 'Uploading' or 'Posts at slot'", () => {
-    expect(pendingLabel("youtube", future, now, { connected: false })).toBe("Waiting for YouTube connection");
-    expect(pendingLabel("instagram", future, now, { connected: false })).toBe("Waiting for Instagram connection");
+    expect(pendingLabel("youtube", future, now, { connected: false })).toBe("Needs YouTube connection");
+    expect(pendingLabel("instagram", future, now, { connected: false })).toBe("Needs Instagram connection");
     expect(pendingLabel("tiktok", { ...future, tiktok: { delivery: "inbox" } }, now, { connected: false })).toBe(
-      "Waiting for TikTok connection"
+      "Needs TikTok connection"
     );
     expect(pendingLabel("youtube", future, now, { connected: true })).toBe("Uploading");
     expect(pendingLabel("youtube", future, now, {})).toBe("Uploading");
@@ -158,15 +159,51 @@ describe("a pending leg whose account is not connected", () => {
 
   it("wins over the quota wait: nothing uploads before it is connected", () => {
     expect(pendingLabel("youtube", future, now, { connected: false, youtubeQuotaFull: true })).toBe(
-      "Waiting for YouTube connection"
+      "Needs YouTube connection"
     );
   });
 
   it("explains the way out", () => {
     expect(pendingHint("youtube", future, now, { connected: false })).toBe(waitingForConnectionHint("youtube"));
     expect(waitingForConnectionHint("youtube")).toBe(
-      "Connect YouTube in Settings to post this automatically, or it becomes a reminder to post by hand."
+      "Waiting for YouTube - connect to post automatically, or post by hand at its slot."
     );
-    expect(waitingForConnectionLabel("facebook")).toBe("Waiting for Facebook connection");
+    expect(waitingForConnectionHint("tiktok", "Tue, Oct 14, 7:30 AM")).toBe(
+      "Waiting for TikTok - connect to post automatically, or post by hand at Tue, Oct 14, 7:30 AM."
+    );
+    expect(waitingForConnectionLabel("facebook")).toBe("Needs Facebook connection");
+  });
+
+  it("names the slot in the hint when the board can write it", () => {
+    expect(pendingHint("youtube", future, now, { connected: false, formatSlot: () => "Tue, Oct 14, 7:30 AM" })).toBe(
+      "Waiting for YouTube - connect to post automatically, or post by hand at Tue, Oct 14, 7:30 AM."
+    );
+  });
+});
+
+describe("a manual reminder on a chip", () => {
+  const now = new Date("2026-10-11T12:00:00.000Z");
+  const ahead = "2026-10-14T11:30:00.000Z";
+  const behind = "2026-10-10T11:30:00.000Z";
+
+  it("reads the same as a pending leg before its slot: it needs the connection", () => {
+    expect(manualLabel("youtube", ahead, now, false)).toBe("Needs YouTube connection");
+    expect(manualLabel("youtube", ahead, now)).toBe(pendingLabel("youtube", { publishAt: ahead }, now, { connected: false }));
+  });
+
+  it("is a miss after its slot, in the one phrase that says what is left to do", () => {
+    expect(manualLabel("tiktok", behind, now, false)).toBe("Post by hand");
+  });
+
+  it("points at Retry once something has been connected, and never says Manual", () => {
+    expect(manualLabel("tiktok", ahead, now, true)).toBe("Retry to post");
+    for (const label of [
+      manualLabel(undefined, undefined),
+      manualLabel("youtube", ahead, now),
+      manualLabel("youtube", behind, now),
+      manualLabel("youtube", ahead, now, true)
+    ]) {
+      expect(label).not.toMatch(/manual/i);
+    }
   });
 });

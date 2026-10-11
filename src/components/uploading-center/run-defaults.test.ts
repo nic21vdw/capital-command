@@ -3,10 +3,13 @@ import { TITLE_MAX_LENGTH } from "@/components/uploading-center/clip-card";
 import {
   DEFAULT_RUN_DEFAULTS,
   applyHashtags,
+  draftHashtags,
   draftWithDefaults,
+  hashtagSummary,
   hydrateDraft,
   pruneDrafts,
   redraftWithDefaults,
+  runHashtags,
   withoutHashtag,
   type PersistedDraft,
   type RunDefaults
@@ -163,5 +166,32 @@ describe("pruneDrafts", () => {
       now
     );
     expect(Object.keys(pruned)).toEqual(["fresh"]);
+  });
+});
+
+describe("the hashtags a run is really going out with", () => {
+  const tags = "#AI #vibecoding #coding #business #buildinpublic #startup #tech #programming #automation #entrepreneur";
+
+  it("reads the trailing hashtag line of the caption, not just the run defaults", () => {
+    const draft = { title: "I stopped reading diffs", caption: `Here is what I do now.\n\n${tags}` };
+    expect(draftHashtags(draft)).toHaveLength(10);
+    expect(hashtagSummary(runHashtags([draft]))).toBe("#AI #vibecoding #coding +7");
+  });
+
+  it("reads hashtags from the title too, and counts each once across cards, whatever its case", () => {
+    const drafts = [
+      { title: "One #AI", caption: "" },
+      { title: "Two", caption: "Words.\n\n#ai #coding" }
+    ];
+    expect(runHashtags(drafts)).toEqual(["#AI", "#coding"]);
+  });
+
+  it("leaves a hashtag inside a sentence alone, as the booking does", () => {
+    expect(draftHashtags({ title: "Plain", caption: "I love #coding so much" })).toEqual([]);
+  });
+
+  it("only says 'no hashtags' when there truly are none", () => {
+    expect(hashtagSummary(runHashtags([{ title: "Plain", caption: "Just words." }]))).toBe("no hashtags");
+    expect(hashtagSummary(["#a", "#b"])).toBe("#a #b");
   });
 });

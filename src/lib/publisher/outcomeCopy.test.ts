@@ -63,9 +63,9 @@ describe("what a run outcome says in a toast", () => {
 });
 
 describe("a post booked onto an unconnected platform", () => {
-  it("says it is a manual reminder and what to do about it", () => {
+  it("says it is a reminder and what to do about it", () => {
     expect(manualReminderCopy("youtube")).toBe(
-      "Saved as a manual reminder for YouTube - connect it in Settings to post automatically."
+      "Saved as a reminder - YouTube isn't connected. Connect it to post automatically."
     );
   });
 });

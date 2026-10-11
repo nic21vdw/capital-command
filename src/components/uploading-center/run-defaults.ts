@@ -1,6 +1,7 @@
 "use client";
 
 import { TITLE_MAX_LENGTH, appendHashtag, hasHashtag } from "@/components/uploading-center/clip-card";
+import { splitTrailingHashtags } from "@/lib/publisher/captionTags";
 import type { ClipDraft, PlatformTarget, ReadyClip } from "@/components/uploading-center/use-uploading-center";
 
 /**
@@ -44,6 +45,43 @@ export function withoutHashtag(title: string, hashtag: string): string {
     .replace(new RegExp(`${escapeRegExp(hashtag)}\\b`, "gi"), "")
     .replace(/\s{2,}/g, " ")
     .trim();
+}
+
+const TITLE_HASHTAG = /#[\p{L}\p{N}_]+/gu;
+
+/**
+ * Every hashtag a draft will carry: the ones in its title, and the trailing
+ * hashtag line of its caption (which is what the AI caption writes and what
+ * travels as `hashtags` when the clip is booked). Pure.
+ */
+export function draftHashtags(draft: Pick<ClipDraft, "title" | "caption">): string[] {
+  return [...(draft.title.match(TITLE_HASHTAG) ?? []), ...splitTrailingHashtags(draft.caption).hashtags];
+}
+
+/**
+ * The hashtags a run is really going out with, read from the drafts themselves
+ * rather than from the run defaults: the AI writes its own per card, so a run
+ * could read "no hashtags" over ten of them. Unique, in first-seen order. Pure.
+ */
+export function runHashtags(drafts: Array<Pick<ClipDraft, "title" | "caption">>): string[] {
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const draft of drafts) {
+    for (const tag of draftHashtags(draft)) {
+      const key = tag.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      tags.push(tag);
+    }
+  }
+  return tags;
+}
+
+/** "#AI #vibecoding #coding +7", or "no hashtags". Pure. */
+export function hashtagSummary(tags: string[], shown = 3): string {
+  if (tags.length === 0) return "no hashtags";
+  const head = tags.slice(0, shown).join(" ");
+  return tags.length > shown ? `${head} +${tags.length - shown}` : head;
 }
 
 /** The draft a clip starts with under the current run defaults. Pure. */

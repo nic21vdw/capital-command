@@ -36,7 +36,7 @@ describe("what a blocked post says on the board", () => {
     const advice = describeFailure({ status: "manual", attempts: 0, note: "TikTok isn't connected yet." }, "tiktok");
 
     expect(advice.action).toBe("reconnect");
-    expect(advice.headline).toContain("No TikTok account was connected");
+    expect(advice.headline).toContain("Post by hand - no TikTok account was connected");
     expect(advice.raw).toBe("TikTok isn't connected yet.");
   });
 
@@ -48,7 +48,7 @@ describe("what a blocked post says on the board", () => {
       now
     });
     expect(before.headline).toBe(
-      "Not connected - post this by hand at Mon, Oct 12, 10:00 AM, or connect TikTok in Settings."
+      "Waiting for TikTok - connect to post automatically, or post by hand at Mon, Oct 12, 10:00 AM."
     );
     expect(before.headline).not.toMatch(/never went out/);
     expect(before.action).toBe("reconnect");
@@ -57,7 +57,7 @@ describe("what a blocked post says on the board", () => {
       publishAt: "2026-10-09T14:00:00.000Z",
       now
     });
-    expect(after.headline).toContain("No TikTok account was connected when this was scheduled, so it never went out.");
+    expect(after.headline).toContain("Post by hand - no TikTok account was connected by the slot, so this never went out.");
   });
 
   it("offers a retry when the platform simply wouldn't take it", () => {
@@ -243,7 +243,7 @@ describe("a manual reminder once the account is connected", () => {
   it("stops saying 'Not connected' and offers a retry once it is", () => {
     const advice = describeFailure(manual, "tiktok", { ...context, connected: true });
     expect(advice).toMatchObject({ action: "retry", kind: "retryable" });
-    expect(advice.headline).not.toMatch(/^Not connected/);
+    expect(advice.headline).not.toMatch(/^Waiting for/);
     expect(advice.headline).toMatch(/connected now/);
     expect(advice.headline).toContain("Tue, Oct 13, 2:00 PM");
     const late = describeFailure(manual, "tiktok", { ...context, now: new Date("2026-10-14T00:00:00.000Z"), connected: true });
