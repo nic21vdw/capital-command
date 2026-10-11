@@ -176,6 +176,8 @@ describe("YouTube setup walkthrough", () => {
   it("walks the Google console in three to four plain steps, naming what to enable and create", () => {
     expect(YOUTUBE_CONSOLE_STEPS.length).toBeGreaterThanOrEqual(3);
     expect(YOUTUBE_CONSOLE_STEPS.length).toBeLessThanOrEqual(4);
+    // Testing mode expires the sign-in after 7 days, which reads as the app breaking.
+    expect(YOUTUBE_CONSOLE_STEPS.join(" ")).toContain("Publish app");
     const text = YOUTUBE_CONSOLE_STEPS.join(" ");
     expect(text).toContain("YouTube Data API v3");
     expect(text).toContain("Web application");

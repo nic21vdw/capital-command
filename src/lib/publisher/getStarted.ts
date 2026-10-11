@@ -153,7 +153,7 @@ export const YOUTUBE_CONSOLE_URL = "https://console.cloud.google.com/";
 export const YOUTUBE_CONSOLE_STEPS: string[] = [
   "Open the Google Cloud console and create a project, or pick one you already have.",
   "Go to APIs & Services > Library, search for YouTube Data API v3, and press Enable.",
-  "Go to APIs & Services > OAuth consent screen. Choose External, give it a name and your email, and add your own Google account as a test user.",
+  "Go to APIs & Services > OAuth consent screen. Choose External, give it a name and your email, and add your own Google account as a test user. Then press Publish app: left in Testing, Google signs you out every 7 days. Signing in will warn that the app is unverified - that is expected for your own private key.",
   "Go to APIs & Services > Credentials > Create credentials > OAuth client ID, choose Web application, and under Authorized redirect URIs add the address below. Then copy the Client ID and Client secret it shows you into the fields below."
 ];
 
