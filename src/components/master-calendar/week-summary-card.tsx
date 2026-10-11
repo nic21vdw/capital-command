@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, Clock, ExternalLink, HandHelping, Send } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, Clock, ExternalLink, HandHelping, RefreshCw, Send, TrendingDown, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { PlatformIcon, type PlatformIconKey } from "@/components/ui/platform-icon";
@@ -11,7 +11,7 @@ import { formatDayKey } from "@/lib/master-calendar/day-keys";
 import { WEEK_VIEWS_LABEL } from "@/lib/master-calendar/viewsCopy";
 import { WEEK_PLATFORMS, latestPostLinkLabel, youtubeNoNumbersNote, type WeekPlatformRow, type WeekSummary } from "@/lib/master-calendar/weekSummary";
 import { YoutubeAge } from "@/components/publisher/youtube-age";
-import { compactCount, type YoutubeStatsStatus } from "@/lib/publisher/youtubeStatsShared";
+import { compactCount, percentChangeLabel, type YoutubeStatsStatus } from "@/lib/publisher/youtubeStatsShared";
 import { cn } from "@/lib/utils";
 
 /**
@@ -125,12 +125,20 @@ export function WeekSummaryCard({
   summary,
   state,
   statsStatus,
-  now
+  now,
+  refreshing = false,
+  refreshNote = null,
+  onRefresh
 }: {
   summary: WeekSummary | null;
   state: "loading" | "ready" | "error";
   statsStatus: YoutubeStatsStatus | "loading";
   now: Date;
+  /** The Refresh button's request is in flight. */
+  refreshing?: boolean;
+  /** What the last Refresh found, in plain words; null until one has been pressed. */
+  refreshNote?: { ok: boolean; text: string } | null;
+  onRefresh?: () => void;
 }) {
   // null = nobody chose yet: closed on a phone, open from 768px up (CSS only).
   const [chosen, setChosen] = useState<boolean | null>(null);
@@ -199,17 +207,58 @@ export function WeekSummaryCard({
       >
         {state === "ready" && summary ? (
           <>
-            <div className="rounded-lg border border-[var(--border)] bg-white/[0.03] px-3 py-2.5">
-              <p className="text-xs text-[var(--muted-foreground)]">{WEEK_VIEWS_LABEL}</p>
+            <div className="rounded-lg border border-[var(--border)] bg-white/[0.03] px-3 py-3">
+              <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+                <p className="min-w-0 flex-1 text-xs text-[var(--muted-foreground)]">{WEEK_VIEWS_LABEL}</p>
+                {onRefresh ? (
+                  <button
+                    type="button"
+                    onClick={onRefresh}
+                    disabled={refreshing}
+                    aria-label="Refresh YouTube numbers"
+                    className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white/5 px-3 text-sm font-medium text-white transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:opacity-60"
+                  >
+                    <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} aria-hidden="true" />
+                    {refreshing ? "Refreshing..." : "Refresh"}
+                  </button>
+                ) : null}
+              </div>
               {yt && yt.videos > 0 ? (
-                <p className="mt-1 text-sm text-white">
-                  <span className="text-lg font-semibold">{compactCount(yt.views)}</span> {yt.views === 1 ? "view" : "views"} ·{" "}
-                  {compactCount(yt.likes)} {yt.likes === 1 ? "like" : "likes"}
-                  <span className="text-[var(--muted-foreground)]">
-                    {" "}
-                    across {yt.videos} {yt.videos === 1 ? "video" : "videos"}
-                  </span>
-                </p>
+                <>
+                  <dl className="mt-2 flex flex-wrap items-end gap-x-8 gap-y-3">
+                    <div>
+                      <dt className="text-xs text-[var(--muted-foreground)]">{yt.views === 1 ? "View" : "Views"}</dt>
+                      <dd className="text-3xl font-semibold leading-tight tabular-nums text-white">{compactCount(yt.views)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-[var(--muted-foreground)]">{yt.likes === 1 ? "Like" : "Likes"}</dt>
+                      <dd className="text-3xl font-semibold leading-tight tabular-nums text-white">{compactCount(yt.likes)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-[var(--muted-foreground)]">{yt.videos === 1 ? "Video" : "Videos"}</dt>
+                      <dd className="text-3xl font-semibold leading-tight tabular-nums text-white">{yt.videos}</dd>
+                    </div>
+                  </dl>
+                  {summary.trend ? (
+                    <p
+                      className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm"
+                      title="Views so far on this week's videos against views so far on the videos posted the 7 days before. The earlier videos have had longer to earn theirs."
+                    >
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 font-semibold",
+                          summary.trend.change > 0 ? "text-emerald-300" : summary.trend.change < 0 ? "text-amber-300" : "text-white"
+                        )}
+                      >
+                        {summary.trend.change < 0 ? <TrendingDown className="h-4 w-4" aria-hidden="true" /> : <TrendingUp className="h-4 w-4" aria-hidden="true" />}
+                        {percentChangeLabel(summary.trend.percent)} vs previous 7 days
+                      </span>
+                      <span className="text-xs text-[var(--muted-foreground)]">
+                        the {summary.trend.previousVideos} {summary.trend.previousVideos === 1 ? "video" : "videos"} posted before it have {compactCount(summary.trend.previousViews)} views
+                      </span>
+                    </p>
+                  ) : null}
+                </>
               ) : (
                 <p className="mt-1 text-sm text-[var(--muted-foreground)]">
                   {summary.youtubeTargets.length === 0 && !noNumbers
@@ -218,40 +267,55 @@ export function WeekSummaryCard({
                 </p>
               )}
               {noNumbers && (yt?.videos ?? 0) > 0 ? (
-                <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">{noNumbers}</p>
+                <p className="mt-1 text-xs text-[var(--muted-foreground)]">{noNumbers}</p>
               ) : null}
               {yt?.fetchedAt ? (
-                <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                <p className="mt-2 text-xs text-[var(--muted-foreground)]">
                   <YoutubeAge status={statsStatus} fetchedAt={yt.fetchedAt} now={now} />
                 </p>
               ) : summary.youtubeTargets.length > 0 && statsStatus === "not-connected" ? (
-                <p className="mt-1 text-xs">
+                <p className="mt-2 text-xs">
                   <Link href="/settings#accounts" className="text-[var(--accent)] hover:underline">
                     Connect YouTube to see views here
                   </Link>
                 </p>
               ) : null}
+              {refreshNote ? (
+                <p role="status" className={cn("mt-1 text-xs", refreshNote.ok ? "text-emerald-300" : "text-amber-300")}>
+                  {refreshNote.text}
+                </p>
+              ) : null}
               {summary.top ? (
-                <div className="mt-2 border-t border-[var(--border)] pt-2">
+                <div className="mt-3 border-t border-[var(--border)] pt-3">
                   <p className="text-xs text-[var(--muted-foreground)]">
                     Top post · {formatDayKey(summary.top.dateKey, { weekday: "short", month: "short", day: "numeric" })}
                   </p>
-                  <p className="mt-0.5 text-sm font-medium leading-snug text-white">{summary.top.title}</p>
-                  <p className="mt-0.5 text-xs text-white/80">
-                    {compactCount(summary.top.views)} {summary.top.views === 1 ? "view" : "views"}
+                  <p className="mt-1 text-base font-semibold leading-snug text-white">{summary.top.title}</p>
+                  <p className="mt-1 text-sm text-white/90">
+                    <span className="font-semibold tabular-nums">{compactCount(summary.top.views)}</span> {summary.top.views === 1 ? "view" : "views"}
                     {summary.top.likes !== null ? ` · ${compactCount(summary.top.likes)} ${summary.top.likes === 1 ? "like" : "likes"}` : ""}
                     {summary.top.comments !== null
                       ? ` · ${compactCount(summary.top.comments)} ${summary.top.comments === 1 ? "comment" : "comments"}`
                       : ""}
                   </p>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                    <a href={summary.top.watchUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline">
-                      Open on YouTube
-                      <ExternalLink className="h-3 w-3" />
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <a
+                      href={summary.top.watchUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-[var(--accent)]/60 bg-[var(--accent)]/10 px-3.5 text-sm font-medium text-white hover:bg-[var(--accent)]/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+                    >
+                      Watch on YouTube
+                      <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                     </a>
-                    <a href={summary.top.studioUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline">
+                    <a
+                      href={summary.top.studioUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white/5 px-3.5 text-sm font-medium text-white hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+                    >
                       Analytics in Studio
-                      <ExternalLink className="h-3 w-3" />
+                      <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                     </a>
                   </div>
                 </div>

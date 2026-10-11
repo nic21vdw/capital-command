@@ -37,6 +37,13 @@ export type YoutubeStatsResponse = {
 /** A video's numbers are re-read at most this often. */
 export const STATS_TTL_MS = 30 * 60 * 1000;
 
+/**
+ * A person pressing Refresh skips the 30-minute wait but not all of it: a video
+ * read less than this long ago is not read again, so mashing the button costs
+ * no more quota than pressing it once.
+ */
+export const STATS_REFRESH_MIN_MS = 60 * 1000;
+
 /** YouTube's videos.list takes up to 50 ids per call. */
 export const STATS_BATCH_SIZE = 50;
 
@@ -145,4 +152,30 @@ export function totalViews(
     videos += 1;
   }
   return { views, likes, videos };
+}
+
+/**
+ * What to say right after the person pressed Refresh, in words about the
+ * numbers on screen. A refresh that could not reach YouTube is not an error
+ * to dwell on: the cached numbers are still shown, so it says that.
+ */
+export function refreshOutcome(status: YoutubeStatsStatus | "loading"): { ok: boolean; text: string } {
+  switch (status) {
+    case "ok":
+      return { ok: true, text: "Checked YouTube just now." };
+    case "loading":
+      // Nothing on the page has ever asked YouTube about a video, so there was nothing to refresh.
+      return { ok: false, text: "There are no YouTube videos on this page to refresh." };
+    case "not-connected":
+      return { ok: false, text: "YouTube is not connected, so these are the last saved numbers." };
+    default:
+      return { ok: false, text: "YouTube could not be reached, so these are the last saved numbers." };
+  }
+}
+
+/** "+23%", "-8%", "0%" - the sign is always spelled out so a rise and a fall are not told apart by colour alone. */
+export function percentChangeLabel(percent: number): string {
+  if (percent > 0) return `+${percent}%`;
+  if (percent < 0) return `-${Math.abs(percent)}%`;
+  return "0%";
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CONNECTIONS } from "./connections";
-import { YOUTUBE_RECOMMENDATION, buildGetStarted, connectionStatus, redirectUriNote } from "./getStarted";
+import { YOUTUBE_RECOMMENDATION, buildGetStarted, connectionProgress, connectionStatus, redirectUriNote, youtubeChecklist } from "./getStarted";
 
 const phase = { loaded: true, loadFailed: false };
 const empty = { present: {}, connected: {} };
@@ -85,5 +85,74 @@ describe("redirectUriNote", () => {
     expect(redirectUriNote("spotify", "http://127.0.0.1:3100/api/auth/spotify/callback", "http://localhost:3100")).toBeNull();
     expect(redirectUriNote("tiktok", "http://localhost:3100/x", null)).toMatch(/Register exactly/);
     expect(redirectUriNote("youtube", "not a url", "http://localhost:3100")).toBeNull();
+  });
+});
+
+describe("youtubeChecklist", () => {
+  const ids = (list: ReturnType<typeof youtubeChecklist>) => list.steps.map((step) => step.done);
+
+  it("starts at the first step on a fresh install", () => {
+    const list = youtubeChecklist(empty, phase);
+    expect(list.total).toBe(4);
+    expect(list.done).toBe(0);
+    expect(list.steps[0]).toMatchObject({ id: "create-client", current: true });
+    expect(list.steps.filter((step) => step.current)).toHaveLength(1);
+  });
+
+  it("infers the client from a saved ID and moves to the secret", () => {
+    const list = youtubeChecklist({ present: { YOUTUBE_CLIENT_ID: true }, connected: {} }, phase);
+    expect(ids(list)).toEqual([true, true, false, false]);
+    expect(list.steps.find((step) => step.current)?.id).toBe("client-secret");
+  });
+
+  it("points at sign-in once both credentials are saved", () => {
+    const list = youtubeChecklist({ present: { YOUTUBE_CLIENT_ID: true, YOUTUBE_CLIENT_SECRET: true }, connected: {} }, phase);
+    expect(list.done).toBe(3);
+    expect(list.steps.find((step) => step.current)?.id).toBe("sign-in");
+    expect(list.complete).toBe(false);
+  });
+
+  it("is complete only when the sign-in is confirmed, and has no current step then", () => {
+    const list = youtubeChecklist(
+      { present: { YOUTUBE_CLIENT_ID: true, YOUTUBE_CLIENT_SECRET: true }, connected: { youtube: true } },
+      phase
+    );
+    expect(list.complete).toBe(true);
+    expect(list.steps.some((step) => step.current)).toBe(false);
+  });
+
+  it("does not count a sign-in whose credentials are gone", () => {
+    const list = youtubeChecklist({ present: {}, connected: { youtube: true } }, phase);
+    expect(list.steps[3].done).toBe(false);
+  });
+
+  it("claims no progress before the state has loaded or when it could not", () => {
+    const saved = { present: { YOUTUBE_CLIENT_ID: true, YOUTUBE_CLIENT_SECRET: true }, connected: { youtube: true } };
+    expect(youtubeChecklist(saved, { loaded: false, loadFailed: false }).done).toBe(0);
+    expect(youtubeChecklist(saved, { loaded: true, loadFailed: true }).done).toBe(0);
+  });
+});
+
+describe("connectionProgress", () => {
+  it("counts against every row the page lists", () => {
+    const progress = connectionProgress(empty, phase);
+    expect(progress).toMatchObject({ connected: 0, total: CONNECTIONS.length, savedNotVerified: 0, line: `0 of ${CONNECTIONS.length} connected` });
+  });
+
+  it("counts a signed-in platform and reports saved tokens separately", () => {
+    const progress = connectionProgress(
+      {
+        present: { YOUTUBE_CLIENT_ID: true, YOUTUBE_CLIENT_SECRET: true, THREADS_ACCESS_TOKEN: true },
+        connected: { youtube: true }
+      },
+      phase
+    );
+    expect(progress.connected).toBe(1);
+    expect(progress.savedNotVerified).toBe(1);
+    expect(progress.line).toBe(`1 of ${CONNECTIONS.length} connected - 1 saved, not verified`);
+  });
+
+  it("says nothing is connected while the state is unknown", () => {
+    expect(connectionProgress({ present: {}, connected: { youtube: true } }, { loaded: false, loadFailed: false }).connected).toBe(0);
   });
 });

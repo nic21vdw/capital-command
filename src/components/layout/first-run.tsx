@@ -96,21 +96,17 @@ export function FirstRun() {
       <Card>
         <h2 className="text-lg font-semibold text-white">Where may it post?</h2>
         <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-          YouTube, TikTok, Instagram, Facebook and Threads are each connected in Settings, and this app posts to none
-          of them until you do. Spotify is only read, for podcast stats, and X is copy-only: the app writes the post
-          and you paste it. You can come back to it — nothing is queued in the meantime.
+          Nothing posts until you connect an account - start with YouTube, then add the rest in Settings.
         </p>
-        <div className="mt-4">
-          <Button variant="secondary" disabled={saving} onClick={() => void complete(true, "/settings#accounts")}>
-            {saving ? "Saving…" : "Save and open Settings"}
-          </Button>
-        </div>
       </Card>
 
       {failure ? <p role="alert" className="break-words text-sm text-[var(--danger)]">{failure}</p> : null}
       <div className="flex flex-wrap items-center gap-2">
-        <Button disabled={saving} onClick={() => void complete(true)}>
-          {saving ? "Saving…" : "Start"}
+        <Button disabled={saving} onClick={() => void complete(true, "/settings#accounts")}>
+          {saving ? "Saving…" : "Connect YouTube"}
+        </Button>
+        <Button variant="secondary" disabled={saving} onClick={() => void complete(true)}>
+          Start without connecting
         </Button>
         <Button variant="secondary" disabled={saving} onClick={() => void complete(false)}>
           Skip for now

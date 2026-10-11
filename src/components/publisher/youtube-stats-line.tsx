@@ -27,8 +27,8 @@ export function YoutubeStatsLine({
   if (!text) return null;
   const ageText = statsAgeText(status, stat.fetchedAt, now ?? new Date());
   return (
-    <p className={cn("text-[11px] text-[var(--muted-foreground)]", className)} title={`${text} - ${ageText}`}>
-      <span className="font-medium text-white/80">{text}</span>
+    <p className={cn("text-xs text-[var(--muted-foreground)]", className)} title={`${text} - ${ageText}`}>
+      <span className="text-sm font-semibold text-white">{text}</span>
       {showAge ? <span> · {ageText}</span> : null}
     </p>
   );
@@ -39,5 +39,5 @@ export function YoutubeCardStats({ itemId, videoId }: { itemId: string; videoId:
   const { stats, status } = useYoutubeStats([{ itemId, videoId }]);
   const stat = stats[videoId];
   if (!stat) return null;
-  return <YoutubeStatsLine stat={stat} status={status} showAge={false} className="mt-1 text-[10px]" />;
+  return <YoutubeStatsLine stat={stat} status={status} showAge={false} className="mt-1 text-[10px] [&>span]:text-[11px] [&>span]:font-medium [&>span]:text-white/80" />;
 }

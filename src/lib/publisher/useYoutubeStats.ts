@@ -19,20 +19,26 @@ type Snapshot = {
   message: string | null;
   /** A request for numbers is queued or on its way; a screen shows a loading state rather than "no numbers". */
   pending: boolean;
+  /** The Refresh button's request is on its way. */
+  refreshing: boolean;
+  /** When (ms since epoch) the last answer arrived from the app, or null before the first. */
+  checkedAt: number | null;
 };
 
 const REASK_AFTER_MS = 5 * 60 * 1000;
 const BATCH_DELAY_MS = 60;
 
-let snapshot: Snapshot = { stats: {}, status: "loading", message: null, pending: false };
+let snapshot: Snapshot = { stats: {}, status: "loading", message: null, pending: false, refreshing: false, checkedAt: null };
 let inFlight = 0;
 const listeners = new Set<() => void>();
 const asked = new Map<string, number>();
 const queued = new Map<string, string>();
+/** Every post any caller has asked about, so Refresh can ask about all of them again. */
+const known = new Map<string, string>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 
-function publish(next: Omit<Snapshot, "pending">) {
-  snapshot = { ...next, pending: queued.size > 0 || inFlight > 0 };
+function publish(next: Partial<Snapshot>) {
+  snapshot = { ...snapshot, ...next, pending: queued.size > 0 || inFlight > 0 };
   for (const listener of listeners) listener();
 }
 
@@ -53,7 +59,7 @@ async function flush() {
     const response = await fetch(url, { cache: "no-store" });
     const body = (await response.json()) as YoutubeStatsResponse;
     inFlight -= 1;
-    publish({ stats: { ...snapshot.stats, ...body.stats }, status: body.status, message: body.message });
+    publish({ stats: { ...snapshot.stats, ...body.stats }, status: body.status, message: body.message, checkedAt: Date.now() });
   } catch {
     inFlight -= 1;
     // Offline or the route is down: keep whatever is already on screen.
@@ -70,6 +76,7 @@ function request(targets: StatsTarget[]) {
     if (last !== undefined && now - last < REASK_AFTER_MS) continue;
     asked.set(itemId, now);
     queued.set(itemId, videoId);
+    known.set(itemId, videoId);
     added = true;
   }
   if (added && !timer) timer = setTimeout(() => void flush(), BATCH_DELAY_MS);
@@ -83,7 +90,36 @@ function subscribe(listener: () => void) {
   };
 }
 
-const SERVER_SNAPSHOT: Snapshot = { stats: {}, status: "loading", message: null, pending: false };
+const SERVER_SNAPSHOT: Snapshot = { stats: {}, status: "loading", message: null, pending: false, refreshing: false, checkedAt: null };
+
+/** Posts to ask about in one Refresh; the route reads at most this many. */
+const MAX_REFRESH_ITEMS = 200;
+
+/**
+ * The Refresh button: ask again now for every post on the page instead of
+ * waiting out the five-minute re-ask. The route still holds a one-minute floor
+ * per video and its own back-off, so this cannot spend more quota than it
+ * should. A failure keeps the numbers on screen and says so in `message`.
+ */
+export async function refreshYoutubeStats(): Promise<void> {
+  if (snapshot.refreshing) return;
+  const batch = [...known].slice(0, MAX_REFRESH_ITEMS);
+  if (batch.length === 0) return;
+  publish({ refreshing: true });
+  try {
+    const url = `/api/publish/youtube-stats?refresh=1&items=${batch.map(([itemId]) => encodeURIComponent(itemId)).join(",")}`;
+    const response = await fetch(url, { cache: "no-store" });
+    const body = (await response.json()) as YoutubeStatsResponse;
+    publish({ stats: { ...snapshot.stats, ...body.stats }, status: body.status, message: body.message, checkedAt: Date.now(), refreshing: false });
+  } catch {
+    publish({
+      status: Object.keys(snapshot.stats).length > 0 ? "stale" : "error",
+      message: "The app could not be reached, so these are the last numbers it had.",
+      checkedAt: Date.now(),
+      refreshing: false
+    });
+  }
+}
 
 /** The numbers for these published YouTube posts, requested together with every other caller on the page. */
 export function useYoutubeStats(targets: StatsTarget[]): Snapshot {
@@ -101,8 +137,9 @@ export function useYoutubeStats(targets: StatsTarget[]): Snapshot {
 
 /** Test seam: forget everything. */
 export function resetYoutubeStatsStore() {
-  snapshot = { stats: {}, status: "loading", message: null, pending: false };
+  snapshot = { stats: {}, status: "loading", message: null, pending: false, refreshing: false, checkedAt: null };
   inFlight = 0;
+  known.clear();
   asked.clear();
   queued.clear();
   if (timer) clearTimeout(timer);

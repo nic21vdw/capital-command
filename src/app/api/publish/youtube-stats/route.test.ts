@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   seen: [] as Array<{ videoId: string; accountId: string }>,
+  ttl: undefined as number | undefined,
   items: {} as Record<string, unknown>
 }));
 
@@ -10,8 +11,9 @@ vi.mock("@/lib/publisher/accounts", () => ({ primaryAccountId: () => "yt-primary
 vi.mock("@/lib/publisher/queue", () => ({ publishQueue: () => ({ get: async (id: string) => state.items[id] }) }));
 vi.mock("@/lib/publisher/youtubeStats", () => ({
   liveStatsDeps: {},
-  resolveYoutubeStats: async (requests: Array<{ videoId: string; accountId: string }>) => {
+  resolveYoutubeStats: async (requests: Array<{ videoId: string; accountId: string }>, deps: { ttlMs?: number }) => {
     state.seen = requests;
+    state.ttl = deps.ttlMs;
     return {
       status: "not-connected",
       message: "Connect YouTube",
@@ -29,6 +31,7 @@ const get = async (query: string) => {
 describe("GET /api/publish/youtube-stats", () => {
   beforeEach(() => {
     state.seen = [];
+    state.ttl = undefined;
     state.items = {
       q1: { id: "q1", accountId: "yt-clips", platforms: { youtube: { status: "published", postId: "FXdemo00001" } } },
       q2: { id: "q2", platforms: { youtube: { status: "scheduled", postId: "FXdemo00004" } } }
@@ -46,5 +49,12 @@ describe("GET /api/publish/youtube-stats", () => {
   it("takes raw ids for the primary account and drops malformed ones", async () => {
     await get("ids=abcdefghijk,bad id,x");
     expect(state.seen).toEqual([{ videoId: "abcdefghijk", accountId: "yt-primary" }]);
+  });
+
+  it("keeps the 30-minute wait unless a refresh is asked for, and then only shortens it to a minute", async () => {
+    await get("ids=abcdefghijk");
+    expect(state.ttl).toBeUndefined();
+    await get("ids=abcdefghijk&refresh=1");
+    expect(state.ttl).toBe(60_000);
   });
 });
