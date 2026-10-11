@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cadenceBadge, gapText, isEarlierPack, packSizeNote, windowClock } from "@/lib/threads/packCadence";
+import { cadenceBadge, gapText, isEarlierPack, packSizeNote, packTimeRange, windowClock } from "@/lib/threads/packCadence";
 import { zonedDateKey } from "@/lib/threads/zone";
 
 describe("cadenceBadge", () => {
@@ -62,5 +62,22 @@ describe("clock words", () => {
     expect(windowClock(1440)).toBe("midnight");
     expect(gapText(54.6)).toBe("55 min");
     expect(gapText(150)).toBe("2 h 30 min");
+  });
+});
+
+describe("packTimeRange", () => {
+  it("reads the pack's own span earliest to latest", () => {
+    expect(packTimeRange([{ time: "08:10" }, { time: "13:25" }, { time: "21:20" }])).toBe("8:10 AM to 9:20 PM");
+  });
+
+  it("sorts by the clock instead of printing first-to-last as a backwards range", () => {
+    const wrapped = ["09:05", "12:20", "15:40", "23:10", "00:45", "02:20"].map((time) => ({ time }));
+    expect(packTimeRange(wrapped)).toBe("12:45 AM to 11:10 PM");
+  });
+
+  it("handles a single post, an empty pack and junk times", () => {
+    expect(packTimeRange([{ time: "08:10" }])).toBe("8:10 AM");
+    expect(packTimeRange([])).toBeNull();
+    expect(packTimeRange([{ time: "soon" }, { time: "25:00" }])).toBeNull();
   });
 });
