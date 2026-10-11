@@ -77,4 +77,35 @@ describe("bookedClip", () => {
     expect(booked?.item.id).toBe("b");
     expect(booked?.label).toBe("Booked at 2026-10-13T11:30 on YouTube");
   });
+
+  it("says Posted, not Booked, once every leg is published", () => {
+    const booked = bookedClip(
+      [item("a", "2026-10-09T11:30:00Z", { youtube: "published", instagram: "published" })],
+      when
+    );
+    expect(booked?.label).toBe("Posted at 2026-10-09T11:30 on YouTube and Instagram");
+    expect(booked?.posted).toBe("all");
+  });
+
+  it("says Partly posted, naming only what is out, while other legs are pending or failed", () => {
+    const pending = bookedClip([item("a", "2026-10-09T11:30:00Z", { youtube: "published", tiktok: "pending" })], when);
+    expect(pending?.label).toBe("Partly posted at 2026-10-09T11:30 on YouTube");
+    expect(pending?.posted).toBe("partly");
+    const failed = bookedClip([item("a", "2026-10-09T11:30:00Z", { youtube: "published", tiktok: "failed" })], when);
+    expect(failed?.label).toBe("Partly posted at 2026-10-09T11:30 on YouTube");
+    expect(failed?.failedLegs).toBe(1);
+  });
+
+  it("is Partly posted when a later booking has not gone out yet", () => {
+    const booked = bookedClip(
+      [item("a", "2026-10-09T11:30:00Z", { youtube: "published" }), item("b", "2026-10-13T11:30:00Z", { youtube: "scheduled" })],
+      when
+    );
+    expect(booked?.label).toBe("Partly posted at 2026-10-09T11:30 on YouTube and 1 more booking");
+  });
+
+  it("keeps Booked for anything not yet posted, scheduled or waiting alike", () => {
+    expect(bookedClip([item("a", "2026-10-12T11:30:00Z", { youtube: "scheduled", tiktok: "uploaded" })], when)?.posted).toBe("none");
+    expect(bookedClip([item("a", "2026-10-12T11:30:00Z", { youtube: "pending" })], when)?.label).toMatch(/^Booked /);
+  });
 });

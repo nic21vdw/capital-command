@@ -20,8 +20,14 @@ export type BookedClip = {
   item: QueueItem;
   /** The title that will actually post, which can differ from the draft box. */
   title: string;
-  /** "Booked Fri, Oct 12, 7:30 PM on YouTube and TikTok" (+ "and 1 more booking"). */
+  /**
+   * "Booked Fri, Oct 12, 7:30 PM on YouTube and TikTok" (+ "and 1 more booking"),
+   * or "Posted ..." once every leg is out, or "Partly posted ..." (naming the
+   * platforms that are) while some are out and the rest are not.
+   */
   label: string;
+  /** How much of it has gone out: every leg, some of them, or none yet. */
+  posted: "all" | "partly" | "none";
   /** The platforms with a live leg, in the app's usual order. */
   platforms: PlatformId[];
   /** Legs that failed on the bookings above: the row says so instead of hiding them. */
@@ -48,22 +54,36 @@ export function bookedClip(items: QueueItem[], formatWhen: (iso: string) => stri
   if (!first) return null;
 
   const on = new Set<PlatformId>();
+  const out = new Set<PlatformId>();
   let failedLegs = 0;
+  let legs = 0;
+  let published = 0;
   for (const item of live) {
     for (const platform of ALL_PLATFORMS) {
       const state = item.platforms[platform];
       if (!state) continue;
+      legs += 1;
       if (state.status === "failed") failedLegs += 1;
       else on.add(platform);
+      if (state.status === "published") {
+        published += 1;
+        out.add(platform);
+      }
     }
   }
   const platforms = ALL_PLATFORMS.filter((platform) => on.has(platform));
+  const posted = published === 0 ? "none" : published === legs ? "all" : "partly";
+  // "Booked" is for what is still to go out; once a leg is live the row says
+  // so, and names only the platforms that are.
+  const verb = posted === "all" ? "Posted" : posted === "partly" ? "Partly posted" : "Booked";
+  const named = posted === "partly" ? ALL_PLATFORMS.filter((platform) => out.has(platform)) : platforms;
   const slots = new Set(live.map((item) => item.publishAt)).size;
   const more = slots > 1 ? ` and ${slots - 1} more booking${slots === 2 ? "" : "s"}` : "";
   return {
     item: first,
     title: first.title,
-    label: `Booked ${formatWhen(first.publishAt)} on ${listPlatforms(platforms)}${more}`,
+    label: `${verb} ${formatWhen(first.publishAt)} on ${listPlatforms(named)}${more}`,
+    posted,
     platforms,
     failedLegs
   };
