@@ -113,6 +113,12 @@ export type FailureContext = {
   /** That instant as the screen writes it ("Tue, Oct 14, 3:00 PM"); defaults to "its slot". */
   when?: string;
   now?: Date;
+  /**
+   * Whether the leg's account has a connection NOW. A manual reminder was set
+   * aside because nothing was connected at booking time; once something is,
+   * "Not connected" is no longer true and the next step is Retry, not Connect.
+   */
+  connected?: boolean;
 };
 
 export function describeFailure(state: PlatformState, platform: PlatformId, context?: FailureContext): FailureAdvice {
@@ -123,6 +129,17 @@ export function describeFailure(state: PlatformState, platform: PlatformId, cont
   if (state.status === "manual") {
     const slotMs = context ? new Date(context.publishAt).getTime() : Number.NaN;
     const upcoming = Number.isFinite(slotMs) && slotMs > (context?.now ?? new Date()).getTime();
+    if (context?.connected === true) {
+      // The connection arrived after the booking. Retry puts it back in the queue.
+      return {
+        headline: upcoming
+          ? `${label} wasn't connected when this was scheduled, so it was set aside as a reminder. It is connected now - Retry at slot puts it back in the queue to post at ${context.when ?? "its slot"}.`
+          : `${label} wasn't connected when this was scheduled, so it never went out. It is connected now - Retry now posts it.`,
+        action: "retry",
+        kind: "retryable",
+        raw: state.note?.trim() || raw
+      };
+    }
     if (upcoming) {
       return {
         headline: `Not connected - post this by hand at ${context?.when ?? "its slot"}, or connect ${label} in Settings.`,

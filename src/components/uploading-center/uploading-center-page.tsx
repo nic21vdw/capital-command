@@ -810,6 +810,21 @@ export function UploadingCenterPage() {
       }),
     [accounts, failedLegs],
   );
+  // Whether the account a post uses on a platform has a connection. The board's
+  // cards read it for every leg, not just the tab's active account. A post's
+  // accountId names ONE account; on a platform it does not belong to, the
+  // platform's primary account is the one that posts. Until the account list
+  // has loaded nothing is known, so nothing is claimed unconnected.
+  const isAccountConnected = useCallback(
+    (platform: PlatformId, accountId: string) => {
+      if (accounts.length === 0) return true;
+      const own =
+        accounts.find((account) => account.platform === platform && account.id === accountId) ??
+        accounts.find((account) => account.platform === platform && account.primary);
+      return own?.connected ?? false;
+    },
+    [accounts],
+  );
   // The platform tab on screen, read the way the tab strip reads it (?platform=).
   const platformParam = searchParams.get("platform");
   const activePlatform: PlatformId =
@@ -909,13 +924,13 @@ export function UploadingCenterPage() {
                 ? (slotUtc) => handleSelectSlot(id, slotUtc)
                 : undefined
             }
-            onPublishNow={(item) => void publishNow(item)}
+            onPublishNow={(item, platforms) => void publishNow(item, platforms)}
             onRetry={(item, retryPlatform) => void retryQueueItem(item, retryPlatform)}
             onEditCaption={(item, caption) => void editQueueCaption(item, caption)}
             onRemove={(item) => void remove(item)}
             onRename={(item, title) => void renameQueueItem(item, title)}
             youtubeQuotaFull={Boolean(overview && overview.quota.uploadsUsed >= overview.quota.budgetUploads)}
-            connected={configured}
+            isConnected={isAccountConnected}
             busy={busy}
             highlightedItemId={itemParam}
             shortsPerDay={shortsPerDay}

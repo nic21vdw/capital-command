@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { hasFreshClaim, publishNowTargets, publishedRemovalNote, removalImpact } from "@/lib/publisher/boardActions";
+import {
+  blockedLegControls,
+  hasFreshClaim,
+  legAccountId,
+  publishNowSkipped,
+  publishNowTargets,
+  publishedRemovalNote,
+  removalImpact
+} from "@/lib/publisher/boardActions";
 import type { PlatformState } from "@/lib/publisher/types";
 
 const leg = (over: Partial<PlatformState>): PlatformState => ({ status: "pending", attempts: 0, ...over });
@@ -149,5 +157,91 @@ describe("what Publish now touches", () => {
         }
       })
     ).toEqual([]);
+  });
+});
+
+describe("Publish now and connections", () => {
+  const post = {
+    platforms: {
+      youtube: leg({ status: "pending" }),
+      instagram: leg({ status: "pending" }),
+      facebook: leg({ status: "pending" })
+    }
+  };
+
+  it("only sends the legs whose account is connected, and names the rest as skipped", () => {
+    const connected = (platform: string) => platform !== "youtube";
+    expect(publishNowTargets(post, connected)).toEqual(["instagram", "facebook"]);
+    expect(publishNowSkipped(post, connected)).toEqual(["youtube"]);
+  });
+
+  it("offers nothing when no pending leg is connected", () => {
+    expect(publishNowTargets(post, () => false)).toEqual([]);
+    expect(publishNowSkipped(post, () => false)).toEqual(["youtube", "instagram", "facebook"]);
+  });
+
+  it("is unchanged when everything is connected", () => {
+    expect(publishNowTargets(post, () => true)).toEqual(publishNowTargets(post));
+    expect(publishNowSkipped(post, () => true)).toEqual([]);
+  });
+
+  it("reads the account a post is on, the platform's primary for an older one", () => {
+    expect(legAccountId({ accountId: "tiktok-2" }, "tiktok")).toBe("tiktok-2");
+    expect(legAccountId({}, "tiktok")).toBe("tiktok-primary");
+  });
+});
+
+describe("which controls a blocked leg offers", () => {
+  const rejected = { action: "retry", kind: "retryable" } as const;
+  const lapsed = { action: "reconnect", kind: "connection-lapsed" } as const;
+  const neverSetUp = { action: "reconnect", kind: "not-connected" } as const;
+  const duplicate = { action: "none", kind: "duplicate-title" } as const;
+  const gone = { action: "none", kind: "missing-media" } as const;
+
+  it("lets connection state win: no Retry on an unconnected account, whatever the error", () => {
+    expect(blockedLegControls(rejected, { connected: false, retitled: false })).toEqual({
+      retry: false,
+      connect: "Connect",
+      rename: false,
+      needsConnection: true
+    });
+    expect(blockedLegControls(lapsed, { connected: false, retitled: false })).toMatchObject({ retry: false, connect: "Reconnect" });
+    expect(blockedLegControls(neverSetUp, { connected: false, retitled: false })).toMatchObject({ retry: false, connect: "Connect" });
+  });
+
+  it("offers Retry again once the account is connected", () => {
+    expect(blockedLegControls(rejected, { connected: true, retitled: false })).toEqual({
+      retry: true,
+      connect: null,
+      rename: false,
+      needsConnection: false
+    });
+    expect(blockedLegControls(neverSetUp, { connected: true, retitled: false })).toMatchObject({ retry: true, connect: null });
+  });
+
+  it("keeps Reconnect beside Retry for stale credentials on a connected account", () => {
+    expect(blockedLegControls(lapsed, { connected: true, retitled: false })).toMatchObject({ retry: true, connect: "Reconnect" });
+  });
+
+  it("offers Rename whatever the connection, but Retry only after connecting and renaming", () => {
+    expect(blockedLegControls(duplicate, { connected: true, retitled: false })).toMatchObject({ rename: true, retry: false });
+    expect(blockedLegControls(duplicate, { connected: true, retitled: true })).toMatchObject({ rename: false, retry: true });
+    expect(blockedLegControls(duplicate, { connected: false, retitled: false })).toMatchObject({
+      rename: true,
+      retry: false,
+      connect: "Connect"
+    });
+    expect(blockedLegControls(duplicate, { connected: false, retitled: true })).toMatchObject({ rename: false, retry: false, connect: "Connect" });
+  });
+
+  it("offers nothing for a file that is gone, connected or not", () => {
+    for (const connected of [true, false]) {
+      expect(blockedLegControls(gone, { connected, retitled: false })).toEqual({
+        retry: false,
+        connect: null,
+        rename: false,
+        needsConnection: false
+      });
+    }
   });
 });

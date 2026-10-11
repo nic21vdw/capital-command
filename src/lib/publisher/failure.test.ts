@@ -230,3 +230,23 @@ describe("duplicateTitleCleared", () => {
     expect(duplicateTitleCleared(undefined, "Anything")).toBe(false);
   });
 });
+
+describe("a manual reminder once the account is connected", () => {
+  const manual = { status: "manual" as const, attempts: 0 };
+  const context = { publishAt: "2026-10-13T14:00:00.000Z", when: "Tue, Oct 13, 2:00 PM", now: new Date("2026-10-11T00:00:00.000Z") };
+
+  it("still says it is not connected while it is not", () => {
+    expect(describeFailure(manual, "tiktok", { ...context, connected: false })).toMatchObject({ kind: "not-connected", action: "reconnect" });
+    expect(describeFailure(manual, "tiktok", context).kind).toBe("not-connected");
+  });
+
+  it("stops saying 'Not connected' and offers a retry once it is", () => {
+    const advice = describeFailure(manual, "tiktok", { ...context, connected: true });
+    expect(advice).toMatchObject({ action: "retry", kind: "retryable" });
+    expect(advice.headline).not.toMatch(/^Not connected/);
+    expect(advice.headline).toMatch(/connected now/);
+    expect(advice.headline).toContain("Tue, Oct 13, 2:00 PM");
+    const late = describeFailure(manual, "tiktok", { ...context, now: new Date("2026-10-14T00:00:00.000Z"), connected: true });
+    expect(late.headline).toMatch(/Retry now/);
+  });
+});

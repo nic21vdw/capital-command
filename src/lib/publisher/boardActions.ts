@@ -1,3 +1,4 @@
+import type { FailureAdvice } from "@/lib/publisher/failure";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
 import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
 
@@ -119,10 +120,16 @@ export const FACEBOOK_SCHEDULED_POSTS_URL = "https://business.facebook.com/lates
  * holding for its slot (which is released early). Failed and manual legs are
  * Retry's, and a TikTok draft already in the inbox has nothing left to send.
  */
-export function publishNowTargets(item: Pick<QueueItem, "platforms"> & Partial<Pick<QueueItem, "format" | "clipPath">>): PlatformId[] {
+export function publishNowTargets(
+  item: Pick<QueueItem, "platforms"> & Partial<Pick<QueueItem, "format" | "clipPath">>,
+  isConnected?: PlatformConnected
+): PlatformId[] {
   return ORDER.filter((platform) => {
     const state = item.platforms[platform];
     if (!state) return false;
+    // A leg whose account has no connection cannot be sent, so Publish now
+    // does not claim it (it stays waiting for the connection).
+    if (isConnected && !isConnected(platform)) return false;
     // A long-form video is held private for review by design, so Publish now
     // would not publish it, whatever state its leg is in; do not offer what it
     // will not do.
@@ -131,4 +138,68 @@ export function publishNowTargets(item: Pick<QueueItem, "platforms"> & Partial<P
     if (state.status !== "scheduled") return false;
     return platform === "youtube" || platform === "facebook";
   });
+}
+
+/** Whether the account a post uses on one platform has a connection. */
+export type PlatformConnected = (platform: PlatformId) => boolean;
+
+/**
+ * The legs Publish now would have sent but cannot, because their account is not
+ * connected. The confirmation names them: they stay waiting, they do not fail.
+ */
+export function publishNowSkipped(
+  item: Pick<QueueItem, "platforms"> & Partial<Pick<QueueItem, "format" | "clipPath">>,
+  isConnected: PlatformConnected
+): PlatformId[] {
+  const connected = new Set(publishNowTargets(item, isConnected));
+  return publishNowTargets(item).filter((platform) => !connected.has(platform));
+}
+
+/** The account id a post uses on a platform (legacy posts belong to the primary). */
+export function legAccountId(item: Pick<QueueItem, "accountId">, platform: PlatformId): string {
+  return item.accountId ?? `${platform}-primary`;
+}
+
+export type BlockedLegControls = {
+  /** Retry (now / at slot) can work, so it is offered. */
+  retry: boolean;
+  /** The Connect / Reconnect link, or null when a connection is not what is missing. */
+  connect: "Connect" | "Reconnect" | null;
+  /** Rename and retry: the title is what the channel refused. */
+  rename: boolean;
+  /** The fix needs a connection first, so any Retry waits for it. */
+  needsConnection: boolean;
+};
+
+/**
+ * Which controls a failed or manual leg's card offers. CONNECTION STATE WINS:
+ * a leg whose account is not connected cannot be retried whatever the error
+ * said - a TikTok "rejected this upload" retried without a login only fails
+ * again - so Retry is hidden and Connect/Reconnect is shown. A fix that does not
+ * need a connection (a duplicate title is changed on the card; a missing file is
+ * beyond any control) is still offered or withheld on its own terms.
+ */
+export function blockedLegControls(
+  advice: Pick<FailureAdvice, "action" | "kind">,
+  options: { connected: boolean; retitled: boolean }
+): BlockedLegControls {
+  const { connected, retitled } = options;
+  const rename = advice.kind === "duplicate-title" && !retitled;
+  // Nothing a connection could change.
+  if (advice.kind === "missing-media") return { retry: false, connect: null, rename: false, needsConnection: false };
+  if (!connected) {
+    return {
+      retry: false,
+      connect: advice.kind === "connection-lapsed" ? "Reconnect" : "Connect",
+      rename,
+      needsConnection: true
+    };
+  }
+  return {
+    retry: advice.action !== "none" || retitled,
+    // Connected, but the credentials on record lapsed: reconnecting refreshes them.
+    connect: advice.kind === "connection-lapsed" ? "Reconnect" : null,
+    rename,
+    needsConnection: false
+  };
 }

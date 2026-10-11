@@ -97,6 +97,12 @@ export type RunDueOptions = {
    * this - a retry runs without it so a future slot keeps waiting.
    */
   force?: boolean;
+  /**
+   * With itemId + force: act on these platforms only. The board's Publish now
+   * leaves out a leg whose account is not connected, so it stays waiting
+   * instead of being failed by a forced attempt it could never complete.
+   */
+  platforms?: PlatformId[];
 };
 
 export const defaultAdapters: Record<PlatformId, PlatformAdapter> = {
@@ -370,6 +376,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
             // retry never gets here - it runs WITHOUT force, so a future
             // slot keeps waiting.
             .filter(([, state]) => !isTerminalStatus(state.status) || state.status === "scheduled")
+            .filter(([platform]) => !options.platforms || options.platforms.includes(platform))
             .map(([platform]) => platform)
         : [];
       due = item && platforms.length > 0 ? [{ item, platforms }] : [];

@@ -43,6 +43,7 @@ export function StatusChip({
   platform,
   item,
   youtubeQuotaFull,
+  connected,
   className
 }: {
   status: ChipStatus;
@@ -53,6 +54,8 @@ export function StatusChip({
   item?: Pick<QueueItem, "mediaKind" | "publishAt" | "format"> & Partial<Pick<QueueItem, "tiktok">> & { clipPath?: string };
   /** YouTube's upload allowance for today is spent (see PendingContext). */
   youtubeQuotaFull?: boolean;
+  /** False when the post's account for this platform has no connection (see PendingContext). */
+  connected?: boolean;
   className?: string;
 }) {
   const chip = CHIPS[status];
@@ -62,7 +65,7 @@ export function StatusChip({
     item != null &&
     youtubeHoldsForReview(item);
   const inboxDraft = isTiktokInboxDraft(platform, status, item);
-  const context = { youtubeQuotaFull };
+  const context = { youtubeQuotaFull, connected };
   const label =
     status === "pending"
       ? pendingLabel(platform, item, new Date(), context)

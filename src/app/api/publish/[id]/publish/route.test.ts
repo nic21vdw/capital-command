@@ -31,6 +31,18 @@ describe("POST /api/publish/:id/publish", () => {
     expect(runDue).toHaveBeenCalledWith(expect.any(Date), { itemId: "a1", force: true });
   });
 
+  it("limits a forced run to the platforms the board names, ignoring unknown ones", async () => {
+    await post({ mode: "now", platforms: ["instagram", "myspace", "youtube"] });
+
+    expect(runDue).toHaveBeenCalledWith(expect.any(Date), { itemId: "a1", force: true, platforms: ["youtube", "instagram"] });
+  });
+
+  it("ignores a platform list on a run that is not forced", async () => {
+    await post({ mode: "slot", platforms: ["youtube"] });
+
+    expect(runDue).toHaveBeenCalledWith(expect.any(Date), { itemId: "a1", force: false });
+  });
+
   it.each([
     ["no body", undefined],
     ["an empty object", {}],

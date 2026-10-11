@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { ChevronUp, Clapperboard, ExternalLink, Images, Image as ImageIcon, Loader2, Pencil, Plug, RotateCcw, Send, Trash2, Upload } from "lucide-react";
+import { Check, ChevronUp, Clapperboard, ExternalLink, Images, Image as ImageIcon, Loader2, Pencil, Plug, RotateCcw, Send, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -23,12 +23,15 @@ import {
   FACEBOOK_SCHEDULED_POSTS_URL,
   UPLOADING_NOW_MESSAGE,
   YOUTUBE_MAY_EXIST_MESSAGE,
+  blockedLegControls,
+  legAccountId,
+  publishNowSkipped,
   publishNowTargets,
   publishedRemovalNote,
   removalImpact
 } from "@/lib/publisher/boardActions";
 import { describeFailure, describeWaiting, duplicateTitleCleared } from "@/lib/publisher/failure";
-import { TIKTOK_INBOX_ACTION, isTiktokInboxDraft } from "@/lib/publisher/nativeScheduling";
+import { TIKTOK_INBOX_ACTION, isTiktokInboxDraft, waitingForConnectionHint } from "@/lib/publisher/nativeScheduling";
 import { formatGoLive } from "@/lib/publisher/outcomeCopy";
 import { imagePathsOf, imagePostUrl, isImagePost } from "@/lib/publisher/images";
 import type { AgendaDay, AgendaEntry } from "@/lib/publisher/agenda";
@@ -75,7 +78,7 @@ export function ScheduleBoard({
   onRemove,
   onRename,
   youtubeQuotaFull,
-  connected = true,
+  isConnected,
   busy,
   highlightedItemId,
   shortsPerDay,
@@ -99,7 +102,7 @@ export function ScheduleBoard({
   /** When set (a clip is being placed), open slots become click targets. */
   onSelectSlot?: (slotUtc: string) => void;
   /** Publish now - asked for confirmation by the card first. */
-  onPublishNow: (item: QueueItem) => void;
+  onPublishNow: (item: QueueItem, platforms?: PlatformId[]) => void;
   /** Re-queue one platform's failed leg and run it WITHOUT force. */
   onRetry: (item: QueueItem, platform: PlatformId) => void;
   /** Save a new caption on the queued post (the queue only). */
@@ -110,10 +113,13 @@ export function ScheduleBoard({
   /** YouTube's upload allowance for today is spent: posts waiting to upload are waiting for the quota. */
   youtubeQuotaFull?: boolean;
   /**
-   * The account this board shows is connected. A `manual` leg on one that is
-   * not cannot be retried: it would only fail, so the card offers no Retry.
+   * Whether the account a post uses on a platform has a connection. Every card
+   * asks it for every leg of its post: a leg on an unconnected account cannot
+   * upload or post, so it reads "Waiting for ... connection" rather than
+   * "Uploading", is not part of Publish now, and offers Connect, not Retry.
+   * Absent means everything counts as connected.
    */
-  connected?: boolean;
+  isConnected?: (platform: PlatformId, accountId: string) => boolean;
   busy: string | null;
   highlightedItemId?: string | null;
   /** The daily short-form limit, named on days that have reached it. */
@@ -188,7 +194,7 @@ export function ScheduleBoard({
           onRemove={onRemove}
           onRename={onRename}
           youtubeQuotaFull={youtubeQuotaFull}
-          connected={connected}
+          isConnected={isConnected}
           nowMs={nowMs}
           busy={busy}
           highlightedItemId={highlightedItemId}
@@ -217,7 +223,7 @@ function DayBand({
   onRemove,
   onRename,
   youtubeQuotaFull,
-  connected,
+  isConnected,
   nowMs,
   busy,
   highlightedItemId,
@@ -232,13 +238,13 @@ function DayBand({
   onUploadVideo: (slotUtc: string, file: File) => void;
   onRequestUpload: (slotUtc: string) => void;
   onSelectSlot?: (slotUtc: string) => void;
-  onPublishNow: (item: QueueItem) => void;
+  onPublishNow: (item: QueueItem, platforms?: PlatformId[]) => void;
   onRetry: (item: QueueItem, platform: PlatformId) => void;
   onEditCaption: (item: QueueItem, caption: string) => void;
   onRemove: (item: QueueItem) => void;
   onRename: (item: QueueItem, title: string) => void;
   youtubeQuotaFull?: boolean;
-  connected: boolean;
+  isConnected?: (platform: PlatformId, accountId: string) => boolean;
   nowMs: number;
   busy: string | null;
   highlightedItemId?: string | null;
@@ -284,7 +290,7 @@ function DayBand({
               onRemove={onRemove}
               onRename={onRename}
               youtubeQuotaFull={youtubeQuotaFull}
-              connected={connected}
+              isConnected={isConnected}
               nowMs={nowMs}
               busy={busy}
               highlighted={highlightedItemId === entry.item.id}
@@ -349,7 +355,7 @@ function QueueEntryCard({
   onRemove,
   onRename,
   youtubeQuotaFull,
-  connected,
+  isConnected,
   nowMs,
   busy,
   highlighted
@@ -359,18 +365,23 @@ function QueueEntryCard({
   item: QueueItem;
   thumbnailForItem: (item: QueueItem) => string | null;
   today: boolean;
-  onPublishNow: (item: QueueItem) => void;
+  onPublishNow: (item: QueueItem, platforms?: PlatformId[]) => void;
   onRetry: (item: QueueItem, platform: PlatformId) => void;
   onEditCaption: (item: QueueItem, caption: string) => void;
   onRemove: (item: QueueItem) => void;
   onRename: (item: QueueItem, title: string) => void;
   youtubeQuotaFull?: boolean;
-  connected: boolean;
+  isConnected?: (platform: PlatformId, accountId: string) => boolean;
   nowMs: number;
   busy: string | null;
   highlighted?: boolean;
 }) {
   const state = item.platforms[platform] as PlatformState;
+  // Whether the account this post uses on each platform has a connection. A
+  // pending leg on one that does not is not "uploading": nothing can go until
+  // it is connected.
+  const legConnected = (leg: PlatformId) => (isConnected ? isConnected(leg, legAccountId(item, leg)) : true);
+  const connected = legConnected(platform);
   const url = remoteUrlFor(platform, state.postId);
   const thumbnailUrl = thumbnailForItem(item);
   // "failed" and "manual" are terminal until something un-blocks them, so the
@@ -380,7 +391,8 @@ function QueueEntryCard({
     ? describeFailure(state, platform, {
         publishAt: item.publishAt,
         when: formatGoLive(item.publishAt),
-        now: new Date(nowMs)
+        now: new Date(nowMs),
+        connected
       })
     : null;
   // A leg that is not failed but is not simply waiting: an error on record or a
@@ -388,7 +400,10 @@ function QueueEntryCard({
   const waiting = blocked ? null : describeWaiting(state, platform);
   const quotaWait = platform === "youtube" && state.status === "pending" && !state.postId && Boolean(youtubeQuotaFull);
   const inboxDraft = isTiktokInboxDraft(platform, state.status, item);
-  const waitingLine = waiting
+  const awaitingConnection = state.status === "pending" && !connected;
+  const waitingLine = awaitingConnection
+    ? waitingForConnectionHint(platform)
+    : waiting
     ? state.nextAttemptAt
       ? `Retrying at ${formatGoLive(state.nextAttemptAt)} - ${waiting.headline}`
       : `Will retry - ${waiting.headline}`
@@ -398,20 +413,21 @@ function QueueEntryCard({
         ? `${TIKTOK_INBOX_ACTION} - it is not live until you do.`
         : null;
   const detailRaw = advice?.raw ?? waiting?.raw;
-  const targets = publishNowTargets(item);
   // Publish now also reaches a post YouTube/Facebook is holding for its slot
   // (status "scheduled"): that is the case where it makes the post public now.
-  // A leg blocked on a connection this account does not have would only fail
-  // again on Retry, so it is not offered until the account is connected - the
-  // card offers Connect instead.
-  const needsConnection = advice?.action === "reconnect" && !connected;
+  // It only sends legs whose account is connected - the others stay waiting -
+  // and is not offered at all when none is.
+  const targets = publishNowTargets(item);
+  const sendable = publishNowTargets(item, legConnected);
+  const skipped = publishNowSkipped(item, legConnected);
   // A duplicate-title refusal is answered by retitling. Once the post carries a
   // different title than the one the channel refused, Retry is the next step.
-  const duplicateTitle = advice?.kind === "duplicate-title";
-  const retitled = duplicateTitle && duplicateTitleCleared(state.error, item.title);
-  const needsRename = duplicateTitle && !retitled;
-  const actionable =
-    targets.includes(platform) || (blocked && (advice?.action !== "none" || retitled) && !needsConnection);
+  const retitled = advice?.kind === "duplicate-title" && duplicateTitleCleared(state.error, item.title);
+  // CONNECTION STATE WINS over the kind of error (see blockedLegControls): a
+  // leg on an account that is not connected is never offered Retry.
+  const controls = advice ? blockedLegControls(advice, { connected, retitled }) : null;
+  const needsRename = Boolean(controls?.rename);
+  const actionable = blocked ? Boolean(controls?.retry) : targets.includes(platform) && sendable.length > 0;
   const working = busy === `publish:${item.id}` || busy === `remove:${item.id}`;
   // A picture post has no poster frame — its own first slide IS the thumbnail,
   // served by position out of the queue so the card can reach files that live
@@ -431,8 +447,8 @@ function QueueEntryCard({
   // Connect when nothing was ever set up, Reconnect when credentials existed and
   // lapsed. A leg whose account has been connected since needs no link at all
   // unless the credentials themselves are stale.
-  const connectVerb = advice?.kind === "connection-lapsed" ? "Reconnect" : "Connect";
-  const showConnect = advice?.action === "reconnect" && (!connected || advice.kind === "connection-lapsed");
+  const connectVerb = controls?.connect ?? "Connect";
+  const showConnect = controls ? controls.connect !== null : awaitingConnection;
   const everyLegPublished = Object.values(item.platforms).every((leg) => leg?.status === "published");
   const youtubeVideoId = item.platforms.youtube?.postId;
 
@@ -440,6 +456,12 @@ function QueueEntryCard({
     if (blocked) onRetry(item, platform);
     else setConfirm("publish");
   };
+  // What the failure line says. A retry-able error on an account that is not
+  // connected gets the reason Retry is missing, so its absence is not a mystery.
+  const headline =
+    advice && controls?.needsConnection && advice.kind === "retryable"
+      ? `${advice.headline} Connect ${PLATFORM_LABELS[platform]} first - retrying without it would only fail again.`
+      : (advice?.headline ?? "");
   const impact = removalImpact(item, { now: new Date(nowMs) });
   const labelList = (platforms: PlatformId[]) => {
     const names = platforms.map((id) => PLATFORM_LABELS[id]);
@@ -453,7 +475,7 @@ function QueueEntryCard({
         today && "border-[var(--accent)]/40",
         highlighted && "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--background)]"
       )}
-      title={advice?.headline ?? item.title}
+      title={advice ? headline : item.title}
     >
       {pictures > 0 ? (
         <a
@@ -499,6 +521,7 @@ function QueueEntryCard({
             platform={platform}
             item={item}
             youtubeQuotaFull={quotaWait}
+            connected={state.status === "pending" ? connected : undefined}
             className="shrink-0"
           />
           {state.mirroredFrom ? (
@@ -669,18 +692,28 @@ function QueueEntryCard({
               )}
             >
               {retitled
-                ? `Renamed to "${item.title}". ${slotPassed ? "Retry now to post it." : `Retry at slot to post it at ${time}.`}`
-                : (advice?.headline ?? waitingLine)}
+                ? `Renamed to "${item.title}". ${
+                    controls?.needsConnection
+                      ? `Connect ${PLATFORM_LABELS[platform]}, then retry to post it.`
+                      : slotPassed
+                        ? "Retry now to post it."
+                        : `Retry at slot to post it at ${time}.`
+                  }`
+                : (advice ? headline : waitingLine)}
             </p>
             <div className="flex flex-wrap items-center gap-2">
               {needsRename ? (
                 <button
                   type="button"
                   onClick={() => setRenaming(true)}
-                  title="Give the post a new title, then retry it"
+                  title={
+                    controls?.needsConnection
+                      ? "Give the post a new title. It can be retried once the account is connected"
+                      : "Give the post a new title, then retry it"
+                  }
                   className={INLINE_ACTION}
                 >
-                  <Pencil className="h-3 w-3" /> Rename and retry
+                  <Pencil className="h-3 w-3" /> {controls?.needsConnection ? "Rename" : "Rename and retry"}
                 </button>
               ) : null}
               {showConnect && platform === "youtube" ? (
@@ -691,7 +724,7 @@ function QueueEntryCard({
                   <Plug className="h-3 w-3" /> {connectVerb} YouTube
                 </a>
               ) : null}
-              {showConnect && advice?.viaSettings ? (
+              {showConnect && platform !== "youtube" ? (
                 <Link href="/settings#accounts" className={INLINE_ACTION}>
                   <Plug className="h-3 w-3" /> {connectVerb} {PLATFORM_LABELS[platform]}
                 </Link>
@@ -717,17 +750,24 @@ function QueueEntryCard({
       {confirm === "publish" ? (
         <ConfirmDialog
           title="Publish now?"
-          description={`Publish "${item.title}" to ${labelList(targets) || PLATFORM_LABELS[platform]} now?`}
+          description={`Publish "${item.title}" to ${labelList(sendable) || PLATFORM_LABELS[platform]} now?`}
           confirmLabel="Publish now"
           onCancel={() => setConfirm(null)}
           onConfirm={() => {
             setConfirm(null);
-            onPublishNow(item);
+            onPublishNow(item, skipped.length > 0 ? sendable : undefined);
           }}
         >
+          {skipped.length > 0 ? (
+            <p className="tone-warning tone-text">
+              {labelList(skipped)} {skipped.length === 1 ? "is" : "are"} not connected, so{" "}
+              {skipped.length === 1 ? "it stays" : "they stay"} waiting. Connect {skipped.length === 1 ? "it" : "them"} in
+              Settings to post {skipped.length === 1 ? "it" : "them"} too.
+            </p>
+          ) : null}
           <p>
             This does not wait for the slot ({time}). Every platform above that has not finished posts immediately
-            {targets.includes("youtube") ? ", and a YouTube video held for its slot is made public right away" : ""}.
+            {sendable.includes("youtube") ? ", and a YouTube video held for its slot is made public right away" : ""}.
           </p>
         </ConfirmDialog>
       ) : null}
@@ -1031,7 +1071,15 @@ function EditableTitle({
   return <TitleInput title={title} onDone={() => onEditingChange(false)} onRename={onRename} />;
 }
 
-/** Mounted only while editing, so every edit starts from the title as it is now. */
+/**
+ * Mounted only while editing, so every edit starts from the title as it is now.
+ *
+ * Enter and the check button save, Escape and the cross cancel, and the hint
+ * under the field says so: the field alone gave no sign how to finish. Leaving
+ * the field still saves (as it always did). The buttons keep the input focused
+ * on press (preventDefault on mousedown) so pressing one is not first a blur
+ * that saves and unmounts the field before the click lands.
+ */
 function TitleInput({ title, onDone, onRename }: { title: string; onDone: () => void; onRename: (title: string) => void }) {
   const [draft, setDraft] = useState(title);
   const commit = () => {
@@ -1039,25 +1087,53 @@ function TitleInput({ title, onDone, onRename }: { title: string; onDone: () => 
     const trimmed = draft.trim();
     if (trimmed && trimmed !== title) onRename(trimmed);
   };
+  const cancel = () => {
+    setDraft(title);
+    onDone();
+  };
   return (
-    <input
-      autoFocus
-      value={draft}
-      maxLength={100}
-      onChange={(event) => setDraft(event.target.value)}
-      onFocus={(event) => event.target.select()}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          commit();
-        } else if (event.key === "Escape") {
-          setDraft(title);
-          onDone();
-        }
-      }}
-      aria-label="Video title"
-      className="w-full min-w-0 flex-1 rounded border border-[var(--accent)]/50 bg-[var(--well-deep)] px-1 py-0.5 text-xs font-medium text-white outline-none"
-    />
+    <div className="min-w-0 flex-1">
+      <div className="flex items-center gap-1">
+        <input
+          autoFocus
+          value={draft}
+          maxLength={100}
+          onChange={(event) => setDraft(event.target.value)}
+          onFocus={(event) => event.target.select()}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commit();
+            } else if (event.key === "Escape") {
+              cancel();
+            }
+          }}
+          aria-label="Video title"
+          className="w-full min-w-0 flex-1 rounded border border-[var(--accent)]/50 bg-[var(--well-deep)] px-1 py-0.5 text-xs font-medium text-white outline-none"
+        />
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={commit}
+          aria-label="Save title"
+          title="Save the new title (Enter)"
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--success)] transition hover:bg-white/10"
+        >
+          <Check className="h-3.5 w-3.5" aria-hidden />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={cancel}
+          aria-label="Cancel renaming"
+          title="Keep the old title (Esc)"
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+        >
+          <X className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      </div>
+      <p className="mt-0.5 text-[10px] leading-snug text-[var(--muted-foreground)]">Enter to save · Esc to cancel</p>
+    </div>
   );
 }
