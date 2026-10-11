@@ -14,6 +14,7 @@ already shipped.
 
 ## Unreleased
 
+- **The YouTube setup says why it needs a Google key and walks the first step.** Settings > Accounts opens step 1 with one plain sentence on why, four bullets for the Google Cloud console, a "Copy redirect URI" button that copies the exact address the app sends (with a "Copied" confirmation) and an "Open Google Cloud console" link.
 - **A clip's Download button fits its card, and Schedule says where it goes.** The three buttons overflowed a clip card on Short Clips; the row now wraps, and "Schedule" is "Schedule in Uploading Center", which opens that clip already picked for a slot.
 - **Automations leads with what is running.** Cards that are blocked by missing setup or have never run fold into a closed "N more not set up" disclosure, and the Cadence note now says these settings need a restart to change - see Advanced.
 - **Carousel reminders repeat as one row.** A weekly reminder shows as "Every Tue 18:00 · TikTok, YouTube" instead of a row for every Tuesday, and Remove clears all of its schedules at once.

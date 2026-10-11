@@ -17,6 +17,9 @@ import {
   type ConnectFailures
 } from "@/lib/publisher/connectErrors";
 import {
+  YOUTUBE_CONSOLE_STEPS,
+  YOUTUBE_CONSOLE_URL,
+  YOUTUBE_WHY,
   buildGetStarted,
   connectionProgress,
   connectionStatus,
@@ -93,17 +96,83 @@ function RedirectUri({ connection, uri }: { connection: Connection; uri: string 
 }
 
 /**
+ * Step 1 of the YouTube checklist, opened: the Google Cloud console in plain
+ * sub-steps, and the redirect URI to paste into the client. The address is the
+ * one GET /api/connections computes from the request origin - the same helper
+ * the start route sends to Google - so it is copied from there, not rebuilt
+ * from the address bar.
+ */
+function YoutubeConsoleSteps({ redirectUri }: { redirectUri: string | undefined }) {
+  const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
+  const resetTimer = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (resetTimer.current !== null) window.clearTimeout(resetTimer.current);
+  }, []);
+
+  const copy = async () => {
+    if (!redirectUri) return;
+    let next: "copied" | "failed" = "copied";
+    try {
+      await navigator.clipboard.writeText(redirectUri);
+    } catch {
+      next = "failed";
+    }
+    setCopied(next);
+    if (resetTimer.current !== null) window.clearTimeout(resetTimer.current);
+    resetTimer.current = window.setTimeout(() => setCopied("idle"), 2500);
+  };
+
+  // Only the redirect note that matters here: the address bar says 127.0.0.1
+  // while the app sends localhost, which would look like a typo otherwise.
+  const note = redirectUri
+    ? redirectUriNote("youtube", redirectUri, typeof window === "undefined" ? null : window.location.origin)
+    : null;
+
+  return (
+    <div className="mt-3 space-y-3 rounded-lg border border-[var(--border)] bg-black/20 p-3">
+      <ul className="list-disc space-y-1.5 pl-5 text-xs text-[var(--muted-foreground)]">
+        {YOUTUBE_CONSOLE_STEPS.map((text) => (
+          <li key={text}>{text}</li>
+        ))}
+      </ul>
+      <div>
+        <p className="text-xs font-medium text-white/90">Redirect URI - add it exactly as written</p>
+        <code className="mt-1 block break-all rounded bg-white/10 px-2 py-1.5 text-xs text-white">{redirectUri ?? "Loading..."}</code>
+        {note ? <p className="mt-1 text-xs text-[var(--muted-foreground)]">{note}</p> : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="secondary" onClick={() => void copy()} disabled={!redirectUri} aria-live="polite">
+          {copied === "copied" ? <Check className="h-4 w-4" aria-hidden="true" /> : <Copy className="h-4 w-4" aria-hidden="true" />}
+          {copied === "copied" ? "Copied" : copied === "failed" ? "Could not copy - select it above" : "Copy redirect URI"}
+        </Button>
+        <a
+          href={YOUTUBE_CONSOLE_URL}
+          target="_blank"
+          rel="noopener"
+          className="inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium text-[var(--accent)] hover:underline"
+        >
+          Open Google Cloud console <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+        </a>
+      </div>
+    </div>
+  );
+}
+
+/**
  * How far along setup is: "N of M connected" across the rows below, and the
  * four YouTube steps inline until YouTube is signed in. The rows below already
  * carry each platform's own status, so this strip does not repeat them.
  */
-function GetStartedStrip({ checklist, progress, headline, setUp, known, onOpen }: {
+function GetStartedStrip({ checklist, progress, headline, setUp, known, redirectUri, onOpen }: {
   checklist: YoutubeChecklist;
   progress: ConnectionProgress;
   headline: string;
   setUp: boolean;
   /** What is saved has been read; until then there is no progress to show. */
   known: boolean;
+  /** The YouTube redirect URI the server sends, once the state has loaded. */
+  redirectUri: string | undefined;
   onOpen: (id: string) => void;
 }) {
   return (
@@ -132,7 +201,8 @@ function GetStartedStrip({ checklist, progress, headline, setUp, known, onOpen }
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
             YouTube setup - {checklist.done} of {checklist.total} done
           </p>
-          <ol className="mt-2 space-y-2">
+          <p className="mt-2 text-sm text-white/90">{YOUTUBE_WHY}</p>
+          <ol className="mt-3 space-y-2">
             {checklist.steps.map((step, index) => (
               <li key={step.id} className="flex items-start gap-3">
                 <span
@@ -153,6 +223,7 @@ function GetStartedStrip({ checklist, progress, headline, setUp, known, onOpen }
                     <span className="sr-only">{step.done ? " - done" : step.current ? " - next" : " - to do"}</span>
                   </p>
                   {step.current ? <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">{step.detail}</p> : null}
+                  {step.current && step.id === "create-client" ? <YoutubeConsoleSteps redirectUri={redirectUri} /> : null}
                 </div>
               </li>
             ))}
@@ -379,7 +450,15 @@ export function ConnectionsSettings() {
         </div>
       </div>
 
-      <GetStartedStrip checklist={checklist} progress={progress} headline={getStarted.headline} setUp={getStarted.setUp} known={loaded && !loadFailed} onOpen={openRow} />
+      <GetStartedStrip
+        checklist={checklist}
+        progress={progress}
+        headline={getStarted.headline}
+        setUp={getStarted.setUp}
+        known={loaded && !loadFailed}
+        redirectUri={state.redirectUris?.youtube}
+        onOpen={openRow}
+      />
 
       <div className="mt-4 overflow-hidden rounded-xl border border-[var(--border)]">
         {CONNECTIONS.map((connection) => {

@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { CONNECTIONS } from "./connections";
-import { YOUTUBE_RECOMMENDATION, buildGetStarted, connectionProgress, connectionStatus, redirectUriNote, youtubeChecklist } from "./getStarted";
+import {
+  YOUTUBE_CONSOLE_STEPS,
+  YOUTUBE_CONSOLE_URL,
+  YOUTUBE_RECOMMENDATION,
+  YOUTUBE_WHY,
+  buildGetStarted,
+  connectionProgress,
+  connectionStatus,
+  redirectUriNote,
+  youtubeChecklist
+} from "./getStarted";
 
 const phase = { loaded: true, loadFailed: false };
 const empty = { present: {}, connected: {} };
@@ -154,5 +164,28 @@ describe("connectionProgress", () => {
 
   it("says nothing is connected while the state is unknown", () => {
     expect(connectionProgress({ present: {}, connected: { youtube: true } }, { loaded: false, loadFailed: false }).connected).toBe(0);
+  });
+});
+
+describe("YouTube setup walkthrough", () => {
+  it("says why a Google client is needed in one plain line", () => {
+    expect(YOUTUBE_WHY).toMatch(/^YouTube asks every app to use its own Google sign-in key\./);
+    expect(YOUTUBE_WHY).not.toMatch(/[\u2013\u2014]/); // no dashes in UI copy
+  });
+
+  it("walks the Google console in three to four plain steps, naming what to enable and create", () => {
+    expect(YOUTUBE_CONSOLE_STEPS.length).toBeGreaterThanOrEqual(3);
+    expect(YOUTUBE_CONSOLE_STEPS.length).toBeLessThanOrEqual(4);
+    const text = YOUTUBE_CONSOLE_STEPS.join(" ");
+    expect(text).toContain("YouTube Data API v3");
+    expect(text).toContain("Web application");
+    expect(text).toContain("Authorized redirect URIs");
+    expect(YOUTUBE_CONSOLE_URL).toBe("https://console.cloud.google.com/");
+  });
+
+  it("points the create-client step at the walkthrough instead of repeating it", () => {
+    const step = youtubeChecklist(empty, phase).steps[0];
+    expect(step.current).toBe(true);
+    expect(step.detail).toMatch(/four steps/);
   });
 });

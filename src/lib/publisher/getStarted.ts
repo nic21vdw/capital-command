@@ -138,6 +138,25 @@ export function buildGetStarted(
 /* The YouTube checklist and the progress line                         */
 /* ------------------------------------------------------------------ */
 
+/** The one line above the YouTube steps: why there is a Google client to make at all. */
+export const YOUTUBE_WHY =
+  "YouTube asks every app to use its own Google sign-in key. You create a private one once - about 10 minutes - and posts then go out from your own channel.";
+
+export const YOUTUBE_CONSOLE_URL = "https://console.cloud.google.com/";
+
+/**
+ * Step 1 walked through in the Google Cloud console, in the order the README
+ * gives it. The consent screen is listed because Google will not issue a Web
+ * application client until one is set up; External with yourself as a test
+ * user is what the README asks for.
+ */
+export const YOUTUBE_CONSOLE_STEPS: string[] = [
+  "Open the Google Cloud console and create a project, or pick one you already have.",
+  "Go to APIs & Services > Library, search for YouTube Data API v3, and press Enable.",
+  "Go to APIs & Services > OAuth consent screen. Choose External, give it a name and your email, and add your own Google account as a test user.",
+  "Go to APIs & Services > Credentials > Create credentials > OAuth client ID, choose Web application, and under Authorized redirect URIs add the address below. Then copy the Client ID and Client secret it shows you into the fields below."
+];
+
 export type ChecklistStep = {
   id: "create-client" | "client-id" | "client-secret" | "sign-in";
   label: string;
@@ -178,7 +197,7 @@ export function youtubeChecklist(
     {
       id: "create-client",
       label: "Create a Google OAuth client",
-      detail: "In Google Cloud: enable YouTube Data API v3, then make a Web application client and register the redirect URI.",
+      detail: "Follow the four steps in Google's console, then paste the two values it gives you.",
       done: hasId || hasSecret || signedIn
     },
     { id: "client-id", label: `Save the ${idField.label}`, detail: "Paste it into the YouTube row and press Save credentials.", done: hasId },
