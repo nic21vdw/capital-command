@@ -64,7 +64,7 @@ describe("automation dashboard evidence", () => {
     const card = buildAutomationOverview(input, now).cards.find((entry) => entry.id === "threads")!;
     expect(card.nextItemAt).toBe("2026-10-01T17:00:00.000Z");
     expect(card.counts.find((count) => count.label === "Sent today")?.value).toBe(1);
-    expect(card.counts.find((count) => count.label === "Waiting today")?.value).toBe(3);
+    expect(card.counts.find((count) => count.label === "Scheduled today")?.value).toBe(3);
   });
 
   it("keeps plain words on the cards: no Windows task, heartbeat or tick", () => {

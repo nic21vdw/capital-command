@@ -19,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ClipPreview } from "@/components/uploading-center/clip-preview";
 import { bookedClip } from "@/components/uploading-center/booked-clip";
 import { StatusChip } from "@/components/uploading-center/status-chip";
+import { formatClockTime, formatSlotDateTime } from "@/lib/timeFormat";
 import { describeFailure } from "@/lib/publisher/failure";
 import {
   isTiktokInboxDraft,
@@ -133,14 +134,7 @@ export function hasHashtag(title: string, hashtag: string): boolean {
 
 /** Short, friendly timestamp like "Mon, Jul 14, 7:30 PM", on the wall clock of the publish zone. */
 export function formatStamp(iso: string, timeZone: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    timeZone,
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  });
+  return formatSlotDateTime(iso, timeZone, { weekday: true });
 }
 
 /** Just the day part, like "Mon, Jul 14" (in the publish zone) — used for the "Uploaded …" confirmation. */
@@ -527,7 +521,7 @@ export function ClipCard({
               <option value="">{everywhere ? "Pick a slot open everywhere…" : "Pick a slot…"}</option>
               {openSlots.map((slot) => (
                 <option key={slot.id} value={slot.utc}>
-                  {slot.dateLabel} · {slot.time}
+                  {slot.dateLabel} · {formatClockTime(slot.time)}
                 </option>
               ))}
             </Select>

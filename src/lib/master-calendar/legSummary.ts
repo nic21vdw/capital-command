@@ -1,3 +1,4 @@
+import { formatClockTime } from "@/lib/timeFormat";
 import {
   eventStatusLabel,
   isAwaitingConnectionEventStatus,
@@ -109,7 +110,8 @@ function describe(kind: LegGroupKind, platforms: string[], upcoming: boolean, wh
     case "scheduled":
       return { short: `${list} ${isAre} scheduled`, text: `${names} ${isAre} scheduled.` };
     case "queued":
-      return { short: `${list} ${isAre} queued`, text: `${names} ${isAre} queued.` };
+      // Still "queued" in the code; to the person it is simply scheduled.
+      return { short: `${list} ${isAre} scheduled`, text: `${names} ${isAre} scheduled.` };
   }
 }
 
@@ -130,7 +132,7 @@ export function legLines(event: Pick<MasterCalendarEvent, "legs" | "time">, when
   // In the post's own platform order (a Map keeps first-seen order), so the line
   // reads the way the platforms are listed everywhere else.
   return [...groups].map(([kind, { platforms, upcoming }]) => {
-    return { kind, platforms, upcoming, attention: ATTENTION.has(kind), ...describe(kind, platforms, upcoming, when ?? event.time) };
+    return { kind, platforms, upcoming, attention: ATTENTION.has(kind), ...describe(kind, platforms, upcoming, when ?? (event.time ? formatClockTime(event.time) : undefined)) };
   });
 }
 

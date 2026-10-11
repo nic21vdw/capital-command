@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowUpRight, Bell, CalendarDays, ChevronLeft, ChevronRight, LayoutList, Clock, Loader2, Lock, Repeat, Sparkles } from "lucide-react";
-import { Badge, type BadgeTone } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
@@ -25,6 +25,8 @@ import {
   type MasterCalendarResponse
 } from "@/lib/master-calendar/types";
 import { summarizeEventStatus } from "@/lib/master-calendar/legSummary";
+import { formatClockTime } from "@/lib/timeFormat";
+import { statusTone } from "@/lib/statusTone";
 import type { CalendarPlan } from "@/lib/master-calendar/planner";
 import { sourceHrefForDay } from "@/lib/master-calendar/aggregate";
 import { formatDayKey, localTodayKey, shiftDayKey, weekdayOfDayKey } from "@/lib/master-calendar/day-keys";
@@ -71,19 +73,11 @@ function startOfWeek(key: string): string {
   return shiftDayKey(key, -weekdayOfDayKey(key));
 }
 
-function statusTone(status: string): BadgeTone {
-  if (status === "published" || status === "posted") return "success";
-  if (isFailedEventStatus(status)) return "danger";
-  if (status === "scheduled") return "info";
-  if (isLateEventStatus(status) || isAwaitingConnectionEventStatus(status)) return "warning";
-  return "neutral";
-}
-
 const HELD_NOTE = "Stays private - publish by hand after review";
 
 /** The slot as a tooltip writes it: "Oct 14, 15:00" (the month view's day is not on screen). */
 function slotLabel(event: MasterCalendarEvent): string {
-  return `${formatDayKey(event.dateKey, { month: "short", day: "numeric" })}${event.time ? `, ${event.time}` : ""}`;
+  return `${formatDayKey(event.dateKey, { month: "short", day: "numeric" })}${event.time ? `, ${formatClockTime(event.time)}` : ""}`;
 }
 
 /**
@@ -120,7 +114,7 @@ function EventChip({ event }: { event: MasterCalendarEvent }) {
   return (
     <Link
       href={eventHref(event)}
-      title={`${event.time ? `${event.time} · ` : ""}${event.title}${eventNote(event)} — open ${source.hrefLabel}`}
+      title={`${event.time ? `${formatClockTime(event.time)} · ` : ""}${event.title}${eventNote(event)} — open ${source.hrefLabel}`}
       className={cn(
         "flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] leading-tight transition hover:translate-x-0.5 hover:bg-white/10",
         reminder ? "border border-dashed border-[var(--border-strong)] bg-transparent opacity-80" : "border-l-2 bg-white/5"
@@ -128,7 +122,7 @@ function EventChip({ event }: { event: MasterCalendarEvent }) {
       style={reminder ? undefined : { borderLeftColor: source.color }}
     >
       {reminder ? <Bell className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" aria-label="Reminder" /> : <SourceIcon source={event.source} className="h-3 w-3" />}
-      {event.time ? <span className="shrink-0 font-semibold text-[var(--muted-foreground)]">{event.time}</span> : null}
+      {event.time ? <span className="shrink-0 whitespace-nowrap font-semibold text-[var(--muted-foreground)]">{formatClockTime(event.time)}</span> : null}
       <span className={cn("min-w-0 truncate", reminder ? "text-[var(--muted-foreground)]" : "text-white")}>{event.title}</span>
       {isFailedEventStatus(event.status) ? <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-red-300" aria-label={event.status} /> : null}
       {isLateEventStatus(event.status) ? <Clock className="h-2.5 w-2.5 shrink-0 text-amber-300" aria-label={lateNote(event)} /> : null}
@@ -204,7 +198,7 @@ function EventCard({ event }: { event: MasterCalendarEvent }) {
       )}
       style={reminder ? undefined : { borderLeftColor: source.color }}
     >
-      <span className="w-12 shrink-0 text-sm font-semibold text-[var(--accent)]">{event.time ?? "—"}</span>
+      <span className="w-[4.5rem] shrink-0 whitespace-nowrap text-sm font-semibold text-[var(--accent)]">{event.time ? formatClockTime(event.time) : "—"}</span>
       <SourceIcon source={event.source} className="h-4 w-4" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium text-white">{event.title}</span>
@@ -493,7 +487,7 @@ function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: Master
   }, [events]);
   const nextPostReading = nextEvent
     ? `${formatDayKey(nextEvent.dateKey, { weekday: "short", month: "short", day: "numeric" })}${
-        nextEvent.time ? ` ${nextEvent.time}` : ""
+        nextEvent.time ? ` ${formatClockTime(nextEvent.time)}` : ""
       } · ${nextEvent.title} (${CALENDAR_SOURCE_BY_ID[nextEvent.source].shortLabel})`
     : "Nothing upcoming in this view";
 

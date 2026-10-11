@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { threadsSlotStatus } from "@/lib/master-calendar/aggregate";
-import { autopilotHeader, formatThreadsStamp, postState, summarizeThreadsToday, todayHeadline, todaySendsNote } from "@/lib/threads/todaySummary";
+import { autopilotHeader, formatThreadsStamp, postState, summarizeThreadsToday, todayHeadline } from "@/lib/threads/todaySummary";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 
 type Row = Parameters<typeof summarizeThreadsToday>[0] extends (infer R)[] | undefined ? R : never;
@@ -19,27 +19,50 @@ function fixtureDay(): Row[] {
   return rows;
 }
 
+const TORONTO = { timeZone: "America/Toronto" };
+
 describe("today's Threads numbers", () => {
   it("counts a post once however many accounts send it, and includes hand-added posts", () => {
     const summary = summarizeThreadsToday(fixtureDay(), "2026-10-10");
-    expect(summary).toMatchObject({ posts: 7, sent: 3, waiting: 4, failed: 0, skipped: 0, sends: 13, sendsDone: 6, accounts: 2 });
-    expect(todayHeadline(summary)).toBe("3 of 7 posts sent today");
-    expect(todaySendsNote(summary)).toContain("6 of 13 sends across 2 accounts");
+    // 6 pack slots on two accounts (12 rows) + 1 hand-added post (1 row) = 7 posts, however many rows send them.
+    expect(summary).toMatchObject({ posts: 7, sent: 3, waiting: 4, failed: 0, skipped: 0 });
+    expect(summary).not.toHaveProperty("sends");
   });
 
-  it("makes the next post the earliest pending row by its own time, on any day", () => {
+  it("makes the next post the earliest pending row by its own time, on any day, with its account", () => {
     const rows = fixtureDay();
-    expect(summarizeThreadsToday(rows, "2026-10-10").next).toEqual({ at: "2026-10-11T00:00:00.000Z", topic: "Topic" });
+    expect(summarizeThreadsToday(rows, "2026-10-10").next).toEqual({ at: "2026-10-11T00:00:00.000Z", topic: "Topic", accountId: "primary" });
     expect(summarizeThreadsToday(rows, "2026-10-12").next?.at).toBe("2026-10-11T00:00:00.000Z");
     expect(summarizeThreadsToday(rows.map((item) => ({ ...item, status: "published" as const })), "2026-10-10").next).toBeNull();
   });
 
-  it("says nothing extra for one account, and reads an empty day plainly", () => {
-    const single = summarizeThreadsToday([row({ id: "a", status: "published" }), row({ id: "b", slot: 2 })], "2026-10-10");
-    expect(todaySendsNote(single)).toBe("");
-    expect(todayHeadline(single)).toBe("1 of 2 posts sent today");
-    expect(todayHeadline(summarizeThreadsToday([], "2026-10-10"))).toBe("Nothing queued for today yet");
-    expect(todayHeadline(summarizeThreadsToday([row({ id: "a", status: "published" })], "2026-10-10"))).toBe("1 of 1 post sent today");
+  it("shows ONE number and ONE next step in the headline", () => {
+    // The next row is 8:00 PM on Oct 10 in Toronto - the day being summarised - so no date is printed.
+    const summary = summarizeThreadsToday(fixtureDay(), "2026-10-10");
+    expect(todayHeadline(summary, TORONTO)).toBe("7 posts today - next at 8:00 PM");
+    expect(todayHeadline(summary, { ...TORONTO, accountLabel: (id) => (id === "primary" ? "Account 1" : "Account 2") })).toBe("7 posts today - next at 8:00 PM on Account 1");
+    // The headline is the same posts count the summary carries: never a second number from another source.
+    expect(todayHeadline(summary, TORONTO).match(/\b\d+\s+posts?\b/g)).toEqual(["7 posts"]);
+  });
+
+  it("names the day when the next post is not on the day being summarised", () => {
+    const summary = summarizeThreadsToday(fixtureDay(), "2026-10-11");
+    expect(todayHeadline(summary, TORONTO)).toBe("1 post today - next at Oct 10, 8:00 PM");
+  });
+
+  it("says what is left instead of a next time when nothing is pending", () => {
+    const sent = summarizeThreadsToday([row({ id: "a", status: "published" }), row({ id: "b", slot: 2, status: "published" })], "2026-10-10");
+    expect(todayHeadline(sent, TORONTO)).toBe("2 posts today - all sent");
+    const failed = summarizeThreadsToday([row({ id: "a", status: "published" }), row({ id: "b", slot: 2, status: "failed" })], "2026-10-10");
+    expect(todayHeadline(failed, TORONTO)).toBe("2 posts today - 1 failed, retry below");
+  });
+
+  it("reads an empty day plainly", () => {
+    expect(todayHeadline(summarizeThreadsToday([], "2026-10-10"), TORONTO)).toBe("Nothing queued for today yet");
+    expect(todayHeadline(summarizeThreadsToday([row({ id: "a", batchDate: "2026-10-11", publishAt: "2026-10-12T00:00:00.000Z" })], "2026-10-10"), TORONTO)).toBe(
+      "Nothing queued for today yet - next at Oct 11, 8:00 PM"
+    );
+    expect(todayHeadline(summarizeThreadsToday([row({ id: "a", status: "published" })], "2026-10-10"), TORONTO)).toBe("1 post today - all sent");
   });
 
   it("rolls a post's accounts up exactly like the Day Summary does", () => {
@@ -58,15 +81,16 @@ describe("today's Threads numbers", () => {
 
 describe("the page header", () => {
   const base = { postsPerDay: 24, accounts: 2, linkReplies: true, paused: false, armed: true, known: true };
-  it("describes the configured cadence and the pack actually written", () => {
-    const text = autopilotHeader({ ...base, pack: { posts: 6, replies: 2, label: "Today's pack" } });
-    expect(text).toContain("Today's pack has 6 posts and 2 replies to use by hand");
-    expect(text).toContain("24 times a day on each of 2 accounts, each followed by a link reply");
-    expect(text).not.toMatch(/\b20 replies\b/);
+  it("describes the cadence and the pack without counting today's posts", () => {
+    const text = autopilotHeader({ ...base, pack: { label: "Today's pack" } });
+    expect(text).toContain("Today's pack is written");
+    expect(text).toContain("post on each of your accounts, each post followed by a link reply");
     expect(text).toContain("sends them for you");
+    // Today's count lives in the card's headline only: no number may appear here to disagree with it.
+    expect(text).not.toMatch(/\d/);
   });
   it("claims nothing about the cadence before the status has loaded", () => {
-    expect(autopilotHeader({ ...base, known: false, pack: { posts: 6, replies: 2, label: "Today's pack" } })).toBe("Today's pack has 6 posts and 2 replies to use by hand.");
+    expect(autopilotHeader({ ...base, known: false, pack: { label: "Today's pack" } })).toBe("Today's pack is written - copy anything from it to post by hand.");
   });
   it("does not say it is set to post when no account is connected", () => {
     const text = autopilotHeader({ ...base, accounts: 0, armed: false, pack: null });

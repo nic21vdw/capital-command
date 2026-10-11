@@ -92,8 +92,8 @@ describe("what a waiting post says on the board", () => {
     expect(pendingLabel("tiktok")).toBe("Posts at slot");
   });
 
-  it("falls back to the queue's own word when no platform is given", () => {
-    expect(pendingLabel()).toBe("Queued");
+  it("falls back to the plain word for a booked post when no platform is given", () => {
+    expect(pendingLabel()).toBe("Scheduled");
   });
 
   it("explains why nothing is on the platform yet", () => {

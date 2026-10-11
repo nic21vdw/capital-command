@@ -27,8 +27,8 @@ describe("cadenceBadge", () => {
 
 describe("packSizeNote", () => {
   it("names both numbers when the pack is not the configured day", () => {
-    expect(packSizeNote({ packPosts: 6, postsPerDay: 24, label: "Today" })).toBe("Today: 6 posts in the pack; the autopilot posts up to 24 a day.");
-    expect(packSizeNote({ packPosts: 1, postsPerDay: 24, label: "Today" })).toContain("1 post in the pack");
+    expect(packSizeNote({ packPosts: 6, postsPerDay: 24, label: "Today" })).toBe("Today: 6 ideas in the pack; the autopilot posts up to 24 a day.");
+    expect(packSizeNote({ packPosts: 1, postsPerDay: 24, label: "Today" })).toContain("1 idea in the pack");
   });
   it("is silent when they agree or the cadence is unknown", () => {
     expect(packSizeNote({ packPosts: 24, postsPerDay: 24, label: "Today" })).toBeNull();

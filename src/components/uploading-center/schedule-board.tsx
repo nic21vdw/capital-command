@@ -10,6 +10,7 @@ import { Modal } from "@/components/ui/modal";
 import { Textarea } from "@/components/ui/textarea";
 import { YoutubeCardStats } from "@/components/publisher/youtube-stats-line";
 import { StatusChip } from "@/components/uploading-center/status-chip";
+import { formatClockTime } from "@/lib/timeFormat";
 import { CLIP_DRAG_TYPE } from "@/components/uploading-center/clip-card";
 import { splitEarlierDays } from "@/components/uploading-center/earlier-days";
 import {
@@ -292,7 +293,7 @@ function DayBand({
             <QueueEntryCard
               key={`q:${entry.item.id}`}
               platform={platform}
-              time={entry.time}
+              time={formatClockTime(entry.time)}
               item={entry.item}
               thumbnailForItem={thumbnailForItem}
               today={today}
@@ -309,7 +310,7 @@ function DayBand({
               timeZone={timeZone}
             />
           ) : (
-            <ChannelEntryCard key={`c:${entry.video.videoId}`} time={entry.time} entry={entry} today={today} />
+            <ChannelEntryCard key={`c:${entry.video.videoId}`} time={formatClockTime(entry.time)} entry={entry} today={today} />
           )
         )}
         {openSlots.map((slot) => (
@@ -1030,7 +1031,7 @@ function OpenSlotCard({
           today && "border-[var(--accent)]/70"
         )}
       >
-        <span className={cn("text-[10px]", today && "font-medium text-[var(--accent)]")}>{slot.time}</span>
+        <span className={cn("text-[10px]", today && "font-medium text-[var(--accent)]")}>{formatClockTime(slot.time)}</span>
         Schedule here
       </button>
     );
@@ -1065,7 +1066,7 @@ function OpenSlotCard({
         dragOverSlot === slot.id && "border-[var(--accent)] bg-[var(--accent)]/10 text-white"
       )}
     >
-      <span className={cn("text-[10px]", today && "font-medium text-[var(--accent)]")}>{slot.time}</span>
+      <span className={cn("text-[10px]", today && "font-medium text-[var(--accent)]")}>{formatClockTime(slot.time)}</span>
       Drop a clip or video
       <button
         type="button"

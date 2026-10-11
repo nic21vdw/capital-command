@@ -1,4 +1,5 @@
 import { dateTimeFormat } from "@/lib/publisher/intl";
+import { formatSlotTime } from "@/lib/timeFormat";
 import { localCalendarParts, resolvePublishAt } from "@/lib/publisher/time";
 
 // Every time on the Threads Autopilot page is a moment in the autopilot's own
@@ -10,7 +11,7 @@ import { localCalendarParts, resolvePublishAt } from "@/lib/publisher/time";
 /** "7:10 PM" in `timeZone`. */
 export function threadsClock(iso: string, timeZone: string): string {
   if (!Number.isFinite(Date.parse(iso))) return "unknown";
-  return new Intl.DateTimeFormat(undefined, { timeZone, hour: "numeric", minute: "2-digit" }).format(new Date(iso));
+  return formatSlotTime(iso, timeZone);
 }
 
 /** The value a datetime-local input wants, as the wall clock of `timeZone`. */
