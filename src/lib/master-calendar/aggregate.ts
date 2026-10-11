@@ -11,6 +11,7 @@ import { pastSlotMarker, slotOverdue } from "@/lib/publisher/nativeScheduling";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 import {
+  AWAITING_CONNECTION_STATUS,
   NEEDS_CONNECTION_STATUS,
   OVERDUE_STATUS,
   SHOULD_BE_LIVE_STATUS,
@@ -135,12 +136,27 @@ function lateKind(item: QueueItem, platform: PlatformId, now: Date, isConnected?
 }
 
 /**
+ * Whether one leg is waiting on a connection with its slot still ahead: pending
+ * on an account that does not publish. The Uploading Center says "Needs
+ * <Platform> connection" for it before the slot too; the calendar used to call
+ * it "queued". Not late, so it never carries `late` - once the slot passes it
+ * becomes the "needs-connection" kind above.
+ */
+function awaitingConnection(item: QueueItem, platform: PlatformId, now: Date, isConnected?: LegConnected): boolean {
+  const leg = item.platforms[platform];
+  if (!leg || leg.status !== "pending" || !isConnected) return false;
+  if (isConnected(platform, item.accountId ?? `${platform}-primary`)) return false;
+  return !slotOverdue(item.publishAt, now);
+}
+
+/**
  * One overall status for a queue item across its per-platform states:
  * everything landed → published, everything dead → failed, some dead →
  * "partly failed" (it must not read as scheduled while one leg is lost), then
  * a slot that passed without the post going out ("overdue" when the publisher
  * never sent a leg, "should be live" when a platform holds it past its time),
- * anything already uploaded/natively scheduled → scheduled, otherwise still
+ * then a leg that cannot go out for want of a connection with its slot still
+ * ahead ("awaiting connection"), anything already uploaded/natively scheduled → scheduled, otherwise still
  * queued. `now` is what "past its slot" is measured against.
  */
 export function queueItemStatus(item: QueueItem, now: Date = new Date(), isConnected?: LegConnected): string {
@@ -152,6 +168,7 @@ export function queueItemStatus(item: QueueItem, now: Date = new Date(), isConne
   if (late.includes("needs-connection")) return NEEDS_CONNECTION_STATUS;
   if (late.includes("overdue")) return OVERDUE_STATUS;
   if (late.includes("should-be-live")) return SHOULD_BE_LIVE_STATUS;
+  if (PLATFORM_ORDER.some((id) => awaitingConnection(item, id, now, isConnected))) return AWAITING_CONNECTION_STATUS;
   if (states.some((state) => state?.status === "scheduled" || state?.status === "uploaded")) return "scheduled";
   return "queued";
 }
@@ -183,6 +200,7 @@ function legsFor(item: QueueItem, now: Date, isConnected?: LegConnected): NonNul
       platform: PLATFORM_LABELS[id],
       status: state.status,
       ...(late ? { late } : {}),
+      ...(awaitingConnection(item, id, now, isConnected) ? { awaitingConnection: true as const } : {}),
       ...(url ? { url } : {}),
       // Each leg opens ITS platform's tab. The event's own href points at the
       // platform that needs a look (a failed or hand-post leg), which is the

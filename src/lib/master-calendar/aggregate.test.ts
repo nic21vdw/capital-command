@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildMasterCalendarEvents } from "@/lib/master-calendar/aggregate";
-import { eventStatusLabel } from "@/lib/master-calendar/types";
+import { buildDaySummary } from "@/lib/master-calendar/day-summary";
+import { summarizeEventStatus } from "@/lib/master-calendar/legSummary";
+import { eventStatusLabel, isLateEventStatus } from "@/lib/master-calendar/types";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 import type { AppData } from "@/types/domain";
@@ -158,7 +160,7 @@ describe("a post whose slot has passed", () => {
       expect(legacy).toContain("instagram:instagram-primary");
     });
 
-    it("ranks above overdue and should-be-live, below a failure, and stays quiet before the slot", () => {
+    it("ranks above overdue and should-be-live and below a failure", () => {
       const mixed = item({
         platforms: {
           youtube: { status: "scheduled", postId: "abcdefghijk", attempts: 1 },
@@ -173,8 +175,52 @@ describe("a post whose slot has passed", () => {
       expect(eventStatusLabel(event.status, event)).toBe("Needs TikTok connection");
       const failed = item({ platforms: { instagram: { status: "pending", attempts: 0 }, facebook: { status: "failed", attempts: 3 } } });
       expect(events([failed], after, connectedExcept("instagram"))[0].status).toBe("partly failed");
-      expect(events([pending], before, connectedExcept("instagram"))[0].status).toBe("queued");
-      expect(events([pending], justAfter, connectedExcept("instagram"))[0].status).toBe("queued");
+    });
+
+    it("is not late before the slot: it reads 'awaiting connection' with the leg flagged, not marked late", () => {
+      const [event] = events([pending], before, connectedExcept("instagram"));
+      expect(event.status).toBe("awaiting connection");
+      expect(event.legs![0]).toMatchObject({ platform: "Instagram", status: "pending", awaitingConnection: true });
+      expect(event.legs![0].late).toBeUndefined();
+      expect(isLateEventStatus(event.status)).toBe(false);
+      expect(eventStatusLabel(event.status, event)).toBe("Needs Instagram connection");
+      // Inside the publisher's grace the slot has not been missed either.
+      expect(events([pending], justAfter, connectedExcept("instagram"))[0].status).toBe("awaiting connection");
+    });
+
+    it("counts as 'needs connection' on the day, not as queued and not as late", () => {
+      const [event] = events([pending], before, connectedExcept("instagram"));
+      const day = buildDaySummary("2026-08-08", [event]);
+      expect(day.states.needsConnection).toBe(1);
+      expect(day.states.scheduled).toBe(0);
+      expect(day.states.overdue).toBe(0);
+    });
+
+    it("only a connected account's pending leg stays 'queued' before the slot", () => {
+      expect(events([pending], before, connectedExcept("youtube"))[0].status).toBe("queued");
+      expect(events([pending], before)[0].status).toBe("queued");
+      expect(events([pending], before)[0].legs![0].awaitingConnection).toBeUndefined();
+    });
+
+    it("flags only the unconnected legs of a post, and ranks below a late leg", () => {
+      const mixed = item({
+        platforms: {
+          youtube: { status: "scheduled", postId: "abcdefghijk", attempts: 1 },
+          instagram: { status: "pending", attempts: 0 },
+          facebook: { status: "pending", attempts: 0 }
+        }
+      });
+      const [event] = events([mixed], before, connectedExcept("instagram", "facebook"));
+      expect(event.status).toBe("awaiting connection");
+      expect(event.legs!.map((leg) => Boolean(leg.awaitingConnection))).toEqual([false, true, true]);
+      expect(eventStatusLabel(event.status, event)).toBe("Needs connection");
+      const summary = summarizeEventStatus(event);
+      expect(summary.mixed).toBe(true);
+      expect(summary.headline).toBe("YouTube is scheduled · Instagram, Facebook need connection");
+      // Once the slot passes the same legs are the past-slot kind, and no longer "awaiting".
+      const [past] = events([mixed], after, connectedExcept("instagram", "facebook"));
+      expect(past.status).toBe("needs connection");
+      expect(past.legs!.some((leg) => leg.awaitingConnection)).toBe(false);
     });
   });
 

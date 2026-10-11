@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eventStatusLabel, isLateEventStatus, isReminderEventStatus } from "@/lib/master-calendar/types";
+import { eventStatusLabel, isAwaitingConnectionEventStatus, isLateEventStatus, isReminderEventStatus } from "@/lib/master-calendar/types";
 
 describe("reminder events", () => {
   it("tells a carousel reminder from a scheduled post and labels it plainly", () => {
@@ -21,5 +21,16 @@ describe("past-slot statuses", () => {
     expect(eventStatusLabel("needs connection", { legs: [{ platform: "YouTube", status: "pending", late: "needs-connection" }] })).toBe("Needs YouTube connection");
     expect(isLateEventStatus("scheduled")).toBe(false);
     expect(isLateEventStatus("failed")).toBe(false);
+  });
+});
+
+describe("awaiting-connection status", () => {
+  it("reads as the Uploading Center does before the slot, and is not late", () => {
+    expect(isAwaitingConnectionEventStatus("awaiting connection")).toBe(true);
+    expect(isLateEventStatus("awaiting connection")).toBe(false);
+    expect(eventStatusLabel("awaiting connection")).toBe("Needs connection");
+    expect(
+      eventStatusLabel("awaiting connection", { legs: [{ platform: "YouTube", status: "pending", awaitingConnection: true }] })
+    ).toBe("Needs YouTube connection");
   });
 });

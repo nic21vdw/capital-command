@@ -58,7 +58,10 @@ export type WeekPlatformRow = {
   shouldBeLive: number;
   /** Past its slot and the publisher has not sent it. */
   overdue: number;
-  /** Past its slot on an account with no connection: it could never go. */
+  /**
+   * On an account with no connection: past its slot it could never go; still
+   * ahead of it, it will not go on its own. Counted here and not again in `scheduled`.
+   */
   needsConnection: number;
   /** Where this platform's numbers live. */
   numbersNote: string;
@@ -138,7 +141,9 @@ function legsOf(event: MasterCalendarEvent): Leg[] {
             ? "overdue"
             : leg.late === "needs-connection"
               ? "needsConnection"
-              : LEG_OUTCOMES[leg.status];
+              : leg.awaitingConnection
+                ? "needsConnection"
+                : LEG_OUTCOMES[leg.status];
       if (platform && outcome) {
         out.push({ platform, outcome, ...(leg.url ? { url: leg.url } : {}), ...(leg.href ? { href: leg.href } : {}) });
       }
