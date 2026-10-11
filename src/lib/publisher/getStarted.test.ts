@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { CONNECTIONS } from "./connections";
 import {
   YOUTUBE_CONSOLE_STEPS,
+  splitConsoleStep,
+  walkthroughShowsRedirectUri,
   YOUTUBE_CONSOLE_URL,
   YOUTUBE_RECOMMENDATION,
   YOUTUBE_WHY,
@@ -189,5 +191,33 @@ describe("YouTube setup walkthrough", () => {
     const step = youtubeChecklist(empty, phase).steps[0];
     expect(step.current).toBe(true);
     expect(step.detail).toMatch(/four steps/);
+  });
+});
+
+describe("splitConsoleStep", () => {
+  it("keeps the first sentence as the lead and the rest as detail", () => {
+    const [, , consent] = YOUTUBE_CONSOLE_STEPS;
+    const { lead, rest } = splitConsoleStep(consent);
+    expect(lead).toBe("Go to APIs & Services > OAuth consent screen.");
+    expect(rest).toContain("Publish app");
+    expect(`${lead} ${rest}`).toBe(consent);
+  });
+
+  it("leaves a one-sentence step whole", () => {
+    expect(splitConsoleStep("Open the console.")).toEqual({ lead: "Open the console.", rest: "" });
+  });
+});
+
+describe("walkthroughShowsRedirectUri", () => {
+  it("is on only while step 1 is the current step and the state is known", () => {
+    expect(walkthroughShowsRedirectUri(youtubeChecklist(empty, phase), true)).toBe(true);
+    expect(walkthroughShowsRedirectUri(youtubeChecklist(empty, phase), false)).toBe(false);
+  });
+
+  it("is off once the client exists, so the card shows the address instead", () => {
+    const withClient = { present: { YOUTUBE_CLIENT_ID: true, YOUTUBE_CLIENT_SECRET: true }, connected: {} };
+    expect(walkthroughShowsRedirectUri(youtubeChecklist(withClient, phase), true)).toBe(false);
+    const done = { ...withClient, connected: { youtube: true } };
+    expect(walkthroughShowsRedirectUri(youtubeChecklist(done, phase), true)).toBe(false);
   });
 });

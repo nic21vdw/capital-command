@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { PlatformIcon, type PlatformIconKey } from "@/components/ui/platform-icon";
 import { CONNECTIONS, type Connection, type ConnectionField } from "@/lib/publisher/connections";
 import {
@@ -25,6 +26,8 @@ import {
   connectionStatus,
   redirectUriNote,
   requiredFields,
+  splitConsoleStep,
+  walkthroughShowsRedirectUri,
   youtubeChecklist,
   type ConnectionProgress,
   type YoutubeChecklist
@@ -104,6 +107,7 @@ function RedirectUri({ connection, uri }: { connection: Connection; uri: string 
  */
 function YoutubeConsoleSteps({ redirectUri }: { redirectUri: string | undefined }) {
   const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
+  const [details, setDetails] = useState(false);
   const resetTimer = useRef<number | null>(null);
 
   useEffect(() => () => {
@@ -130,12 +134,28 @@ function YoutubeConsoleSteps({ redirectUri }: { redirectUri: string | undefined 
     : null;
 
   return (
-    <div className="mt-3 space-y-3 rounded-lg border border-[var(--border)] bg-black/20 p-3">
-      <ul className="list-disc space-y-1.5 pl-5 text-xs text-[var(--muted-foreground)]">
-        {YOUTUBE_CONSOLE_STEPS.map((text) => (
-          <li key={text}>{text}</li>
-        ))}
-      </ul>
+    <div className="mt-3 space-y-2 rounded-lg border border-[var(--border)] bg-black/20 p-3 sm:space-y-3">
+      <ol className="list-decimal space-y-1 pl-5 text-xs leading-snug text-[var(--muted-foreground)] marker:text-white/60 sm:space-y-1.5">
+        {YOUTUBE_CONSOLE_STEPS.map((text) => {
+          // On a phone only each step's first sentence shows until "Show details".
+          const { lead, rest } = splitConsoleStep(text);
+          return (
+            <li key={text}>
+              {lead}
+              {rest ? <span className={cn(!details && "max-sm:hidden")}> {rest}</span> : null}
+            </li>
+          );
+        })}
+      </ol>
+      <button
+        type="button"
+        onClick={() => setDetails((open) => !open)}
+        aria-expanded={details}
+        className="-mt-1 inline-flex items-center gap-1 text-xs font-medium text-[var(--accent)] hover:underline max-sm:min-h-10 sm:hidden"
+      >
+        <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", details && "rotate-180")} aria-hidden="true" />
+        {details ? "Hide details" : "Show details"}
+      </button>
       <div>
         <p className="text-xs font-medium text-white/90">Redirect URI - add it exactly as written</p>
         <code className="mt-1 block break-all rounded bg-white/10 px-2 py-1.5 text-xs text-white">{redirectUri ?? "Loading..."}</code>
@@ -435,6 +455,7 @@ export function ConnectionsSettings() {
   const getStarted = buildGetStarted(state, phase);
   const checklist = youtubeChecklist(state, phase);
   const progress = connectionProgress(state, phase);
+  const walkthroughOpen = walkthroughShowsRedirectUri(checklist, loaded && !loadFailed);
 
   return (
     <Card id="accounts" className="scroll-mt-6">
@@ -469,7 +490,10 @@ export function ConnectionsSettings() {
           // A pasted token is only a token: nothing here proves it works, so a
           // platform with no sign-in never turns green on save.
           const status = connectionStatus(connection, state, { loaded, loadFailed });
-          const redirectUri = connection.oauth ? state.redirectUris?.[connection.id] : undefined;
+          // The YouTube walkthrough above already shows its address while step 1
+          // is current; the card repeats it only once that walkthrough has moved on.
+          const redirectUri =
+            connection.oauth && !(connection.id === "youtube" && walkthroughOpen) ? state.redirectUris?.[connection.id] : undefined;
 
           return (
             <div key={connection.id} id={`connection-row-${connection.id}`} className="scroll-mt-6 border-b border-[var(--border)] last:border-b-0">

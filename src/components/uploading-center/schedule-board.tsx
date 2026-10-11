@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { Check, ChevronUp, Clapperboard, ExternalLink, Images, Image as ImageIcon, Loader2, Pencil, Plug, RotateCcw, Send, Trash2, Upload, X } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Clapperboard, ExternalLink, Images, Image as ImageIcon, Loader2, Pencil, Plug, RotateCcw, Send, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -13,6 +13,7 @@ import { StatusChip } from "@/components/uploading-center/status-chip";
 import { formatClockTime } from "@/lib/timeFormat";
 import { CLIP_DRAG_TYPE } from "@/components/uploading-center/clip-card";
 import { splitEarlierDays } from "@/components/uploading-center/earlier-days";
+import { openSlotsSummary, shouldCollapseOpenSlots } from "@/components/uploading-center/open-slots";
 import {
   PLATFORM_LABELS,
   primaryAccountIdFor,
@@ -272,6 +273,15 @@ function DayBand({
 }) {
   const { today, past, entries, openSlots, shortsFull } = day;
   const empty = entries.length === 0 && openSlots.length === 0 && !shortsFull;
+  // On a phone a day's open slots fold into one line. Placement mode keeps them
+  // out (every slot is a one-click target there), and a slot mid-upload opens
+  // the group so its spinner is not hidden.
+  const [slotsOpen, setSlotsOpen] = useState(false);
+  const groupSlots = shouldCollapseOpenSlots(openSlots.length) && !onSelectSlot;
+  const foldSlots =
+    groupSlots &&
+    !slotsOpen &&
+    !openSlots.some((slot) => busy === `upload:${platform}:${slot.utc}`);
   return (
     <div
       id={`agenda-day-${day.dateKey}`}
@@ -320,20 +330,38 @@ function DayBand({
             <ChannelEntryCard key={`c:${entry.video.videoId}`} time={formatClockTime(entry.time)} entry={entry} today={today} />
           )
         )}
+        {groupSlots ? (
+          <button
+            type="button"
+            aria-expanded={!foldSlots}
+            onClick={() => setSlotsOpen(foldSlots)}
+            // A file dragged over the folded row opens it, so a drop on a narrow
+            // desktop window can still reach a specific slot.
+            onDragEnter={() => setSlotsOpen(true)}
+            className="col-span-full flex min-h-10 w-full items-center justify-between gap-2 rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-left text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-white sm:hidden"
+          >
+            <span className="min-w-0">{openSlotsSummary(openSlots, formatClockTime)}</span>
+            <span className="flex shrink-0 items-center gap-1 font-medium text-[var(--accent)]">
+              {foldSlots ? "Show" : "Hide"}
+              <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", !foldSlots && "rotate-180")} aria-hidden="true" />
+            </span>
+          </button>
+        ) : null}
         {openSlots.map((slot) => (
-          <OpenSlotCard
-            key={slot.id}
-            platform={platform}
-            slot={slot}
-            today={today}
-            dragOverSlot={dragOverSlot}
-            setDragOverSlot={setDragOverSlot}
-            onDropClip={onDropClip}
-            onUploadVideo={onUploadVideo}
-            onRequestUpload={onRequestUpload}
-            onSelectSlot={onSelectSlot}
-            busy={busy}
-          />
+          <div key={slot.id} className={cn("contents", foldSlots && "max-sm:hidden")}>
+            <OpenSlotCard
+              platform={platform}
+              slot={slot}
+              today={today}
+              dragOverSlot={dragOverSlot}
+              setDragOverSlot={setDragOverSlot}
+              onDropClip={onDropClip}
+              onUploadVideo={onUploadVideo}
+              onRequestUpload={onRequestUpload}
+              onSelectSlot={onSelectSlot}
+              busy={busy}
+            />
+          </div>
         ))}
         {shortsFull ? (
           <div
@@ -1126,7 +1154,8 @@ function OpenSlotCard({
       )}
     >
       <span className={cn("text-[10px]", today && "font-medium text-[var(--accent)]")}>{formatClockTime(slot.time)}</span>
-      Drop a clip or video
+      {/* A phone has nothing to drop a file from: the button is the way in. */}
+      <span className="[@media(pointer:coarse)]:hidden">Drop a clip or video</span>
       <button
         type="button"
         onClick={() => onRequestUpload(slot.utc)}

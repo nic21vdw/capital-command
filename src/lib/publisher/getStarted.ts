@@ -176,6 +176,25 @@ export type YoutubeChecklist = {
 };
 
 /**
+ * A console step as a first sentence plus whatever follows it. On a phone the
+ * four steps were a wall of text; the rest sits behind "Show details" there.
+ */
+export function splitConsoleStep(text: string): { lead: string; rest: string } {
+  const at = text.indexOf(". ");
+  if (at < 0) return { lead: text, rest: "" };
+  return { lead: text.slice(0, at + 1), rest: text.slice(at + 2) };
+}
+
+/**
+ * Whether the inline step-1 walkthrough is on screen, and with it the redirect
+ * URI. The YouTube card shows the URI only when this is false, so the address
+ * appears once on the page rather than in both places.
+ */
+export function walkthroughShowsRedirectUri(checklist: YoutubeChecklist, known: boolean): boolean {
+  return known && !checklist.complete && checklist.steps.some((step) => step.current && step.id === "create-client");
+}
+
+/**
  * The four things YouTube needs, in the order the README and the row walk
  * through them, with what the app can actually see. It cannot see the Google
  * console, so "create the client" is inferred: nobody has a client ID or secret

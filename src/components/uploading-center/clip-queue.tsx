@@ -59,6 +59,7 @@ export function ClipQueue({
   failedCaptionCount,
   onRetryCaptions,
   targetLabels = PLATFORM_TARGET_LABELS,
+  targetHints,
   shortsCap,
   tomorrowKey,
   isSlotUnavailable,
@@ -109,6 +110,8 @@ export function ClipQueue({
   onRetryCaptions: () => void;
   /** The platform picker's wording; names the mirror when YouTube is copied to Instagram and Facebook. */
   targetLabels?: Record<PlatformTarget, string>;
+  /** What each platform option books, shown under a draft's picker. */
+  targetHints?: Record<PlatformTarget, string>;
   /** The shorts-a-day limit and what each day already holds, so the plan stops at it. */
   shortsCap?: ShortsCap;
   /** Tomorrow's date key in the publish timezone, for "from tomorrow". */
@@ -388,6 +391,7 @@ export function ClipQueue({
               slots={slots}
               isSlotTaken={isSlotUnavailable ?? isSlotTaken}
               targetLabels={targetLabels}
+              targetHints={targetHints}
               scheduleDisabledReason={readOnlyReason}
               timeZone={timeZone}
               aiCopyAvailable={aiCopyAvailable}

@@ -272,6 +272,7 @@ export function ClipCard({
   tailoring = false,
   captionError,
   targetLabels = PLATFORM_TARGET_LABELS,
+  targetHints,
   scheduleDisabledReason,
   timeZone,
   aiCopyAvailable,
@@ -303,6 +304,8 @@ export function ClipCard({
   captionError?: string;
   /** The platform picker's wording (names the YouTube mirror when it is on). */
   targetLabels?: Record<PlatformTarget, string>;
+  /** What each platform option books, as a line under the picker. */
+  targetHints?: Record<PlatformTarget, string>;
   /** Set while posting is switched off: Schedule is disabled and this says why. */
   scheduleDisabledReason?: string;
   /** The publish zone (overview.timezone): every time on the card is shown on its wall clock. */
@@ -556,7 +559,7 @@ export function ClipCard({
               onChange={(event) =>
                 onDraftChange({ ...draft, platform: event.target.value as PlatformTarget, slotUtc: "" })
               }
-              className="h-9 w-auto min-w-28"
+              className="h-9 w-full min-w-28 sm:w-auto"
               aria-label="Platform"
             >
               {(Object.keys(targetLabels) as PlatformTarget[]).map((target) => (
@@ -603,6 +606,8 @@ export function ClipCard({
               One post per platform at the same slot, each on that platform&apos;s selected account. A platform that
               isn&apos;t connected saves as a reminder.
             </p>
+          ) : targetHints?.[draft.platform] ? (
+            <p className="text-[11px] text-[var(--muted-foreground)]">{targetHints[draft.platform]}</p>
           ) : null}
           {needsRerender ? (
             <button
