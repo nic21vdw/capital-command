@@ -99,7 +99,7 @@ export type AutomationOverview = {
   autoScheduleOvernight: boolean;
   cadence: CadenceRow[];
   /** The raw values behind the editable cadence rows, for the Edit form. */
-  cadenceValues: { shortsPerDay: number; slotTimes: string[]; weekendSlotTimes: string[] };
+  cadenceValues: { shortsPerDay: number; threadsPostsPerDay: number; slotTimes: string[]; weekendSlotTimes: string[] };
   /** Soonest first, capped; `heldTotal` is the full count. */
   held: HeldPost[];
   heldTotal: number;

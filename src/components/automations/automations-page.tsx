@@ -7,7 +7,10 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { AutomationHistoryPanel } from "@/components/automations/automation-history";
-import { MAX_SHORTS_PER_DAY, MAX_SLOT_TIMES, MIN_SHORTS_PER_DAY, checkCadenceInput, type CadenceValues } from "@/lib/automations/cadenceInput";
+import { OvernightConfirmDialog } from "@/components/automations/overnight-confirm";
+import { THREADS_POSTS_RAISE_NOTE } from "@/lib/automations/cadence";
+import { MAX_SHORTS_PER_DAY, MAX_SLOT_TIMES, MAX_THREADS_POSTS_PER_DAY, MIN_SHORTS_PER_DAY, MIN_THREADS_POSTS_PER_DAY, checkCadenceInput, type CadenceInput, type CadenceValues } from "@/lib/automations/cadenceInput";
+import { overnightConsequence } from "@/lib/automations/overnight";
 import { describeTaskResult } from "@/lib/automations/format";
 import { orderWarnings } from "@/lib/automations/warnings";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
@@ -158,7 +161,7 @@ function HeldPanel({ held, total, timezone }: { held: HeldPost[]; total: number;
   );
 }
 
-type CadenceDraft = { shortsPerDay: number; slotTimes: string[]; weekendSlotTimes: string[] };
+type CadenceDraft = { shortsPerDay: number; threadsPostsPerDay: number | null; slotTimes: string[]; weekendSlotTimes: string[] };
 
 /** A time not already in the list, so "Add time" never makes a duplicate the server would fold away. */
 function nextFreeTime(taken: string[]): string {
@@ -200,13 +203,20 @@ function CadencePanel({ rows, values, disabled, onSaved }: { rows: CadenceRow[];
     if (!draft) return;
     const check = checkCadenceInput(draft);
     if (!check.ok) { setProblem(check.problem); return; }
+    // Only what changed is sent, so saving the slot times never pins an untouched setting into .env.
+    const changed: CadenceInput = {};
+    if (check.value.shortsPerDay !== undefined && check.value.shortsPerDay !== values.shortsPerDay) changed.shortsPerDay = check.value.shortsPerDay;
+    if (check.value.threadsPostsPerDay !== undefined && check.value.threadsPostsPerDay !== values.threadsPostsPerDay) changed.threadsPostsPerDay = check.value.threadsPostsPerDay;
+    if (check.value.slotTimes && check.value.slotTimes.join() !== values.slotTimes.join()) changed.slotTimes = check.value.slotTimes;
+    if (check.value.weekendSlotTimes && check.value.weekendSlotTimes.join() !== values.weekendSlotTimes.join()) changed.weekendSlotTimes = check.value.weekendSlotTimes;
+    if (Object.keys(changed).length === 0) { toast.message("Nothing was changed."); setDraft(null); return; }
     setSaving(true);
     setProblem(null);
     try {
-      const response = await fetch("/api/automations/cadence", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(check.value) });
+      const response = await fetch("/api/automations/cadence", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(changed) });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error ?? "The cadence could not be saved.");
-      toast.success("Cadence saved. New bookings use it now.");
+      toast.success(changed.threadsPostsPerDay !== undefined ? "Cadence saved. Threads posts per day applies from the next batch." : "Cadence saved. New bookings use it now.");
       setDraft(null);
       await onSaved();
     } catch (failure) {
@@ -221,9 +231,9 @@ function CadencePanel({ rows, values, disabled, onSaved }: { rows: CadenceRow[];
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 id="cadence-title" className="font-semibold text-white">Cadence</h2>
-          <p className="mt-1 max-w-3xl text-sm text-[var(--muted-foreground)]">When and how often things post. Shorts per day and the posting times can be changed here. Changes apply to new bookings; already-booked posts keep their times.</p>
+          <p className="mt-1 max-w-3xl text-sm text-[var(--muted-foreground)]">When and how often things post. Shorts per day, Threads posts per day and the posting times can be changed here. Shorts and slot changes apply to new bookings; already-booked posts keep their times.</p>
         </div>
-        {!editing && <Button variant="secondary" disabled={disabled} onClick={() => { setProblem(null); setDraft({ shortsPerDay: values.shortsPerDay, slotTimes: [...values.slotTimes], weekendSlotTimes: [...values.weekendSlotTimes] }); }}>Edit</Button>}
+        {!editing && <Button variant="secondary" disabled={disabled} onClick={() => { setProblem(null); setDraft({ shortsPerDay: values.shortsPerDay, threadsPostsPerDay: values.threadsPostsPerDay, slotTimes: [...values.slotTimes], weekendSlotTimes: [...values.weekendSlotTimes] }); }}>Edit</Button>}
         {editing && <div className="flex gap-2">
           <Button variant="secondary" disabled={saving} onClick={() => { setDraft(null); setProblem(null); }}>Cancel</Button>
           <Button disabled={saving} onClick={() => void save()}>{saving ? "Saving..." : "Save"}</Button>
@@ -244,6 +254,26 @@ function CadencePanel({ rows, values, disabled, onSaved }: { rows: CadenceRow[];
                       </select>
                     </dd>
                   </>
+                ) : row.env === "THREADS_POSTS_PER_DAY" ? (
+                  <>
+                    <dt className="text-xs text-[var(--muted-foreground)]"><label htmlFor="cadence-threads">{row.label}</label></dt>
+                    <dd className="mt-0.5">
+                      <input
+                        id="cadence-threads"
+                        type="number"
+                        inputMode="numeric"
+                        min={MIN_THREADS_POSTS_PER_DAY}
+                        max={MAX_THREADS_POSTS_PER_DAY}
+                        step={1}
+                        value={draft.threadsPostsPerDay ?? ""}
+                        disabled={saving}
+                        onChange={(event) => setDraft({ ...draft, threadsPostsPerDay: event.target.value === "" ? null : Number(event.target.value) })}
+                        className="w-24 rounded-md border border-[var(--border)] bg-black/30 px-2 py-1 text-sm text-white"
+                      />
+                      <span className="ml-2 text-xs text-[var(--muted-foreground)]">{MIN_THREADS_POSTS_PER_DAY} to {MAX_THREADS_POSTS_PER_DAY}, per account</span>
+                    </dd>
+                    {draft.threadsPostsPerDay !== null && draft.threadsPostsPerDay > values.threadsPostsPerDay && <dd className="mt-1 text-xs text-amber-200">{THREADS_POSTS_RAISE_NOTE}</dd>}
+                  </>
                 ) : (
                   <dd>
                     <TimeListEditor label={row.label} times={row.env === "PUBLISH_SLOT_TIMES" ? draft.slotTimes : draft.weekendSlotTimes} disabled={saving} onChange={(next) => setDraft(row.env === "PUBLISH_SLOT_TIMES" ? { ...draft, slotTimes: next } : { ...draft, weekendSlotTimes: next })} />
@@ -254,14 +284,19 @@ function CadencePanel({ rows, values, disabled, onSaved }: { rows: CadenceRow[];
             ) : (
               <>
                 <dt className="text-xs text-[var(--muted-foreground)]">{row.label}</dt>
-                <dd className="mt-0.5 text-sm text-white">{row.value} {!row.editable && <code className="ml-1 rounded bg-black/30 px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]">{row.env}</code>}</dd>
+                <dd className="mt-0.5 text-sm text-white">{row.value}</dd>
                 {row.note && <dd className="text-xs text-[var(--muted-foreground)]">{row.note}</dd>}
               </>
             )}
           </div>
         ))}
       </dl>
-      <p className="mt-4 text-xs text-[var(--muted-foreground)]">Read-only here: time zone, booking reach and the Threads settings, because they reshape batches already laid out. Change them in <code className="rounded bg-black/30 px-1">.env</code> (advanced), then restart the app.</p>
+      <p className="mt-4 text-xs text-[var(--muted-foreground)]">Read-only here: time zone, booking reach and the Threads window, time zone and late grace, because they reshape batches already laid out.</p>
+      <details className="mt-2 text-xs text-[var(--muted-foreground)]">
+        <summary className="cursor-pointer font-medium hover:text-white">Advanced: set in .env</summary>
+        <p className="mt-2">Edit these in the <code className="rounded bg-black/30 px-1">.env</code> file, then restart the app.</p>
+        <ul className="mt-2 space-y-1">{rows.map((row) => <li key={row.env}>{row.label}: <code className="rounded bg-black/30 px-1.5 py-0.5 text-[10px]">{row.env}</code></li>)}</ul>
+      </details>
     </section>
   );
 }
@@ -273,6 +308,7 @@ export function AutomationsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const inflight = useRef(false);
   const changing = useRef(false);
+  const [confirmOvernight, setConfirmOvernight] = useState(false);
   const load = useCallback(async () => {
     if (inflight.current || changing.current) return;
     inflight.current = true;
@@ -404,9 +440,10 @@ export function AutomationsPage() {
         </section>
         <HeldPanel held={overview.held} total={overview.heldTotal} timezone={publishZone} />
         <section className="mb-5 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-          <div><h2 className="font-semibold text-white">Auto-book overnight streams</h2><p className="mt-1 max-w-2xl text-sm text-[var(--muted-foreground)]">{overview.autoScheduleOvernight ? "New overnight streams may book their finished outputs into future video and Threads slots." : "New overnight streams stop at ready to schedule."} Existing standing instructions stay with their streams. Pausing Stream Pipeline below stops all stream processing, not only this booking.</p></div>
-          <Button variant="secondary" disabled={busy !== null || refreshing || Boolean(error)} onClick={() => void change("overnight", { action: "overnight-scheduling", enabled: !overview.autoScheduleOvernight })}>{busy === "overnight" ? "Saving..." : overview.autoScheduleOvernight ? "Turn off" : "Turn on"}</Button>
+          <div><h2 className="font-semibold text-white">Auto-book overnight streams</h2><p className={cn("mt-1 max-w-2xl text-sm", overview.autoScheduleOvernight ? "text-amber-200" : "text-[var(--muted-foreground)]")}>{overnightConsequence(overview.autoScheduleOvernight)}</p><p className="mt-1 max-w-2xl text-sm text-[var(--muted-foreground)]">Existing standing instructions stay with their streams. Pausing Stream Pipeline below stops all stream processing, not only this booking.</p></div>
+          <Button variant="secondary" disabled={busy !== null || refreshing || Boolean(error)} onClick={() => { if (overview.autoScheduleOvernight) void change("overnight", { action: "overnight-scheduling", enabled: false }); else setConfirmOvernight(true); }}>{busy === "overnight" ? "Saving..." : overview.autoScheduleOvernight ? "Turn off" : "Turn on"}</Button>
         </section>
+        <OvernightConfirmDialog open={confirmOvernight} busy={busy !== null} onCancel={() => setConfirmOvernight(false)} onConfirm={() => { setConfirmOvernight(false); void change("overnight", { action: "overnight-scheduling", enabled: true }); }} />
         <p className="mb-5 text-xs text-[var(--muted-foreground)]">Resume allows the existing configured schedule to continue. Missing tasks, disconnected accounts and switched-off publishing still block work. A current action may finish before the next pause check.</p>
         <div className="grid gap-5 lg:grid-cols-2">{overview.cards.map((card) => <AutomationPanel key={card.id} card={card} stale={Boolean(error)} busy={busy !== null || refreshing} onPause={(selected) => void change(selected.id, { action: "pause", id: selected.id, paused: !selected.paused })} />)}</div>
         <CadencePanel rows={overview.cadence} values={overview.cadenceValues} disabled={busy !== null || refreshing || Boolean(error)} onSaved={reloadAfterSave} />

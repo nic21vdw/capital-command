@@ -83,7 +83,8 @@ export default function Page() {
         id: "autoScheduleOvernight",
         label: "Schedule what an overnight stream produces",
         value: data.settings.autoScheduleOvernight === true,
-        kind: "boolean"
+        kind: "boolean",
+        hint: "Can be switched off here. Turning it on has to be confirmed by a person on the Settings or Automations screen."
       },
       {
         id: "clipDescription",
@@ -145,14 +146,13 @@ export default function Page() {
         }
         case "autoScheduleOvernight": {
           if (typeof value !== "boolean") return false;
+          // Turning it on lets unattended runs queue posts with copy nobody has read, and that
+          // needs a person's confirmation on screen (OvernightConfirmDialog). The canvas can only stop it.
+          if (value) return false;
           void mutate(
             "updateSettings",
-            { ...data.settings, autoScheduleOvernight: value },
-            {
-              successMessage: value
-                ? "Overnight runs will schedule themselves."
-                : "Overnight runs will stop at ready to schedule."
-            }
+            { ...data.settings, autoScheduleOvernight: false },
+            { successMessage: "Overnight runs will stop at ready to schedule." }
           );
           return true;
         }

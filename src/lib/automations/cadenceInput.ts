@@ -5,6 +5,9 @@ import { z } from "zod";
 
 export const MIN_SHORTS_PER_DAY = 1;
 export const MAX_SHORTS_PER_DAY = 6;
+// Same clamp threadsConfig() applies, so the card never promises a number the planner would change.
+export const MIN_THREADS_POSTS_PER_DAY = 1;
+export const MAX_THREADS_POSTS_PER_DAY = 48;
 export const MIN_SLOT_TIMES = 1;
 export const MAX_SLOT_TIMES = 8;
 
@@ -45,6 +48,11 @@ export const cadenceInputSchema = z
       .int("Shorts per day must be a whole number.")
       .min(MIN_SHORTS_PER_DAY, `Shorts per day must be at least ${MIN_SHORTS_PER_DAY}.`)
       .max(MAX_SHORTS_PER_DAY, `Shorts per day can be at most ${MAX_SHORTS_PER_DAY}.`),
+    threadsPostsPerDay: z
+      .number({ invalid_type_error: "Threads posts per day must be a whole number." })
+      .int("Threads posts per day must be a whole number.")
+      .min(MIN_THREADS_POSTS_PER_DAY, `Threads posts per day must be at least ${MIN_THREADS_POSTS_PER_DAY}.`)
+      .max(MAX_THREADS_POSTS_PER_DAY, `Threads posts per day can be at most ${MAX_THREADS_POSTS_PER_DAY}.`),
     slotTimes: timeList("Weekday slot times"),
     weekendSlotTimes: timeList("Weekend slot times")
   })
@@ -55,11 +63,12 @@ export const cadenceInputSchema = z
 export type CadenceInput = z.infer<typeof cadenceInputSchema>;
 
 /** The editable values as the card holds them. */
-export type CadenceValues = { shortsPerDay: number; slotTimes: string[]; weekendSlotTimes: string[] };
+export type CadenceValues = { shortsPerDay: number; threadsPostsPerDay: number; slotTimes: string[]; weekendSlotTimes: string[] };
 
 /** The .env name behind each editable value. */
 export const CADENCE_ENV = {
   shortsPerDay: "PUBLISH_SHORTS_PER_DAY",
+  threadsPostsPerDay: "THREADS_POSTS_PER_DAY",
   slotTimes: "PUBLISH_SLOT_TIMES",
   weekendSlotTimes: "PUBLISH_WEEKEND_SLOT_TIMES"
 } as const;

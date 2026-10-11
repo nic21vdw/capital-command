@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AtSign, Download, Palette, Send, SlidersHorizontal, UserRound } from "lucide-react";
+import { OvernightConfirmDialog } from "@/components/automations/overnight-confirm";
+import { overnightConsequence } from "@/lib/automations/overnight";
 import { ConnectionsSettings } from "@/components/layout/connections-settings";
 import { OAuthLandingBanner, useOAuthLanding } from "@/components/layout/oauth-landing";
 import { ProfileSettings } from "@/components/layout/profile-settings";
@@ -65,6 +67,7 @@ function useScrollToHash() {
 export function SettingsPage() {
   const { data, apiStatus, mutate } = useAppData();
   const { hosted } = useThemePreset();
+  const [confirmOvernight, setConfirmOvernight] = useState(false);
   useScrollToHash();
   // ConnectionsSettings tidies the address itself, so leave it alone here.
   const { landing, dismiss } = useOAuthLanding({ strip: false });
@@ -126,17 +129,30 @@ export function SettingsPage() {
               <span className="mt-1 block text-xs text-[var(--muted-foreground)]">
                 When on, new overnight streams are booked into future slots on their own. When off, stream content waits for review in the Stream Pipeline.
               </span>
+              <span className={`mt-1 block text-xs ${data.settings.autoScheduleOvernight === true ? "text-amber-200" : "text-[var(--muted-foreground)]"}`}>
+                {overnightConsequence(data.settings.autoScheduleOvernight === true)}
+              </span>
             </span>
             <input
               type="checkbox"
               checked={data.settings.autoScheduleOvernight === true}
-              onChange={(event) => void mutate("updateSettings", { ...data.settings, autoScheduleOvernight: event.target.checked }, {
-                successMessage: event.target.checked ? "Overnight streams will be auto-booked." : "Overnight streams will wait for review."
-              })}
+              onChange={(event) => {
+                // Turning it ON asks first: the checkbox stays as it is until the dialog says yes.
+                if (event.target.checked) { setConfirmOvernight(true); return; }
+                void mutate("updateSettings", { ...data.settings, autoScheduleOvernight: false }, { successMessage: "Overnight streams will wait for review." });
+              }}
               className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--accent)]"
             />
           </label>
         </div>
+        <OvernightConfirmDialog
+          open={confirmOvernight}
+          onCancel={() => setConfirmOvernight(false)}
+          onConfirm={() => {
+            setConfirmOvernight(false);
+            void mutate("updateSettings", { ...data.settings, autoScheduleOvernight: true }, { successMessage: "Overnight streams will be auto-booked." });
+          }}
+        />
         {apiStatus.bookingBlockers?.length ? (
           <p className="mt-3 text-xs text-amber-200">{apiStatus.bookingBlockers[0]}</p>
         ) : null}

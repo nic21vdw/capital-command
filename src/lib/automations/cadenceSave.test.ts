@@ -36,6 +36,15 @@ describe("saveCadence", () => {
     expect(env).toEqual({ PUBLISH_SHORTS_PER_DAY: "4" });
   });
 
+  it("writes Threads posts per day to THREADS_POSTS_PER_DAY and the live environment", async () => {
+    const file = await tempEnv();
+    await writeFile(file, "THREADS_POSTS_PER_DAY=24\nTHREADS_ACCESS_TOKEN=keep-me\n", "utf8");
+    const env: Record<string, string | undefined> = {};
+    await saveCadence({ threadsPostsPerDay: 10 }, { file, env });
+    expect(await readFile(file, "utf8")).toBe("THREADS_POSTS_PER_DAY=10\nTHREADS_ACCESS_TOKEN=keep-me\n");
+    expect(env).toEqual({ THREADS_POSTS_PER_DAY: "10" });
+  });
+
   it("creates the file when there is no .env", async () => {
     const file = await tempEnv();
     await saveCadence({ shortsPerDay: 5 }, { file, env: {} });
