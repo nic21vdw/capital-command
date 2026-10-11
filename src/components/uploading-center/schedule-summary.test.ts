@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NO_AI_CAPTION_SUMMARY_NOTE, bookedDaysLabel, bookedResult, refusedResult, summarizeAutoAssign, summarizeSchedule, zoneTimeLabel } from "@/components/uploading-center/schedule-summary";
+import { NO_AI_CAPTION_SUMMARY_NOTE, bookedDatesLabel, bookedResult, refusedResult, summarizeAutoAssign, summarizeSchedule, zoneTimeLabel } from "@/components/uploading-center/schedule-summary";
 
 describe("one summary for a multi-platform booking", () => {
   it("counts Instagram as Instagram and Facebook, and says so", () => {
@@ -68,22 +68,28 @@ describe("Auto Assign summary", () => {
   // Mon Oct 12 .. Thu Oct 15 2026 at 7:30 Toronto time (EDT, UTC-4).
   const monThu = ["2026-10-12T11:30:00.000Z", "2026-10-13T11:30:00.000Z", "2026-10-14T11:30:00.000Z", "2026-10-15T11:30:00.000Z"];
 
-  it("stays green only when every post will actually go out, and names the days", () => {
+  it("stays green only when every post will actually go out, and says so", () => {
     expect(summarizeAutoAssign({ ...base, scheduled: 4, total: 4, bookedSlots: monThu, timeZone: zone })).toEqual({
       level: "success",
-      message: "4 booked: Mon-Thu"
+      message: "4 booked for Oct 12-15. They will post automatically."
     });
+    expect(summarizeAutoAssign({ ...base, scheduled: 1, total: 1, bookedSlots: monThu.slice(0, 1), timeZone: zone }).message).toBe(
+      "1 booked for Oct 12. It will post automatically."
+    );
   });
 
-  it("says the days in the publish zone, not UTC", () => {
-    // 01:00 UTC on the 13th is still the evening of Monday the 12th in Toronto.
-    expect(bookedDaysLabel(["2026-10-13T01:00:00.000Z"], zone)).toBe("Mon");
-    expect(bookedDaysLabel(["2026-10-13T01:00:00.000Z"], "UTC")).toBe("Tue");
+  it("says the dates in the publish zone, not UTC", () => {
+    // 01:00 UTC on the 13th is still the evening of the 12th in Toronto.
+    expect(bookedDatesLabel(["2026-10-13T01:00:00.000Z"], zone)).toBe("Oct 12");
+    expect(bookedDatesLabel(["2026-10-13T01:00:00.000Z"], "UTC")).toBe("Oct 13");
   });
 
-  it("falls back to dates beyond a week, and to no days at all when it does not know them", () => {
-    expect(bookedDaysLabel(["2026-10-12T11:30:00.000Z", "2026-10-20T11:30:00.000Z"], zone)).toBe("Oct 12-Oct 20");
-    expect(summarizeAutoAssign(base).message).toBe("3 booked");
+  it("writes a range within a month, across months, and nothing when it has no dates", () => {
+    expect(bookedDatesLabel(monThu, zone)).toBe("Oct 12-15");
+    expect(bookedDatesLabel(["2026-11-02T15:30:00.000Z", "2026-10-28T11:30:00.000Z"], zone)).toBe("Oct 28-Nov 2");
+    expect(bookedDatesLabel([], zone)).toBe("");
+    expect(bookedDatesLabel(["not a date"], zone)).toBe("");
+    expect(summarizeAutoAssign(base).message).toBe("3 booked. They will post automatically.");
   });
 
   it("is amber and says reminders, not bookings, when nothing is connected", () => {
@@ -92,11 +98,13 @@ describe("Auto Assign summary", () => {
       scheduled: 4,
       manual: 4,
       total: 4,
-      manualPlatforms: ["YouTube", "YouTube", "YouTube", "YouTube"]
+      manualPlatforms: ["YouTube", "YouTube", "YouTube", "YouTube"],
+      bookedSlots: monThu,
+      timeZone: zone
     });
     expect(summary).toEqual({
       level: "warning",
-      message: "4 saved as reminders - YouTube isn't connected. Connect it to post automatically."
+      message: "4 booked for Oct 12-15 as reminders. Connect YouTube to post automatically."
     });
   });
 
@@ -107,20 +115,18 @@ describe("Auto Assign summary", () => {
       manual: 1,
       total: 4,
       manualPlatforms: ["TikTok"],
-      bookedSlots: monThu.slice(0, 3),
+      bookedSlots: monThu,
       timeZone: zone
     });
     expect(summary.level).toBe("warning");
     expect(summary.message).toBe(
-      "3 booked: Mon-Wed. 1 saved as a reminder - TikTok isn't connected. Connect it to post automatically."
+      "4 booked for Oct 12-15: 3 will post automatically, 1 is a reminder. Connect TikTok to post automatically."
     );
   });
 
   it("names every unconnected platform and agrees the verb", () => {
     const summary = summarizeAutoAssign({ ...base, manual: 3, manualPlatforms: ["YouTube", "TikTok"] });
-    expect(summary.message).toBe(
-      "3 saved as reminders - YouTube and TikTok aren't connected. Connect them to post automatically."
-    );
+    expect(summary.message).toBe("3 booked as reminders. Connect YouTube and TikTok to post automatically.");
   });
 
   it("never says Auto-assigned or Manual", () => {
@@ -133,7 +139,7 @@ describe("Auto Assign summary", () => {
   it("reports what was not booked beside what was", () => {
     const summary = summarizeAutoAssign({ ...base, scheduled: 2, total: 3, firstError: "Slot taken." });
     expect(summary.level).toBe("warning");
-    expect(summary.message).toBe("2 booked. 1 not booked - Slot taken.");
+    expect(summary.message).toBe("2 booked. They will post automatically. 1 not booked - Slot taken.");
   });
 
   it("is red when nothing was booked", () => {
@@ -144,6 +150,8 @@ describe("Auto Assign summary", () => {
     const summary = summarizeAutoAssign({ ...base, held: " 1 clip left unscheduled." });
     expect(summary.level).toBe("warning");
     expect(summary.message).toBe("3 booked. 1 clip left unscheduled.");
+    // One sentence, not one per count: the message stays short enough to read once.
+    expect(summary.message.length).toBeLessThan(80);
   });
 });
 
@@ -156,7 +164,7 @@ describe("the no-AI-key note in the booking summary", () => {
       "Captions are the clip titles (no AI key) - edit them from each post's Caption button."
     );
     expect(summary.level).toBe("warning");
-    expect(summary.message).toBe(`4 booked. ${NO_AI_CAPTION_SUMMARY_NOTE}`);
+    expect(summary.message).toBe(`4 booked. They will post automatically. ${NO_AI_CAPTION_SUMMARY_NOTE}`);
   });
 
   it("is said after every other line, and never turns a red summary any other colour", () => {
@@ -170,7 +178,7 @@ describe("the no-AI-key note in the booking summary", () => {
   });
 
   it("changes nothing when there is no note", () => {
-    expect(summarizeAutoAssign(base)).toEqual({ level: "success", message: "4 booked" });
+    expect(summarizeAutoAssign(base)).toEqual({ level: "success", message: "4 booked. They will post automatically." });
   });
 });
 

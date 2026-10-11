@@ -1,10 +1,11 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import {
   CalendarClock,
   Check,
   CheckCircle2,
+  ChevronDown,
   ExternalLink,
   GripVertical,
   Loader2,
@@ -18,6 +19,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ClipPreview } from "@/components/uploading-center/clip-preview";
 import { bookedClip } from "@/components/uploading-center/booked-clip";
+import { cardOptionsSummary } from "@/components/uploading-center/run-defaults";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import { describeFailure } from "@/lib/publisher/failure";
 import {
@@ -64,9 +66,12 @@ export const SUGGESTED_HASHTAGS = [
   "#entrepreneur"
 ];
 
-/** What the empty caption box promises, and what really happens (see `schedule`). */
-export const CAPTION_EMPTY_PLACEHOLDER =
-  "Caption — left empty, one is written when you schedule (the clip title if no AI key is set)";
+/**
+ * What the empty caption box promises (see `schedule`). Short on purpose: the
+ * no-AI-key case is said on the Customise row above it ("Captions: the clip
+ * titles"), not squeezed into a placeholder that gets cut off.
+ */
+export const CAPTION_EMPTY_PLACEHOLDER = "Leave empty and one is written when you schedule";
 
 /**
  * How a hashtag chip says whether it is on. Every chip used to be the same
@@ -266,6 +271,7 @@ export function ClipCard({
   targetLabels = PLATFORM_TARGET_LABELS,
   scheduleDisabledReason,
   timeZone,
+  aiCopyAvailable,
   onShowOnBoard
 }: {
   clip: ReadyClip;
@@ -297,10 +303,17 @@ export function ClipCard({
   scheduleDisabledReason?: string;
   /** The publish zone (overview.timezone): every time on the card is shown on its wall clock. */
   timeZone: string;
+  /** Whether a model can write captions (overview.aiCopyAvailable); undefined until known. */
+  aiCopyAvailable?: boolean;
   /** Bring this clip's booking into view on the board (switches tab and day as needed). */
   onShowOnBoard?: (item: QueueItem) => void;
 }) {
   const titleRef = useRef<HTMLTextAreaElement>(null);
+  // The hashtag chips and the caption box are closed behind Customise: a draft
+  // that is fine as it is should read as one title, a slot and a button, not as
+  // a form of ten chips and a text box. The closed row says what they hold.
+  const [customising, setCustomising] = useState(false);
+  const customiseId = useId();
   // A booked clip is a one-line row until someone asks to book it again; the
   // draft (title, caption, platform) is kept either way, only hidden.
   const [editing, setEditing] = useState(false);
@@ -323,6 +336,7 @@ export function ClipCard({
   // Only while the caption is still empty: once there is copy in the box, typed
   // or retried, the clip is no longer the one that quietly went out uncaptioned.
   const captionFailed = Boolean(captionError) && !draft.caption.trim();
+  const customiseSummary = cardOptionsSummary(draft, aiCopyAvailable);
 
   if (booked && collapsed) {
     return (
@@ -438,65 +452,92 @@ export function ClipCard({
               className="field-sizing-content min-h-9 min-w-0 flex-1 resize-none py-2"
             />
           </div>
-          {/* One-click hashtag suggestions, appended to the title like YouTube's
-              tag chips. Chips already present in the title (or that would push
-              it past the length limit) are hidden. */}
-          <div className="flex flex-wrap gap-1.5 pl-6">
-            {SUGGESTED_HASHTAGS.filter(
-              (hashtag) =>
-                !hasHashtag(draft.title, hashtag) && appendHashtag(draft.title, hashtag) !== draft.title
-            ).map((hashtag) => (
-              <HashtagChip
-                key={hashtag}
-                hashtag={hashtag}
-                selected={false}
-                onClick={() => {
-                  onDraftChange({ ...draft, title: appendHashtag(draft.title, hashtag) });
-                  titleRef.current?.focus();
-                }}
-              />
-            ))}
-          </div>
-          <div className="flex items-center justify-between gap-2 pl-6">
-            <span
-              className="min-w-0 text-[11px] text-[var(--muted-foreground)]"
-              title={
-                scheduledItems.length > 0
-                  ? "Draft caption - used for new bookings. Edit scheduled posts on the board."
-                  : undefined
-              }
+          <div className="pl-6">
+            <button
+              type="button"
+              onClick={() => setCustomising((open) => !open)}
+              aria-expanded={customising}
+              aria-controls={customiseId}
+              className="flex w-full items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--well)] px-2.5 py-1.5 text-left text-xs text-[var(--muted-foreground)] transition hover:text-white"
             >
-              {scheduledItems.length > 0 ? "Draft caption" : "Caption"}
-            </span>
-            {onTailorCaption ? (
-              <button
-                type="button"
-                onClick={onTailorCaption}
-                disabled={tailoring}
-                title={`Write a caption + hashtags tailored to ${targetLabel} (free AI)`}
-                className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-60"
-              >
-                {tailoring ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                {tailoring ? "Writing…" : `AI caption for ${targetLabel}`}
-              </button>
-            ) : null}
+              <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", customising && "rotate-180")} aria-hidden />
+              <span className="shrink-0 font-medium">Customise</span>
+              <span className="min-w-0 flex-1 truncate" title={customiseSummary}>
+                {customiseSummary}
+              </span>
+            </button>
           </div>
-          <Textarea
-            value={draft.caption}
-            onChange={(event) => onDraftChange({ ...draft, caption: event.target.value })}
-            placeholder={
-              scheduledItems.length > 0
-                ? "Draft for new bookings - this does not change posts already scheduled"
-                : CAPTION_EMPTY_PLACEHOLDER
-            }
-            className={cn("min-h-16 py-2", captionFailed && "tone-warning tone-edge")}
-          />
+          {customising ? (
+            <div id={customiseId} className="space-y-2">
+              {/* One-click hashtag suggestions, appended to the title like YouTube's
+                  tag chips. Chips already present in the title (or that would push
+                  it past the length limit) are hidden. */}
+              <div className="flex flex-wrap gap-1.5 pl-6">
+                {SUGGESTED_HASHTAGS.filter(
+                  (hashtag) =>
+                    !hasHashtag(draft.title, hashtag) && appendHashtag(draft.title, hashtag) !== draft.title
+                ).map((hashtag) => (
+                  <HashtagChip
+                    key={hashtag}
+                    hashtag={hashtag}
+                    selected={false}
+                    onClick={() => {
+                      onDraftChange({ ...draft, title: appendHashtag(draft.title, hashtag) });
+                      titleRef.current?.focus();
+                    }}
+                  />
+                ))}
+              </div>
+              <div className="flex items-center justify-between gap-2 pl-6">
+                <span
+                  className="min-w-0 text-[11px] text-[var(--muted-foreground)]"
+                  title={
+                    scheduledItems.length > 0
+                      ? "Draft caption - used for new bookings. Edit scheduled posts on the board."
+                      : undefined
+                  }
+                >
+                  {scheduledItems.length > 0 ? "Draft caption" : "Caption"}
+                </span>
+                {onTailorCaption ? (
+                  <button
+                    type="button"
+                    onClick={onTailorCaption}
+                    disabled={tailoring}
+                    title={`Write a caption + hashtags tailored to ${targetLabel} (free AI)`}
+                    className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-60"
+                  >
+                    {tailoring ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                    {tailoring ? "Writing…" : `AI caption for ${targetLabel}`}
+                  </button>
+                ) : null}
+              </div>
+              <Textarea
+                value={draft.caption}
+                onChange={(event) => onDraftChange({ ...draft, caption: event.target.value })}
+                placeholder={
+                  scheduledItems.length > 0
+                    ? "Draft for new bookings only"
+                    : CAPTION_EMPTY_PLACEHOLDER
+                }
+                className={cn("min-h-16 py-2", captionFailed && "tone-warning tone-edge")}
+              />
+            </div>
+          ) : null}
           {captionFailed ? (
             <p className="tone-warning tone-edge tone-soft tone-text flex items-start gap-2 rounded-lg border px-3 py-2 text-xs">
               <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>
                 No AI caption for this clip — {captionError?.replace(/\s*[.!]+$/, "")}. Scheduling the whole run
-                leaves this one out; retry above, or write the caption yourself.
+                leaves this one out; retry above, or{" "}
+                <button
+                  type="button"
+                  onClick={() => setCustomising(true)}
+                  className="font-semibold underline underline-offset-2 hover:opacity-80"
+                >
+                  write the caption yourself
+                </button>
+                .
               </span>
             </p>
           ) : null}

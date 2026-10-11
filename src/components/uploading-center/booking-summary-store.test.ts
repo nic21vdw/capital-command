@@ -31,12 +31,23 @@ describe("booking summary storage", () => {
     const storage = memoryStorage();
     const withNote = {
       level: "warning" as const,
-      message: `4 booked: Mon-Thu. ${NO_AI_CAPTION_SUMMARY_NOTE}`
+      message: `4 booked for Oct 12-15. ${NO_AI_CAPTION_SUMMARY_NOTE}`
     };
     saveBookingSummary("job-1", withNote, 1000, storage);
     expect(loadBookingSummary("job-1", 2000, storage)?.message).toContain(NO_AI_CAPTION_SUMMARY_NOTE);
     clearBookingSummary("job-1", storage);
     expect(loadBookingSummary("job-1", 3000, storage)).toBeNull();
+  });
+
+  it("keeps the ids of the bookings, so View bookings still finds them after a reload", () => {
+    const storage = memoryStorage();
+    saveBookingSummary("job-1", { ...summary, itemIds: ["a1", "b2"] }, 1000, storage);
+    expect(loadBookingSummary("job-1", 2000, storage)?.itemIds).toEqual(["a1", "b2"]);
+    // A summary saved before ids existed, or with junk in their place, simply has none.
+    saveBookingSummary("job-1", summary, 1000, storage);
+    expect(loadBookingSummary("job-1", 2000, storage)).toEqual(summary);
+    storage.setItem(bookingSummaryKey("job-1"), JSON.stringify({ ...summary, itemIds: [1, "", null], savedAt: 1000 }));
+    expect(loadBookingSummary("job-1", 2000, storage)).toEqual(summary);
   });
 
   it("keeps each run's summary to itself", () => {

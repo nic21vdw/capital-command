@@ -876,6 +876,32 @@ export function UploadingCenterPage() {
     [accounts, activePlatform, showQueueItem],
   );
 
+  // The posts the last bulk booking made that are still on the schedule, and the
+  // few seconds they are ringed for after "View N bookings" brings them into view.
+  const bookedItems = useMemo(() => {
+    const ids = new Set(bookingSummary?.itemIds ?? []);
+    return queueItems.filter((item) => ids.has(item.id));
+  }, [bookingSummary, queueItems]);
+  const [flashedItemIds, setFlashedItemIds] = useState<string[]>([]);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+    },
+    [],
+  );
+  const viewBookings = useCallback(
+    (items: QueueItem[]) => {
+      const first = [...items].sort((a, b) => a.publishAt.localeCompare(b.publishAt))[0];
+      if (!first) return;
+      showBookedItem(first);
+      setFlashedItemIds(items.map((item) => item.id));
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+      flashTimer.current = setTimeout(() => setFlashedItemIds([]), 6000);
+    },
+    [showBookedItem],
+  );
+
   const tabs = PLATFORM_TABS.map(({ id, icon }) => {
     const activeAccount = activeAccountFor(id);
     // Connection status follows the account the tab is showing, not the
@@ -977,6 +1003,7 @@ export function UploadingCenterPage() {
             isConnected={isAccountConnected}
             busy={busy}
             highlightedItemId={itemParam}
+            highlightedItemIds={flashedItemIds}
             shortsPerDay={shortsPerDay}
             readOnly={!publishingOn}
             collapseEarlier={!showEarlierDays && !focusIsEarlier}
@@ -1208,6 +1235,8 @@ export function UploadingCenterPage() {
                 onTailorCaption={(clip) => void onTailorCaption(clip)}
                 onAutoAssign={() => void handleAutoAssign()}
                 bookingSummary={bookingSummary}
+                bookedItems={bookedItems}
+                onViewBookings={viewBookings}
                 onDismissBookingSummary={dismissBookingSummary}
                 runDefaults={runDefaults}
                 onRunDefaultsChange={onRunDefaultsChange}

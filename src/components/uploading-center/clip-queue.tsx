@@ -47,6 +47,8 @@ export function ClipQueue({
   onTailorCaption,
   onAutoAssign,
   bookingSummary,
+  bookedItems = [],
+  onViewBookings,
   onDismissBookingSummary,
   runDefaults,
   onRunDefaultsChange,
@@ -88,6 +90,10 @@ export function ClipQueue({
   /** What the last bulk booking did; stays until dismissed, because its toast does not. */
   bookingSummary?: { level: "success" | "warning" | "error"; message: string } | null;
   onDismissBookingSummary?: () => void;
+  /** The queue posts the last bulk booking made, for "View N bookings" (only those still on the schedule). */
+  bookedItems?: QueueItem[];
+  /** Scroll the board to those posts and highlight them for a moment. */
+  onViewBookings?: (items: QueueItem[]) => void;
   /** Platform + hashtags every new draft in this run starts with. */
   runDefaults: RunDefaults;
   onRunDefaultsChange: (defaults: RunDefaults) => void;
@@ -221,6 +227,15 @@ export function ClipQueue({
               </span>
             </Button>
           </div>
+          {/* Beside the button, not inside it: a link nested in a button is invalid
+              and unreachable by keyboard. Same place the board's footer sends to. */}
+          {bulkSecondary ? (
+            <p className="text-[11px] text-[var(--muted-foreground)]">
+              <Link href="/automations#cadence" className="text-[var(--accent)]! underline! underline-offset-2">
+                Change the cadence
+              </Link>
+            </p>
+          ) : null}
           {bookingSummary ? (
             <div
               role="status"
@@ -243,6 +258,18 @@ export function ClipQueue({
                 )}
               >
                 {bookingSummary.message}
+                {onViewBookings && bookedItems.length > 0 ? (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      onClick={() => onViewBookings(bookedItems)}
+                      className="font-semibold underline underline-offset-2 hover:opacity-80"
+                    >
+                      View {bookedItems.length} booking{bookedItems.length === 1 ? "" : "s"}
+                    </button>
+                  </>
+                ) : null}
               </span>
               {onDismissBookingSummary ? (
                 <button
@@ -360,6 +387,7 @@ export function ClipQueue({
               targetLabels={targetLabels}
               scheduleDisabledReason={readOnlyReason}
               timeZone={timeZone}
+              aiCopyAvailable={aiCopyAvailable}
               onShowOnBoard={onShowOnBoard}
               scheduledItems={itemsForClip(clip)}
               scheduling={busy === `schedule:${clip.key}`}

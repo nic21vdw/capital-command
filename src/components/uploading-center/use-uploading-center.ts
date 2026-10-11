@@ -31,7 +31,12 @@ import type { CaptionSegment, ClipProject } from "@/types/domain";
 import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/channelPlacement";
 import { describeFailure } from "@/lib/publisher/failure";
 import { describeRunOutcome, formatGoLive, manualReminderCopy, type OutcomeLine, type RunOutcomeLike } from "@/lib/publisher/outcomeCopy";
-import { FACEBOOK_SCHEDULED_POSTS_URL } from "@/lib/publisher/boardActions";
+import {
+  FACEBOOK_SCHEDULED_POSTS_URL,
+  publishedRemovalNote,
+  removalImpact,
+  removalUndoRequest
+} from "@/lib/publisher/boardActions";
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
 import { captionRequestFields } from "@/lib/publisher/captionTags";
 import { indexQueueByClip } from "@/lib/publisher/clipQueueIndex";
@@ -1305,8 +1310,10 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       let scheduled = 0;
       let manual = 0;
       const manualPlatforms: string[] = [];
-      // The slots of the posts that will really go out, for "4 booked: Mon-Thu".
+      // The slot and queue id of every post the queue accepted, for "4 booked for
+      // Oct 13-16" and the "View 4 bookings" button that finds them again.
       const bookedSlots: string[] = [];
+      const bookedIds: string[] = [];
       let firstError: string | null = null;
       const summaryJobId = assignments[0].clip.jobId;
       setBookingSummaryFor(summaryJobId, null);
@@ -1352,11 +1359,11 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
               scheduled += 1;
               // A platform with no connected account is booked as a reminder.
               const booked = (await response.json().catch(() => null)) as { item?: QueueItem } | null;
+              bookedSlots.push(draft.slotUtc);
+              if (booked?.item?.id) bookedIds.push(booked.item.id);
               if (isManualLeg(booked?.item, platform)) {
                 manual += 1;
                 manualPlatforms.push(PLATFORM_LABELS[platform]);
-              } else {
-                bookedSlots.push(draft.slotUtc);
               }
             } catch {
               firstError ??= "Network error while scheduling.";
@@ -1379,17 +1386,11 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           timeZone: timezone,
           note
         });
-        // Said twice on purpose: the toast for the moment, and a line that stays
-        // in the run's card until it is dismissed or the next booking. The button
-        // flips to "Every clip here is scheduled" the instant the bookings land,
-        // so a toast that was missed - or scrolled away from - left nothing at
-        // all saying what had just happened. A stable id replaces the last
-        // summary instead of stacking a second one.
-        setBookingSummaryFor(summaryJobId, summary);
-        toast[summary.level](summary.message, {
-          id: "auto-assign-summary",
-          duration: summary.level === "success" ? 8000 : 15000
-        });
+        // Said ONCE, in the run's card beside the button that was pressed. It used
+        // to be a toast as well, the same words twice within a second, and the
+        // card's line is the one that survives a reload and carries "View N
+        // bookings". It is a status region, so a screen reader hears it too.
+        setBookingSummaryFor(summaryJobId, { ...summary, ...(bookedIds.length > 0 ? { itemIds: bookedIds } : {}) });
         await refresh();
       } finally {
         setBusy(null);
@@ -1495,10 +1496,44 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   );
 
   /**
+   * Books a removed post again - the toast's Undo. It is the ordinary booking
+   * route, so the slot and duplicate rules apply to it like to any new post; if
+   * the queue refuses, the toast says why and the post stays removed.
+   */
+  const restoreRemoved = useCallback(
+    async (request: Record<string, unknown>, title: string) => {
+      setBusy("restore");
+      try {
+        const response = await fetch("/api/publish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request)
+        });
+        if (!response.ok) {
+          errorToast(`Could not put "${title}" back: ${await readError(response)}`);
+        } else {
+          toast.success(`"${title}" is back on the schedule.`);
+        }
+        await refresh();
+      } catch {
+        errorToast(`Could not put "${title}" back: network error.`);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh]
+  );
+
+  /**
    * Removes the whole post (every platform on it). The board has already asked
    * and listed the platforms. The server keeps a YouTube video the channel
    * already holds private instead of leaving it to go live, and reports a
    * Facebook post it cannot cancel; the toast says which happened.
+   *
+   * Undo is offered only for a post nothing was sent for (see
+   * `removalUndoRequest`): once a platform holds a copy, putting the post back
+   * would book a second one and leave the first behind, so the toast says what
+   * happened to the platform instead.
    */
   const remove = useCallback(
     async (item: QueueItem, options: { anyway?: boolean } = {}) => {
@@ -1545,7 +1580,17 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
               action: studio
             });
           } else {
-            toast.success("Removed from the schedule.");
+            const live = removalImpact(item).published;
+            const undoRequest = result.facebookPostId || result.youtubeMayExist ? null : removalUndoRequest(item, { timeZone: timezone });
+            toast.success("Removed from the schedule.", {
+              ...(live.length > 0 ? { description: publishedRemovalNote(live, PLATFORM_LABELS) } : {}),
+              ...(undoRequest
+                ? {
+                    duration: 10_000,
+                    action: { label: "Undo", onClick: () => void restoreRemoved(undoRequest, item.title) }
+                  }
+                : {})
+            });
           }
           if (result.youtubeMayExist) {
             toast.warning("A video may still be on YouTube for this post. Check YouTube Studio.", {
@@ -1565,7 +1610,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         setBusy(null);
       }
     },
-    [refresh]
+    [refresh, restoreRemoved, timezone]
   );
 
   /**

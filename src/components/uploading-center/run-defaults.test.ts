@@ -6,6 +6,7 @@ import {
   draftHashtags,
   draftWithDefaults,
   captionSummary,
+  cardOptionsSummary,
   hashtagSummary,
   NO_HASHTAGS_SUMMARY,
   hydrateDraft,
@@ -228,5 +229,26 @@ describe("what the bulk panel says about captions", () => {
   it("says all captioned once nothing is missing, whatever the AI", () => {
     expect(captionSummary(0, true)).toBe("all captioned");
     expect(captionSummary(0, false)).toBe("all captioned");
+  });
+});
+
+describe("a clip card's closed Customise row", () => {
+  it("reads the bulk panel's wording for an empty caption and no hashtags", () => {
+    expect(cardOptionsSummary({ title: "Plain", caption: "" }, true)).toBe(`AI writes 1 caption · ${NO_HASHTAGS_SUMMARY}`);
+    expect(cardOptionsSummary({ title: "Plain", caption: "   " }, undefined)).toBe(
+      `AI writes 1 caption · ${NO_HASHTAGS_SUMMARY}`
+    );
+  });
+
+  it("says the clip title is the caption when no AI key can write one", () => {
+    expect(cardOptionsSummary({ title: "Plain", caption: "" }, false)).toBe(
+      `Captions: the clip titles (no AI key set) · ${NO_HASHTAGS_SUMMARY}`
+    );
+  });
+
+  it("names the hashtags the draft carries once there is a caption", () => {
+    expect(cardOptionsSummary({ title: "Plain #AI", caption: "Words.\n#coding #business #tech #startup" }, false)).toBe(
+      "Caption written · #AI #coding #business +2"
+    );
   });
 });

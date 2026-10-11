@@ -178,9 +178,13 @@ describe("hashtag chips say whether they are on", () => {
 });
 
 describe("the empty caption box", () => {
-  it("says what scheduling really does, including the no-AI-key case", () => {
+  it("says in plain words what scheduling really does", () => {
     expect(CAPTION_EMPTY_PLACEHOLDER).toMatch(/written when you schedule/);
-    expect(CAPTION_EMPTY_PLACEHOLDER).toMatch(/clip title if no AI key/);
     expect(CAPTION_EMPTY_PLACEHOLDER).not.toMatch(/auto-generate/);
+  });
+
+  it("is short enough to read on a phone, without a dash-separated aside", () => {
+    expect(CAPTION_EMPTY_PLACEHOLDER.length).toBeLessThanOrEqual(50);
+    expect(CAPTION_EMPTY_PLACEHOLDER).not.toMatch(/[—-]/);
   });
 });

@@ -1,5 +1,6 @@
 import type { FailureAdvice } from "@/lib/publisher/failure";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
+import { isSameDayOrEarlier } from "@/lib/publisher/schedule";
 import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
 
 /**
@@ -101,6 +102,55 @@ export function removalImpact(
       facebook?.postId && (facebook.status === "scheduled" || facebook.status === "uploaded")
         ? { platform: "facebook", postId: facebook.postId }
         : null
+  };
+}
+
+/**
+ * The request that puts a removed post back, or null when it cannot be put back
+ * faithfully. Remove deletes the queue item; "Undo" books the same file again
+ * through POST /api/publish, which is `enqueue()` - so every rule that applies
+ * to a new booking applies to the restore, and this only offers it where the
+ * result is the post that was removed:
+ *
+ *  - Nothing may have reached a platform. A leg with a video id, a container, a
+ *    claim or an attempt has state a fresh booking cannot recreate, and a YouTube
+ *    video Remove had to hold private would be uploaded a second time.
+ *  - Not a picture post (booked through another route), not a pipeline run's
+ *    output (`runId` is not part of the request), not a leg the runner mirrored
+ *    onto the post (booking again would not copy it back).
+ *  - The slot must still be bookable: `enqueue()` refuses today, so offering
+ *    Undo for a slot that is today's (or past) would only fail.
+ *
+ * Pure, so the rule is tested without a browser.
+ */
+export function removalUndoRequest(
+  item: QueueItem,
+  options: { now?: Date; timeZone: string }
+): Record<string, unknown> | null {
+  const { now = new Date(), timeZone } = options;
+  if (item.mediaKind === "image" || item.runId || item.buffer) return null;
+  const platforms = ORDER.filter((platform) => item.platforms[platform]);
+  if (platforms.length === 0) return null;
+  for (const platform of platforms) {
+    const leg = item.platforms[platform] as PlatformState;
+    if (leg.status !== "pending" && leg.status !== "manual") return null;
+    if (leg.postId || leg.containerId || leg.claimedAt || leg.mirroredFrom || leg.attempts > 0) return null;
+  }
+  if (isSameDayOrEarlier(item.publishAt, now, timeZone)) return null;
+  return {
+    // The master when the post carries a vertical re-render of it: booking the
+    // master re-renders (and records the source) exactly as the first booking did.
+    clipPath: item.sourceClipPath ?? item.clipPath,
+    publishAt: item.publishAt,
+    title: item.title,
+    caption: item.caption ?? "",
+    hashtags: item.hashtags ?? [],
+    platforms,
+    visibility: item.visibility,
+    ...(item.jobId ? { jobId: item.jobId } : {}),
+    ...(item.accountId ? { accountId: item.accountId } : {}),
+    ...(item.format ? { format: item.format } : {}),
+    ...(item.tiktok && platforms.includes("tiktok") ? { tiktok: item.tiktok } : {})
   };
 }
 

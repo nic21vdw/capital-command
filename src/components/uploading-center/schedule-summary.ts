@@ -138,12 +138,13 @@ export function zoneTimeLabel(timeZone: string): string {
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /**
- * The days a batch landed on, as short as reads: "Mon", "Mon-Thu" within a week,
- * "Oct 12-Oct 20" beyond it. Days are the publish zone's, never the browser's.
+ * The dates a batch landed on, as short as reads: "Oct 13", "Oct 13-16" within a
+ * month, "Oct 28-Nov 2" across one. Dates are the publish zone's, never the
+ * browser's. Empty when there are no valid slots.
  */
-export function bookedDaysLabel(slotsUtc: string[], timeZone: string): string {
+export function bookedDatesLabel(slotsUtc: string[], timeZone: string): string {
   const make = (zone: string) =>
-    new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "short", month: "short", day: "numeric", year: "numeric" });
+    new Intl.DateTimeFormat("en-US", { timeZone: zone, month: "short", day: "numeric", year: "numeric" });
   let format: Intl.DateTimeFormat;
   try {
     format = make(timeZone);
@@ -153,27 +154,27 @@ export function bookedDaysLabel(slotsUtc: string[], timeZone: string): string {
   const days = slotsUtc
     .map((utc) => new Date(utc))
     .filter((at) => !Number.isNaN(at.getTime()))
-    .sort((a, b) => a.getTime() - b.getTime())
     .map((at) => {
       const pick = Object.fromEntries(format.formatToParts(at).map((part) => [part.type, part.value]));
-      return { weekday: pick.weekday, month: pick.month, day: pick.day, ordinal: Date.UTC(Number(pick.year), MONTHS.indexOf(pick.month), Number(pick.day)) };
-    });
+      return { month: pick.month, day: pick.day, ordinal: Date.UTC(Number(pick.year), MONTHS.indexOf(pick.month), Number(pick.day)) };
+    })
+    .sort((a, b) => a.ordinal - b.ordinal);
   if (days.length === 0) return "";
   const first = days[0];
   const last = days[days.length - 1];
-  if (first.ordinal === last.ordinal) return first.weekday;
-  if ((last.ordinal - first.ordinal) / 86_400_000 < 7) return `${first.weekday}-${last.weekday}`;
-  return `${first.month} ${first.day}-${last.month} ${last.day}`;
+  if (first.ordinal === last.ordinal) return `${first.month} ${first.day}`;
+  return first.month === last.month ? `${first.month} ${first.day}-${last.day}` : `${first.month} ${first.day}-${last.month} ${last.day}`;
 }
 
 /**
  * What Auto Assign says when it is done. Booked and "will actually post" are
  * different counts: a post for a platform with no connected account is saved
  * as a reminder, and a green "Auto-assigned 3 posts" over three of those is how
- * nobody found out until the slot passed. So the two are said apart: "4 booked:
- * Mon-Thu" for what will post, "4 saved as reminders - YouTube isn't connected.
- * Connect it to post automatically." for what will not, amber, and both when
- * a batch is mixed.
+ * nobody found out until the slot passed. So the two are said apart: "4 booked
+ * for Oct 13-16. They will post automatically." for what will post, "4 booked
+ * for Oct 13-16 as reminders. Connect YouTube to post automatically." for what
+ * will not (amber), and both counts when a batch is mixed. It is the ONE place a
+ * booking is described - the run's card shows it, there is no second copy.
  */
 export function summarizeAutoAssign(input: {
   /** Requests accepted by the queue (reminders included). */
@@ -187,7 +188,7 @@ export function summarizeAutoAssign(input: {
   firstError: string | null;
   /** Already-worded note about clips deliberately left out; starts with a space. */
   held: string;
-  /** The slots (UTC) of the posts that WILL post, for "Mon-Thu". */
+  /** The slots (UTC) of every post that was booked, reminders included, for "Oct 13-16". */
   bookedSlots?: string[];
   timeZone?: string;
   /**
@@ -218,25 +219,30 @@ function summarizeBooking(input: Parameters<typeof summarizeAutoAssign>[0]): {
   const automatic = scheduled - manual;
   const names = [...new Set(manualPlatforms)];
   const nameList = names.length === 0 ? "an unconnected platform" : names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-  const days = bookedDaysLabel(bookedSlots, timeZone);
-  const booked = `${automatic} booked${days ? `: ${days}` : ""}`;
-  const reminders = `${manual} saved as ${manual === 1 ? "a reminder" : "reminders"} - ${nameList} ${
-    names.length > 1 ? "aren't" : "isn't"
-  } connected. Connect ${names.length > 1 ? "them" : "it"} to post automatically.`;
+  const dates = bookedDatesLabel(bookedSlots, timeZone);
+  const booked = `${scheduled} booked${dates ? ` for ${dates}` : ""}`;
+  const connect = `Connect ${nameList} to post automatically.`;
   if (scheduled === 0) {
     return { level: "error", message: `${firstError ?? "Auto assign failed."}${held}` };
   }
   const tail = scheduled < total ? ` ${total - scheduled} not booked${firstError ? ` - ${firstError.replace(/[.\s]+$/, "")}` : ""}.` : "";
   if (automatic === 0) {
     // Everything that was booked is a reminder.
-    return { level: "warning", message: `${reminders}${tail}${held}` };
+    return {
+      level: "warning",
+      message: `${booked} as ${manual === 1 ? "a reminder" : "reminders"}. ${connect}${tail}${held}`
+    };
   }
   if (manual > 0) {
-    return { level: "warning", message: `${booked}. ${reminders}${tail}${held}` };
+    return {
+      level: "warning",
+      message: `${booked}: ${automatic} will post automatically, ${manual} ${manual === 1 ? "is a reminder" : "are reminders"}. ${connect}${tail}${held}`
+    };
   }
+  const post = `${scheduled === 1 ? "It" : "They"} will post automatically.`;
   if (scheduled < total) {
-    return { level: "warning", message: `${booked}.${tail}${held}` };
+    return { level: "warning", message: `${booked}. ${post}${tail}${held}` };
   }
   if (held) return { level: "warning", message: `${booked}.${held}` };
-  return { level: "success", message: booked };
+  return { level: "success", message: `${booked}. ${post}` };
 }
