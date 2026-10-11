@@ -231,7 +231,7 @@ export function ClipQueue({
               and unreachable by keyboard. Same place the board's footer sends to. */}
           {bulkSecondary ? (
             <p className="text-[11px] text-[var(--muted-foreground)]">
-              <Link href="/automations#cadence" className="text-[var(--accent)]! underline! underline-offset-2">
+              <Link href="/automations#cadence" className="text-[var(--accent)]! underline! underline-offset-2 max-sm:inline-flex max-sm:min-h-10 max-sm:items-center">
                 Change the cadence
               </Link>
             </p>
@@ -264,7 +264,7 @@ export function ClipQueue({
                     <button
                       type="button"
                       onClick={() => onViewBookings(bookedItems)}
-                      className="font-semibold underline underline-offset-2 hover:opacity-80"
+                      className="font-semibold underline underline-offset-2 hover:opacity-80 max-sm:inline-flex max-sm:min-h-10 max-sm:items-center"
                     >
                       View {bookedItems.length} booking{bookedItems.length === 1 ? "" : "s"}
                     </button>

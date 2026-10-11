@@ -935,11 +935,11 @@ const INLINE_ACTION =
 
 /** The one action that unblocks a card (Connect YouTube to retry): filled, so it reads first. */
 const INLINE_ACTION_PRIMARY =
-  "inline-flex items-center gap-1 rounded-md border border-[var(--accent)] bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent-contrast)] transition hover:bg-[var(--accent-strong)]";
+  "inline-flex items-center gap-1 rounded-md border border-[var(--accent)] bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent-contrast)] transition hover:bg-[var(--accent-strong)] max-sm:min-h-10 max-sm:px-3";
 
 /** The quieter action beside the primary fix (Rename next to Connect): same shape, no accent. */
 const INLINE_ACTION_SECONDARY =
-  "inline-flex items-center gap-1 rounded-md border border-[var(--border-strong)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)] transition hover:bg-white/8 hover:text-white";
+  "inline-flex items-center gap-1 rounded-md border border-[var(--border-strong)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)] transition hover:bg-white/8 hover:text-white max-sm:min-h-10 max-sm:px-3";
 
 /** The text-labelled action buttons on a post card. */
 const ACTION_BUTTON =
