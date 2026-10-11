@@ -139,6 +139,15 @@ function liveLinksFor(item: QueueItem): { platform: string; url: string }[] {
   return links;
 }
 
+/** Every platform the queue item targets with where it stands, for per-platform roll-ups. */
+function legsFor(item: QueueItem): { platform: string; status: string; url?: string }[] {
+  return PLATFORM_ORDER.filter((id) => item.platforms[id]).map((id) => {
+    const state = item.platforms[id]!;
+    const url = state.status === "published" ? remoteUrlFor(id, state.postId, state.status) : null;
+    return { platform: PLATFORM_LABELS[id], status: state.status, ...(url ? { url } : {}) };
+  });
+}
+
 function shortsEvents(
   items: QueueItem[],
   timeZone: string,
@@ -198,6 +207,7 @@ function shortsEvents(
           }
         : {}),
       ...(liveLinks.length > 0 ? { liveLinks } : {}),
+      legs: legsFor(item),
       ...(youtubeVideo ? { youtube: { itemId: item.id, videoId: youtubeVideo } } : {})
     });
   }

@@ -10,7 +10,7 @@ import {
   type StatsCache,
   type StatsDeps
 } from "@/lib/publisher/youtubeStats";
-import { agoLabel, compactCount, statsLine, studioAnalyticsUrl, totalViews } from "@/lib/publisher/youtubeStatsShared";
+import { agoLabel, compactCount, newestFetchedAt, statsAgeText, statsLine, studioAnalyticsUrl, totalViews } from "@/lib/publisher/youtubeStatsShared";
 
 const NOW = new Date("2026-10-10T12:00:00.000Z");
 const minutesAgo = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000).toISOString();
@@ -177,6 +177,30 @@ describe("formatting", () => {
     expect(agoLabel(minutesAgo(12), NOW)).toBe("12 min ago");
     expect(agoLabel(minutesAgo(180), NOW)).toBe("3 h ago");
     expect(agoLabel(minutesAgo(60 * 24 * 5), NOW)).toBe("5 days ago");
+  });
+
+  it("words the age for what the person can do about it", () => {
+    expect(statsAgeText("ok", minutesAgo(12), NOW)).toBe("Updated 12 min ago");
+    expect(statsAgeText("loading", minutesAgo(3), NOW)).toBe("Updated 3 min ago");
+    expect(statsAgeText("not-connected", minutesAgo(60 * 24 * 2), NOW)).toBe(
+      "Numbers from 2 days ago - connect YouTube to refresh"
+    );
+    expect(statsAgeText("stale", minutesAgo(180), NOW)).toBe(
+      "Numbers from 3 h ago - YouTube could not be reached to refresh"
+    );
+    // Old numbers are never "Updated", even if the last read said ok or is still loading.
+    expect(statsAgeText("ok", minutesAgo(60 * 5), NOW)).toBe("Numbers from 5 h ago");
+    expect(statsAgeText("loading", minutesAgo(60 * 5), NOW)).toBe("Numbers from 5 h ago");
+    expect(statsAgeText("ok", "not a date", NOW)).toBe("Numbers from a while ago");
+  });
+
+  it("finds the newest reading among some videos", () => {
+    const stats = {
+      a: { views: 1, likes: 0, comments: 0, fetchedAt: "2026-10-09T10:00:00.000Z" },
+      b: { views: 1, likes: 0, comments: 0, fetchedAt: "2026-10-10T10:00:00.000Z" }
+    };
+    expect(newestFetchedAt(stats, ["a", "b", "zz"])).toBe("2026-10-10T10:00:00.000Z");
+    expect(newestFetchedAt(stats, ["zz"])).toBeNull();
   });
 
   it("totals views over videos that have a number, once each", () => {

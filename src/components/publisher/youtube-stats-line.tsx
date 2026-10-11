@@ -1,13 +1,14 @@
 "use client";
 
-import { agoLabel, statsLine, type YoutubeStat, type YoutubeStatsStatus } from "@/lib/publisher/youtubeStatsShared";
+import { statsAgeText, statsLine, type YoutubeStat, type YoutubeStatsStatus } from "@/lib/publisher/youtubeStatsShared";
 import { useYoutubeStats } from "@/lib/publisher/useYoutubeStats";
 import { cn } from "@/lib/utils";
 
 /**
- * "1.2K views · 45 likes · 3 comments", and how old that is. When the numbers
- * could not be refreshed (YouTube not connected, or a read failed) the age is
- * worded "last fetched ..." so a stale number never passes for a live one.
+ * "1.2K views · 45 likes · 3 comments", and how old that is. Fresh numbers say
+ * "Updated 12 min ago"; numbers that could not be refreshed say "Numbers from
+ * 2 days ago - connect YouTube to refresh", so a stale number never passes for
+ * a live one and the person is told what to do about it.
  */
 export function YoutubeStatsLine({
   stat,
@@ -24,9 +25,7 @@ export function YoutubeStatsLine({
 }) {
   const text = statsLine(stat);
   if (!text) return null;
-  const refreshed = status === "ok" || status === "loading";
-  const age = agoLabel(stat.fetchedAt, now ?? new Date());
-  const ageText = refreshed ? `updated ${age}` : `last fetched ${age}`;
+  const ageText = statsAgeText(status, stat.fetchedAt, now ?? new Date());
   return (
     <p className={cn("text-[11px] text-[var(--muted-foreground)]", className)} title={`${text} - ${ageText}`}>
       <span className="font-medium text-white/80">{text}</span>

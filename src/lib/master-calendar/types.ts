@@ -6,6 +6,8 @@
  * side by side and link back to the calendar that owns each item.
  */
 
+import type { YoutubeStat } from "@/lib/publisher/youtubeStatsShared";
+
 export type CalendarSourceId = "shorts" | "carousels" | "queued-carousels" | "x" | "fb" | "content";
 
 export type MasterCalendarEvent = {
@@ -58,6 +60,13 @@ export type MasterCalendarEvent = {
    * item id lets the server pick the right channel.
    */
   youtube?: { itemId: string; videoId: string };
+  /**
+   * What happened on each platform, for events that come from the publish
+   * queue (the event's own `status` is one roll-up of these). `status` is the
+   * queue's per-platform status as stored: pending, uploaded, scheduled,
+   * published, failed or manual. `url` is the live post, when its shape is known.
+   */
+  legs?: { platform: string; status: string; url?: string }[];
 };
 
 /** The Day Summary and the calendar chips treat these as failures. */
@@ -146,6 +155,12 @@ export type MasterCalendarResponse = {
   start: string;
   days: number;
   events: MasterCalendarEvent[];
+  /**
+   * The last YouTube numbers the app has cached for the videos in `events`
+   * (read from disk, never from YouTube), so a screen can show them with the
+   * events instead of waiting for a second request.
+   */
+  youtubeStats?: Record<string, YoutubeStat>;
 };
 
 /**
