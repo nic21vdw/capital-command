@@ -294,6 +294,11 @@ label, assigned version and offset, and nothing else.
    The numeric user id is optional — `accountUserId()` resolves it from the
    token once per process, because Meta hands you a token and then makes you
    go hunting for the matching id.
+   A long-lived token expires 60 days after it is minted. The tick renews
+   each one weekly through `refresh_access_token` and keeps the renewed copy
+   in `data/threads-tokens.json` (`tokens.ts`). Pasting a new token into
+   `.env` replaces it at once. Only an already expired token needs this step
+   again.
 5. `npm run threads:check` — confirms each token and that it belongs to its id.
 6. `npm run threads:dry` — plans today's batch and reports what each account
    would post, without posting.

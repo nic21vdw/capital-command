@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "tick") {
-      return NextResponse.json(await threadsTick({ config, dryRun }));
+      return NextResponse.json(await threadsTick({ config, dryRun, refreshTokens: true }));
     }
 
     if (action === "shift") {

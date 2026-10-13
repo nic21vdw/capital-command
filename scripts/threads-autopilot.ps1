@@ -70,7 +70,7 @@ if (-not (Test-App)) {
     exit 0
   }
   if (-not (Test-BuildPresent)) {
-    Add-Content -Path $log -Value "There is no build to serve (.next\BUILD_ID is missing) - not starting a server." -Encoding utf8
+    Start-RecoveryBuild -Log $log
     exit 0
   }
   Add-Content -Path $log -Value "App not running at $baseUrl - starting it." -Encoding utf8

@@ -145,6 +145,9 @@ async function main() {
     printPlan(body.plan as PlanResult | undefined);
     printPlan(body.ahead as PlanResult | undefined, "planned ahead");
     printPlan(body.catchUp as PlanResult | undefined, "catch-up");
+    for (const entry of (body.tokens as { accountId: string; outcome: string; detail: string }[] | undefined) ?? []) {
+      console.log(`[threads] token ${entry.accountId}: ${entry.outcome} - ${entry.detail}`);
+    }
     printRun(body.run as RunReport | undefined);
     return;
   }

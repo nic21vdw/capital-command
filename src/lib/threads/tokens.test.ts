@@ -1,0 +1,103 @@
+import { rm } from "node:fs/promises";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { dataPath } from "@/lib/paths";
+import { threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
+import { effectiveToken, hashToken, readStoredTokens, refreshThreadsTokens } from "@/lib/threads/tokens";
+
+const NOW = new Date("2026-10-13T12:00:00.000Z");
+const DAY = 86_400_000;
+
+function connect(token = "env-token") {
+  vi.stubEnv("THREADS_ACCESS_TOKEN", token);
+  return threadsConfig();
+}
+
+function stubRefresh(response: () => Response) {
+  const fetchMock = vi.fn(async () => response());
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function ok(token: string) {
+  return () => new Response(JSON.stringify({ access_token: token, token_type: "bearer", expires_in: 5_184_000 }), { status: 200 });
+}
+
+beforeEach(async () => {
+  await rm(dataPath("threads-tokens.json"), { force: true });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
+
+async function refresh(config: ThreadsConfig, now = NOW) {
+  return refreshThreadsTokens(config, { primary: process.env.THREADS_ACCESS_TOKEN! }, now);
+}
+
+describe("Threads token refresh", () => {
+  it("refreshes a token it has never refreshed, and the config then uses the new one", async () => {
+    const fetchMock = stubRefresh(ok("refreshed-1"));
+    const outcomes = await refresh(connect());
+
+    expect(outcomes).toEqual([expect.objectContaining({ accountId: "primary", outcome: "refreshed" })]);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://graph.threads.net/refresh_access_token?grant_type=th_refresh_token");
+    expect(url).not.toContain("env-token");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer env-token");
+    expect(threadsConfig().accounts[0].accessToken).toBe("refreshed-1");
+  });
+
+  it("does not ask again inside the refresh interval", async () => {
+    stubRefresh(ok("refreshed-1"));
+    await refresh(connect());
+    const fetchMock = stubRefresh(ok("refreshed-2"));
+
+    const outcomes = await refresh(threadsConfig(), new Date(NOW.getTime() + 3 * DAY));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(outcomes[0].outcome).toBe("fresh");
+  });
+
+  it("refreshes the refreshed token once the interval has passed", async () => {
+    stubRefresh(ok("refreshed-1"));
+    await refresh(connect());
+    const fetchMock = stubRefresh(ok("refreshed-2"));
+
+    await refresh(threadsConfig(), new Date(NOW.getTime() + 8 * DAY));
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer refreshed-1");
+    expect(threadsConfig().accounts[0].accessToken).toBe("refreshed-2");
+  });
+
+  it("lets a new token pasted into .env win over an old refresh", async () => {
+    stubRefresh(ok("refreshed-1"));
+    await refresh(connect());
+
+    expect(connect("pasted-later").accounts[0].accessToken).toBe("pasted-later");
+  });
+
+  it("keeps posting with the current token when Meta refuses, and waits before retrying", async () => {
+    stubRefresh(() => new Response(JSON.stringify({ error: { message: "Session has expired for env-token" } }), { status: 400 }));
+    const outcomes = await refresh(connect());
+
+    expect(outcomes[0].outcome).toBe("failed");
+    expect(outcomes[0].detail).not.toContain("env-token");
+    expect(threadsConfig().accounts[0].accessToken).toBe("env-token");
+
+    const fetchMock = stubRefresh(ok("refreshed-1"));
+    await refresh(threadsConfig(), new Date(NOW.getTime() + 60 * 60 * 1000));
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await refresh(threadsConfig(), new Date(NOW.getTime() + 7 * 60 * 60 * 1000));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(threadsConfig().accounts[0].accessToken).toBe("refreshed-1");
+  });
+
+  it("falls back to the .env token once a stored one has expired", () => {
+    const stored = {
+      primary: { source: hashToken("env-token"), token: "old", refreshedAt: NOW.toISOString(), expiresAt: "2020-01-01T00:00:00.000Z" }
+    };
+    expect(effectiveToken("primary", "env-token", stored)).toBe("env-token");
+    expect(readStoredTokens()).toEqual({});
+  });
+});

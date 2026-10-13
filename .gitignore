@@ -32,6 +32,8 @@ data/publish-queue.json
 data/publish-queue.log*
 data/threads-queue.json
 data/publisher-tokens.json
+data/threads-tokens.json
+rebuild-attempt.stamp
 data/social-accounts.json
 data/title-log.jsonl
 data/youtube-outliers.json
