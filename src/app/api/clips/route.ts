@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FFMPEG_MISSING_MESSAGE, resolveFfmpeg, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { isCaptionPresetId } from "@/lib/clipping/captions";
+import { DiskSpaceError } from "@/lib/disk/space";
 import { isClipLengthId } from "@/lib/clipping/clip-length";
 import {
   createJobFromUpload,
@@ -83,6 +84,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Enter a valid http(s) video/VOD URL." }, { status: 400 });
   }
 
-  const job = await createJobFromUrl(url, topic || undefined, clipCount, autoFrame, options);
-  return NextResponse.json({ job }, { status: 201 });
+  try {
+    const job = await createJobFromUrl(url, topic || undefined, clipCount, autoFrame, options);
+    return NextResponse.json({ job }, { status: 201 });
+  } catch (error) {
+    if (error instanceof DiskSpaceError) return NextResponse.json({ error: error.message }, { status: 507 });
+    throw error;
+  }
 }

@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import { NextRequest, NextResponse } from "next/server";
 import { createJobFromUpload } from "@/lib/clipping/jobs";
 import { saveSourceFromStream } from "@/lib/clipping/sources";
+import { assertEnoughDiskSpace } from "@/lib/disk/space";
 import { getProject, projectOutputDir } from "@/lib/longform/store";
 
 export const runtime = "nodejs";
@@ -44,6 +45,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   try {
+    await assertEnoughDiskSpace();
     const stream = Readable.toWeb(createReadStream(filePath)) as ReadableStream<Uint8Array>;
     const source = await saveSourceFromStream(stream, `${project.name} (edited).mp4`, "video/mp4");
     const job = await createJobFromUpload(source.id, topic || undefined, clipCount);

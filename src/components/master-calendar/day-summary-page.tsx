@@ -19,6 +19,7 @@ import {
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { DiskLine } from "@/components/master-calendar/disk-line";
 import { SourceIcon } from "@/components/master-calendar/source-icon";
 import { sourceHrefForDay } from "@/lib/master-calendar/aggregate";
 import { formatDayKey, localTodayKey, relativeDayLabel, shiftDayKey } from "@/lib/master-calendar/day-keys";
@@ -394,6 +395,8 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
           </div>
         </div>
       </Card>
+
+      <DiskLine />
 
       <div className="space-y-4">
         {summary.sections.map((section) => (

@@ -1,9 +1,9 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { dataPath } from "@/lib/paths";
 
-const media = vi.hoisted(() => ({ render: vi.fn<(...args: unknown[]) => Promise<void>>(async () => undefined) }));
+const media = vi.hoisted(() => ({ render: vi.fn<(...args: unknown[]) => Promise<void>>(async () => undefined), captions: "" }));
 vi.mock("@/lib/clipping/ffmpeg", () => ({
   probeDimensions: async () => ({ width: 2160, height: 3840 }),
   probeVideoStream: async () => ({ width: 2160, height: 3840, fps: 59.94 }),
@@ -33,7 +33,13 @@ beforeAll(async () => {
   await mkdir(workDir("portrait-fallback"), { recursive: true });
 });
 
-beforeEach(() => media.render.mockClear());
+beforeEach(() => {
+  media.captions = "";
+  media.render.mockReset();
+  media.render.mockImplementation(async (...args: unknown[]) => {
+    media.captions = await readFile(args[2] as string, "utf8");
+  });
+});
 
 describe("native portrait masters keep their ready-to-post captions", () => {
   it("reuses the captioned delivery file instead of bypassing it for a vertical master", async () => {
@@ -46,8 +52,8 @@ describe("native portrait masters keep their ready-to-post captions", () => {
     expect(media.render).toHaveBeenCalledOnce();
     const args = media.render.mock.calls[0];
     expect(args[7]).toEqual({ width: 2160, height: 3840, fps: 59.94 });
-    const captions = await readFile(args[2] as string, "utf8");
-    expect(captions).toContain("PlayResX: 2160");
-    expect(captions).toContain("PlayResY: 3840");
+    expect(media.captions).toContain("PlayResX: 2160");
+    expect(media.captions).toContain("PlayResY: 3840");
+    await expect(stat(args[2] as string)).rejects.toThrow();
   });
 });

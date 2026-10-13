@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- Renders now clean up after themselves and refuse to fill the disk: long-form and clip renders delete their temporary files when they finish, fail or are stopped, refuse to start with under 40 GB free (`RENDER_MIN_FREE_GB`), and fail one job cleanly if the drive fills mid-render instead of flooding the server log. The Day Summary shows free space and the size of `data\`, with a warning colour when space is low. `npm run data:prune` lists old work files, old clip sources and stray `.tmp` files you could clear (add `-- --apply` to delete them); it never touches finished long-form videos or anything the publish queue still needs.
+
 - Threads and X posts now plug CoLateral as the all-in-one agentic workspace (agents side by side in your real files, bring your own AI, pay once) instead of engineering tools, and never mention CoLateral Engineering. Your saved X reply brief in Settings may still carry the old wording.
 
 - New **Outreach** page (Studio): keep a list of the creators, newsletters and podcasts you want to offer CoLateral to, filter it by where each conversation stands, see who is due a follow-up and whether you are on pace for 5-10 contacts a week, and copy a message personalised with their name and recent video. Paste a JSON list on the page or run `npm run outreach:import -- <file>` to bring in researched contacts; duplicates are merged by url and nothing you wrote is overwritten. It is a tracker only - it never sends anything.
