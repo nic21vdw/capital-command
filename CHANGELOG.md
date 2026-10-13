@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- Renders now clean up after themselves and refuse to fill the disk: long-form and clip renders delete their temporary files when they finish, fail or are stopped, refuse to start with under 40 GB free (`RENDER_MIN_FREE_GB`), and fail one job cleanly if the drive fills mid-render instead of flooding the server log. The Day Summary shows free space and the size of `data\`, with a warning colour when space is low. `npm run data:prune` lists old work files, old clip sources and stray `.tmp` files you could clear (add `-- --apply` to delete them); it never touches finished long-form videos or anything the publish queue still needs.
+
 - **Listening and Outreach have proper page titles and answer the command bar.** Their browser tab and taskbar entry now read "Listening | CoLateral Marketing" and "Outreach | CoLateral Marketing", and "open listening" or "open outreach" in the command bar takes you there.
 
 - **Toast buttons are 40px on phones.** "Open Settings" and "Remove anyway" on an error toast were 24px tall, the one tap target the page sweep could not see because it only exists while the toast is up.

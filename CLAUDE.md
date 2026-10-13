@@ -469,6 +469,43 @@ holds everything model-specific.
   map lives in one process, outsiders go through the HTTP API.
 - See `src/lib/music/README.md`.
 
+## Renders clean up after themselves and refuse to fill the disk (`src/lib/disk`, `src/lib/retention`)
+
+`data/` reached 660 GB and the drive filled: every long-form export left its
+`export-<id>-*` intermediates in `longform/work/<project>/`, and nothing checked
+free space.
+
+- Every export deletes its own scratch files in a `finally` (`runExport` in
+  `longform/render.ts`, `renderClipIndexes` and `ensureVerticalClipFile` in
+  `clipping/jobs.ts`, `runExport` in `clipping/export.ts`). The record flips to
+  `done` only AFTER the cleanup, so a finished export has already given its disk
+  back. A new stage that writes a file next to the others must use the same
+  `export-<recordId>-` prefix (long-form) or `seg-NN.` / `caps-NN.ass` (clips) or
+  it will leak. The only files kept across renders are the caches
+  (`source-audio.mp3`, the visual timeline), and none of them is prefixed that way.
+- `assertEnoughDiskSpace()` runs before a long-form export, a clip job, a clip
+  re-render, a Clip Editor export and "send to clips", and refuses under
+  `RENDER_MIN_FREE_GB` (default 40, `0` switches it off). A full disk MID-render
+  surfaces through `renderFailureMessage()`, so the user sees one sentence
+  whichever way it failed. Do not guard publishing: a post must not be refused
+  because the drive is low.
+- Recording a failure can itself hit ENOSPC. `startLongformExport` swallows that
+  after cleanup instead of leaving an unhandled rejection; do the same for any
+  new background job.
+- `console.log` on a full disk raises an `error` event on stdout, which Node
+  turns into an `uncaughtException` per line (118 of them on 10-05, all from the
+  publisher's default log sink). `instrumentation.ts` installs the guard in
+  `disk/stream-guard.ts`.
+- `npm run data:prune` is a dry run; `-- --apply` deletes. It only ever touches
+  `longform/work/*/export-*` and `clips/uploads/*/{seg,caps,export}-*` older than
+  24 h, orphaned `*.tmp` older than 24 h, and `clips/sources/<id>` older than
+  `--source-days` (30). It never touches `longform/outputs`, any source a publish
+  queue item references (by path, job or run), or a source with recent clip-job,
+  run or long-form activity, and it leaves every source alone if the queue file
+  cannot be read or the queue lives in R2 (`PUBLISH_QUEUE_BACKEND=r2`). It is not scheduled; keep it that way until Nic says so.
+- The Day Summary disk line comes from `/api/disk`. `data/` is walked once per 10
+  minutes in the background (`disk/usage.ts`); never walk it per request.
+
 ## Long-form topic segments vs short-form clips
 
 A stream is several videos. `src/lib/longform/topics.ts` reads the transcript

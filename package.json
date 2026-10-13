@@ -59,6 +59,7 @@
     "carousel:proof": "tsx scripts/proof-carousel.ts",
     "carousel:book": "tsx scripts/carousel-book.ts",
     "brief:day": "tsx scripts/day-briefing.ts",
+    "data:prune": "tsx scripts/data-prune.ts",
     "story:edit": "tsx scripts/story-edit.ts",
     "outreach:import": "tsx src/lib/outreach/cli.ts",
     "listening:scan": "tsx src/lib/listening/cli.ts"
