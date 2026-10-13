@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- Every queue and setting is now backed up nightly. `npm run backup:state` (and `backup-to-drive.bat`) zips the publish queue, Threads queue, clip jobs, long-form projects, automations, agent runs and the rest of `data\` into your Google Drive or OneDrive (whichever it finds; it also leaves out transcripts that can be rebuilt and automation history older than 2 days to stay small), keeps the newest 14, and leaves tokens and `.env` out. Day Summary shows when the last backup ran and warns when it failed or is over 48 hours old. `npm run backup:restore -- <zip>` shows what a restore would change without touching anything; `--live` applies it once the app is stopped. Run `npm run backup:register` once in production for the 03:30 nightly task, and set `BACKUP_DRIVE_DIR` in `.env` if the folder is not found on its own.
+
 - Renders now clean up after themselves and refuse to fill the disk: long-form and clip renders delete their temporary files when they finish, fail or are stopped, refuse to start with under 40 GB free (`RENDER_MIN_FREE_GB`), and fail one job cleanly if the drive fills mid-render instead of flooding the server log. The Day Summary shows free space and the size of `data\`, with a warning colour when space is low. `npm run data:prune` lists old work files, old clip sources and stray `.tmp` files you could clear (add `-- --apply` to delete them); it never touches finished long-form videos or anything the publish queue still needs.
 
 - **Listening and Outreach have proper page titles and answer the command bar.** Their browser tab and taskbar entry now read "Listening | CoLateral Marketing" and "Outreach | CoLateral Marketing", and "open listening" or "open outreach" in the command bar takes you there.

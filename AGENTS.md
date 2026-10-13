@@ -25,7 +25,7 @@ running app.
 | Branch | `main`, always | `claude/<name>`, cut from `main` |
 | Port | 3000 | 3100 (`npm run dev:sandbox`) |
 | Data | the real queues, tokens and clips | its own empty `data\` + a snapshot of app data |
-| Scheduled tasks | publish runner, Threads autopilot, channel scan, TikTok audit watch | none |
+| Scheduled tasks | publish runner, Threads autopilot, channel scan, TikTok audit watch, state backup | none |
 | Who edits it | nobody | every change |
 
 The sandbox is a git worktree, so it shares the same repository and branches
@@ -120,7 +120,8 @@ normal release does, and pushes later if it can.
   pull request you open and merge, never a push to the branch itself — and
   never from inside the production checkout.
 - **Don't register scheduled tasks from the sandbox.** `npm run
-  publish:register`, `threads:register` and `tiktok:watch:register` point
+  publish:register`, `threads:register`, `tiktok:watch:register` and
+  `backup:register` point
   Task Scheduler at whatever folder they run in; run them in production
   only, and only when the task itself changed.
 - Don't run publishing CLIs (`publish:run`, `threads:tick`, `ingest:scan`)
@@ -141,6 +142,69 @@ normal release does, and pushes later if it can.
   nobody knows why, read that file FIRST; the `cwd` on each line says which
   checkout did it. It is append-only and rotates at 2 MB, and a failed write
   is only ever a warning — auditing must never be able to stop a post.
+
+## State backups
+
+`npm run backup:state` zips every `.json`, `.jsonl` and small `.log` file under
+`data\` (the publish and Threads queues, clip jobs, long-form projects,
+automations, agent runs, pipeline and podcast state) into
+`capital-command-state-YYYYMMDD-HHMM.zip`, keeps the newest 14 and records the
+outcome in `data\backup-status.json` (`at`, `ok`, `path`, `bytes`, `error`,
+`lastSuccessAt`). Day Summary reads that file through `/api/backup/status` and
+shows "Last backup: ..." with a warning when the last good backup is older than
+48 hours or there never was one.
+
+- **Where it writes.** `--dest <dir>` exactly as given; else
+  `<BACKUP_DRIVE_DIR>\CoLateral Marketing Backups`; else the same under
+  `CLIPS_DRIVE_DIR`; else the first folder it finds, Google Drive for desktop
+  first (`G:\My Drive`, `%USERPROFILE%\Google Drive`, `%USERPROFILE%\My Drive`,
+  then other drive letters), then OneDrive (`%OneDrive%`, `%OneDriveConsumer%`,
+  `%USERPROFILE%\OneDrive`). Nothing found, or a configured folder that does not
+  exist, exits 1 and records the reason in the status file. Production's `.env`
+  sets neither variable and this machine has no Google Drive for desktop, so
+  production lands in `%OneDrive%\CoLateral Marketing Backups` unless
+  `BACKUP_DRIVE_DIR` is set.
+- **What stays out.** Media, `*.tmp`, logs over 5 MB, anything over 50 MB,
+  `clips\bin\` (downloaded speech models and yt-dlp), `snapshots\` (the app's own
+  copies of `capital-command.json`, which the zip holds live), every file under
+  `clips\sources\<id>\` except `meta.json` (transcripts, waveforms and footage
+  analysis are rebuilt from the source video, which is not backed up), and
+  `automations\history\*.jsonl` older than 2 days (by the date in the file name,
+  else by modified time; the manifest counts them under `skippedCounts.history`).
+  Set `BACKUP_HISTORY_DAYS` in `.env` to change the 2, for example `1`. Secrets are never put in
+  the zip: `.env`, `.env.*`, `publisher-tokens.json`, `credentials.json`,
+  `voice\xai-oauth.json` and any other data file named like a token, secret,
+  credential or oauth store. They are listed in the zip's `manifest.json` under
+  `excludedSecrets` with what to reconnect. A new token store needs no code
+  change if its filename says what it is; one that does not must be added to
+  `KNOWN_SECRETS` in `src/lib/backup/state-backup.ts`.
+- **The 50 MB cap has one exception.** The core stores (`capital-command.json`,
+  both queues, `clips\jobs.json`, `longform\projects.json`, `agents\runs.json`
+  and a few more, `CORE_STATE` in `state-backup.ts`) are kept at any size.
+  `clips\jobs.json` is over 50 MB, and dropping it silently is the failure this
+  command exists to prevent.
+- **Restore.** `npm run backup:restore -- <zip>` extracts to
+  `backups\restore-staging\<name>` and prints which files would change; it
+  touches nothing in `data\`. `--live` overwrites `data\` and is refused while
+  port 3000 answers, so stop the app first (`scripts\stop-server.ps1`). Before
+  overwriting it saves the current copy of every file it replaces to
+  `backups\pre-restore-<time>.zip`. Files in `data\` that the backup does not
+  hold, and `backup-status.json`, are left alone. Either mode prints the secrets
+  to reconnect.
+- **Schedule.** `npm run backup:register` registers "Capital Command state
+  backup" for 03:30 daily, pointing at the checkout it runs from, so run it from
+  production only (like the other register scripts). Run output goes to
+  `backup-state.log` in the checkout. `backup-to-drive.bat` runs the same
+  `npm run backup:state`.
+- **Size.** Measured read-only against production on 2026-10-13: 245 files,
+  28.2 MB zipped with 2 days of journals, 21.4 MB with `BACKUP_HISTORY_DAYS=1`.
+  Most of it is `clips\jobs.json` (9.7 MB) and the two `publisher-*.jsonl`
+  journals (about 13 MB, roughly 95,000 events a day). Cutting that journal
+  volume is what shrinks the backup; the retention of 14 keeps the
+  total on OneDrive under about 400 MB.
+- The zip format is written by `src/lib/backup/zip.ts` on `node:zlib`, because
+  the repo has no zip dependency. PowerShell's `Expand-Archive` opens the files.
+  It does not do zip64, so it stops at 65,535 files or 4 GB.
 
 ## Which model does the work
 
