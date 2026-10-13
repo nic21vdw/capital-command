@@ -25,6 +25,9 @@
     "publish:scheduler": "tsx src/lib/publisher/cli.ts scheduler",
     "publish:register": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\register-publish-task.ps1",
     "ai:check": "tsx scripts/ai-health.ts",
+    "backup:state": "tsx scripts/backup-state.ts",
+    "backup:restore": "tsx scripts/restore-state.ts",
+    "backup:register": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\register-backup-task.ps1",
     "tiktok:audit": "tsx src/lib/publisher/auditCheck.ts",
     "tiktok:watch:register": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\register-tiktok-audit-task.ps1",
     "publish:list": "tsx src/lib/publisher/cli.ts list",
@@ -59,6 +62,7 @@
     "carousel:proof": "tsx scripts/proof-carousel.ts",
     "carousel:book": "tsx scripts/carousel-book.ts",
     "brief:day": "tsx scripts/day-briefing.ts",
+    "data:prune": "tsx scripts/data-prune.ts",
     "story:edit": "tsx scripts/story-edit.ts",
     "outreach:import": "tsx src/lib/outreach/cli.ts",
     "listening:scan": "tsx src/lib/listening/cli.ts"

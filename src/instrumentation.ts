@@ -9,6 +9,9 @@ export async function register() {
     // against the live data while an in-place release is compiling.
     if (process.env.NEXT_PHASE === "phase-production-build") return;
 
+    const { guardStreamsAgainstNoSpace } = await import("@/lib/disk/stream-guard");
+    guardStreamsAgainstNoSpace();
+
     const { releaseRuntime } = await import("@/lib/release/runtime");
     releaseRuntime();
 

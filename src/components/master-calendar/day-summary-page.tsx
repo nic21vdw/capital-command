@@ -23,6 +23,8 @@ import {
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { BackupStatusLine, useBackupView } from "@/components/master-calendar/backup-status-line";
+import { DiskLine } from "@/components/master-calendar/disk-line";
 import { SourceIcon } from "@/components/master-calendar/source-icon";
 import { sourceHrefForDay } from "@/lib/master-calendar/aggregate";
 import { formatDayKey, localTodayKey, relativeDayLabel, shiftDayKey } from "@/lib/master-calendar/day-keys";
@@ -552,6 +554,8 @@ function DaySummaryBody({
     [dateKey, fetchedDate, response]
   );
 
+  const backup = useBackupView();
+
   // The last seven days, fetched alongside the day so both paint together.
   const [week, setWeek] = useState<{ state: "loading" | "ready" | "error"; response: MasterCalendarResponse | null }>({
     state: "loading",
@@ -655,7 +659,8 @@ function DaySummaryBody({
         value: summary.todos.map((todo) => `${todo.platform}${todo.time ? ` at ${formatClockTime(todo.time)}` : ""}: ${todo.title}`).join("; ") || "None"
       },
       { label: "Networks", value: networksSummary },
-      { label: "Last 7 days", value: weekReading }
+      { label: "Last 7 days", value: weekReading },
+      { label: "Last backup", value: backup?.text.replace(/^Last backup: /, "") ?? "Checking" }
     ],
     setField: (id, value) => {
       if (id !== "date") return false;
@@ -708,6 +713,8 @@ function DaySummaryBody({
       <p className="-mt-2 mb-4 text-xs text-[var(--muted-foreground)]">
         Shows YouTube views and likes; other platforms show posting status - use the Open on links for their numbers.
       </p>
+
+      <BackupStatusLine view={backup} />
 
       <Card className="mb-4 p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
@@ -834,6 +841,8 @@ function DaySummaryBody({
           </div>
         </div>
       </Card>
+
+      <DiskLine />
 
       {dateKey <= todayKey ? (
         <YoutubeDayStrip

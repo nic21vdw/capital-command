@@ -24,6 +24,8 @@ import { centerBlurVideoTopFrac, DEFAULT_CENTER_BLUR_ZOOM } from "@/lib/clipping
 import { framingVideoTopFrac } from "@/lib/clipping/framing";
 import { renderCaptionedVertical, renderPreviewAssets, renderSourceClip, type ClipFramingSpec } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/sources";
+import { removeByPrefix, removeQuietly } from "@/lib/disk/cleanup";
+import { assertEnoughDiskSpace, renderFailureMessage } from "@/lib/disk/space";
 import { DEFAULT_OUTPUT_QUALITY, normalizeOutputQuality, type OutputQuality } from "@/lib/pipeline/outputQuality";
 import { readAppData } from "@/lib/storage/store";
 import { ensureClipThumbnail } from "@/lib/clipping/thumbnails";
@@ -191,6 +193,7 @@ export async function retryMissingRenders(id: string): Promise<ClipJob | undefin
     if (!job.sourceUrl) {
       throw new Error("This job planned no clips and has no source link to start from. Paste the link again.");
     }
+    await assertEnoughDiskSpace();
     await update(job, { status: "queued", stage: "downloading", progress: 2, error: undefined, notices: [] });
     void runPipeline(job, job.sourceUrl).catch((error) => failJob(job, error));
     return job;
@@ -207,6 +210,7 @@ export async function retryMissingRenders(id: string): Promise<ClipJob | undefin
     return job;
   }
 
+  await assertEnoughDiskSpace();
   job.notices = job.notices.filter((notice) => !/^Clip \d+ \(/.test(notice));
   await update(job, { status: "processing", stage: "rendering", progress: 50, notices: job.notices });
   void renderClipIndexes(job, missingIndexes).catch((error) => failJob(job, error));
@@ -284,7 +288,7 @@ export async function fetchJobCaptions(id: string, force = false): Promise<ClipJ
 }
 
 async function failJob(job: ClipJob, error: unknown) {
-  await update(job, { status: "error", error: error instanceof Error ? error.message : String(error) });
+  await update(job, { status: "error", error: renderFailureMessage(error) }).catch(() => undefined);
 }
 
 function overlapRatio(a: { start: number; end: number }, b: { start: number; end: number }) {
@@ -377,6 +381,7 @@ export async function createJobFromUrl(
   autoFrame?: boolean,
   options: ClipJobOptions = {}
 ): Promise<ClipJob> {
+  await assertEnoughDiskSpace();
   await loadJobs();
   const id = crypto.randomUUID().slice(0, 8);
   const job: ClipJob = {
@@ -413,6 +418,7 @@ export async function createJobFromUpload(
   autoFrame?: boolean,
   options: ClipJobOptions = {}
 ): Promise<ClipJob> {
+  await assertEnoughDiskSpace();
   await loadJobs();
   const meta = await readSourceMeta(sourceId);
   if (!meta) throw new Error("That uploaded video could not be found. Upload it again.");
@@ -797,7 +803,11 @@ export async function ensureVerticalClipFile(jobId: string, fileName: string): P
       // desync every line, so a failed caption write gives the trim up too.
       if (!assPath) trim = 0;
     }
-    await renderCaptionedVertical(filePath, verticalPath, assPath, audio, framing, DEFAULT_CENTER_BLUR_ZOOM, trim, frame);
+    try {
+      await renderCaptionedVertical(filePath, verticalPath, assPath, audio, framing, DEFAULT_CENTER_BLUR_ZOOM, trim, frame);
+    } finally {
+      if (assPath) await removeQuietly(assPath);
+    }
     if (job && clip && isMaster) clip.hookTrimSec = trim > 0 ? trim : undefined;
   }
   if (job && clip && isMaster) {
@@ -823,7 +833,8 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
   job.output = quality;
   const renderOne = async (i: number) => {
     const clip = job.clips[i];
-    const segPath = path.join(workDir(job.id), `seg-${String(i + 1).padStart(2, "0")}.mp4`);
+    const scratchName = String(i + 1).padStart(2, "0");
+    const segPath = path.join(workDir(job.id), `seg-${scratchName}.mp4`);
     try {
       const produced = uploadMeta
         ? await cutLocalSection(sourceFilePath(uploadMeta), clip.start, clip.end, segPath)
@@ -913,11 +924,13 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
         // falls back to the master and publishing re-renders on demand.
         job.notices.push(`Clip ${i + 1}: the 9:16 vertical render failed — it will be re-rendered when scheduled.`);
       }
-      await unlink(produced).catch(() => undefined);
     } catch (error) {
       job.notices.push(
-        `Clip ${i + 1} (${Math.round(clip.start)}s) could not be rendered: ${error instanceof Error ? error.message : String(error)}.`
+        `Clip ${i + 1} (${Math.round(clip.start)}s) could not be rendered: ${renderFailureMessage(error).replace(/\.$/, "")}.`
       );
+    } finally {
+      await removeByPrefix(workDir(job.id), `seg-${scratchName}.`);
+      await removeQuietly(path.join(workDir(job.id), `caps-${scratchName}.ass`));
     }
     completed += 1;
     await update(job, { stage: "rendering", progress: 50 + Math.round((completed / total) * 48) });

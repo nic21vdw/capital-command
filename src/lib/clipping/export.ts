@@ -6,6 +6,8 @@ import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue } from "@/li
 import { hasAudioStream, isRenderCanceled, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { attachEditedClipRender, outputDir, workDir } from "@/lib/clipping/jobs";
 import { renderSignature } from "@/lib/clipping/export-signature";
+import { removeQuietly } from "@/lib/disk/cleanup";
+import { renderFailureMessage } from "@/lib/disk/space";
 import {
   clipEditedDurationSec,
   keptClipRanges,
@@ -425,7 +427,7 @@ export function startExport(spec: ExportSpec): ExportRecord {
         return;
       }
       record.status = "error";
-      record.error = error instanceof Error ? error.message : String(error);
+      record.error = renderFailureMessage(error);
     })
     .finally(() => controllers.delete(id));
   return record;
@@ -434,6 +436,14 @@ export function startExport(spec: ExportSpec): ExportRecord {
 async function runExport(record: ExportRecord, spec: ExportSpec, signal: AbortSignal) {
   const dir = path.join(workDir(spec.jobId), `export-${record.id}`);
   await mkdir(dir, { recursive: true });
+  try {
+    await renderToFile(record, spec, dir, signal);
+  } finally {
+    await removeQuietly(dir);
+  }
+}
+
+async function renderToFile(record: ExportRecord, spec: ExportSpec, dir: string, signal: AbortSignal) {
   const { args, outFile } = await buildArgs(spec, dir);
   const total = Math.max(0.1, trimDuration(spec));
 
@@ -450,11 +460,9 @@ async function runExport(record: ExportRecord, spec: ExportSpec, signal: AbortSi
       }
     });
   } catch (error) {
-    // On a stop, remove the half-written output so nothing downstream ever
-    // picks up a truncated, unplayable file.
-    if (isRenderCanceled(error) || signal.aborted) {
-      await rm(outFile, { force: true }).catch(() => undefined);
-    }
+    // A stop or a failure leaves a half-written output; remove it so nothing
+    // downstream ever picks up a truncated, unplayable file.
+    await rm(outFile, { force: true }).catch(() => undefined);
     throw error;
   }
 
