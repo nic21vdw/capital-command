@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildPlatformCopyPrompt,
   fallbackPlatformCopy,
@@ -57,5 +57,41 @@ describe("fallbackPlatformCopy", () => {
     expect(copy.caption).toBe("My Clip");
     expect(copy.hashtags.length).toBeGreaterThan(0);
     expect(copy.hashtags.every((tag) => tag.startsWith("#"))).toBe(true);
+  });
+});
+
+describe("generatePlatformCopy source", () => {
+  it("marks the title fallback so the screen cannot call it tailored copy", async () => {
+    vi.resetModules();
+    vi.doMock("@/lib/ai", () => ({ aiConfigured: () => false, runAi: vi.fn() }));
+    const { generatePlatformCopy } = await import("@/lib/publisher/ai-copy");
+    const copy = await generatePlatformCopy({ title: "My Clip" }, "youtube");
+    expect(copy.source).toBe("fallback");
+    expect(copy.caption).toBe("My Clip");
+    vi.doUnmock("@/lib/ai");
+  });
+
+  it("marks a model-written caption as ai", async () => {
+    vi.resetModules();
+    vi.doMock("@/lib/ai", () => ({
+      aiConfigured: () => true,
+      runAi: vi.fn(async () => ({ text: '{"caption":"Written","hashtags":["#ai"]}', refused: false }))
+    }));
+    const { generatePlatformCopy } = await import("@/lib/publisher/ai-copy");
+    const copy = await generatePlatformCopy({ title: "My Clip" }, "youtube");
+    expect(copy.source).toBe("ai");
+    expect(copy.caption).toBe("Written");
+    vi.doUnmock("@/lib/ai");
+  });
+
+  it("falls back, and says so, when the model refuses", async () => {
+    vi.resetModules();
+    vi.doMock("@/lib/ai", () => ({
+      aiConfigured: () => true,
+      runAi: vi.fn(async () => ({ text: "", refused: true }))
+    }));
+    const { generatePlatformCopy } = await import("@/lib/publisher/ai-copy");
+    expect((await generatePlatformCopy({ title: "T" }, "tiktok")).source).toBe("fallback");
+    vi.doUnmock("@/lib/ai");
   });
 });

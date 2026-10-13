@@ -7,7 +7,12 @@
  */
 export type PipelineSummary = {
   streams?: unknown[];
+  /** Everything asking for attention: pipeline problems plus failed posts. */
   needsAttention?: number;
+  /** How `needsAttention` splits up (see lib/attention/failures.ts). */
+  breakdown?: { pipeline?: number; publish?: number; threads?: number };
+  /** The individual failed posts, shaped as bridge notifications. */
+  failures?: unknown[];
   working?: number;
   scan?: unknown;
 };

@@ -192,7 +192,7 @@ export function findAccount(config: ThreadsConfig, accountId: string): ThreadsAc
 export function threadsBlockedReason(config: ThreadsConfig = threadsConfig()): string | null {
   if (!config.enabled) return "The Threads autopilot is switched off (THREADS_ENABLED=false).";
   if (config.accounts.length === 0) {
-    return "No Threads account is connected — paste a token into THREADS_ACCESS_TOKEN in .env.";
+    return "No Threads account is connected — add the access token in Settings > Accounts.";
   }
   return null;
 }

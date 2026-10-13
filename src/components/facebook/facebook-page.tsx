@@ -43,10 +43,6 @@ import { localDateKey } from "@/lib/x-strategy/analytics";
 import { cn } from "@/lib/utils";
 import type { FbPost, FbPostFormat, FbPlatform, FbThreadComment } from "@/types/domain";
 
-// Benchmark from the playbook: 78.2% of the 1.4B organic views came from
-// text-only posts.
-const TEXT_VIEW_BENCHMARK = 78.2;
-
 const FORMAT_META: Record<FbPostFormat, { label: string; icon: LucideIcon; chip: string }> = {
   text: { label: "Text-only", icon: Type, chip: "border-sky-400/30 bg-sky-400/10 text-sky-200" },
   imageText: { label: "Image + text", icon: ImageIcon, chip: "border-amber-400/30 bg-amber-400/10 text-amber-200" },
@@ -99,6 +95,10 @@ function formatViews(views: number): string {
   return String(views);
 }
 
+function counted(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
 function useCopy() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const copy = useCallback(async (id: string, text: string) => {
@@ -120,6 +120,9 @@ export function FacebookPage() {
   const [editing, setEditing] = useState<FbPost | null>(null);
   const searchParams = useSearchParams();
   const openPostId = searchParams.get("open");
+  // `log=1` opens that post's "Log results" form, so the calendars can link
+  // straight to where a posted piece's numbers are entered.
+  const openLog = searchParams.get("log") === "1";
   const dateParam = searchParams.get("date");
 
   const savePost = useCallback(
@@ -139,7 +142,7 @@ export function FacebookPage() {
   // what the library is currently reporting.
   useColateralSurface({
     route: "/facebook",
-    title: "FB / IG Threads",
+    title: "FB / IG Post Library",
     summary:
       "Draft Facebook/Instagram hook-and-comment-thread posts, save them to the library, and track logged results.",
     fields: [{ id: "brief", label: "Content brief", value: brief, kind: "longtext" }],
@@ -162,7 +165,7 @@ export function FacebookPage() {
     <div>
       <PageHeader
         eyebrow="Step 2 · Formats"
-        title="FB / IG Threads"
+        title="FB / IG Post Library"
         description="Write a Facebook or Instagram post — a hook in the main post, the real content as numbered comments underneath — and Save this post files it in your library ready to paste up; nothing here posts for you."
       />
 
@@ -185,6 +188,7 @@ export function FacebookPage() {
                 savePost={savePost}
                 deletePost={(id) => mutate("deleteFbPost", id, { successMessage: "Post deleted." })}
                 highlightedId={openPostId}
+                openLog={openLog}
                 dateKey={dateParam}
               />
             )
@@ -236,20 +240,22 @@ function DashboardTab({ posts }: { posts: FbPost[] }) {
   const viewsByFormat = FORMATS.map((format) => ({
     format,
     posts: posts.filter((post) => post.format === format).length,
+    logged: posts.filter((post) => post.format === format && post.views !== undefined).length,
     views: posts.filter((post) => post.format === format).reduce((sum, post) => sum + (post.views ?? 0), 0)
   }));
+  const drafts = posts.length - posted.length;
   const textShare = totalViews > 0 ? ((viewsByFormat[0]?.views ?? 0) / totalViews) * 100 : null;
   const recent = [...posts].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
 
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Posts in library" value={String(posts.length)} detail={`${posted.length} posted · ${posts.length - posted.length} drafts`} icon={<Library className="h-5 w-5" />} />
+        <StatCard label="Posts in library" value={String(posts.length)} detail={`${posted.length} posted · ${counted(drafts, "draft", "drafts")}`} icon={<Library className="h-5 w-5" />} />
         <StatCard label="Total logged views" value={formatViews(totalViews)} detail="Across all posted content" icon={<Eye className="h-5 w-5" />} />
         <StatCard
           label="Text-only view share"
           value={textShare === null ? "—" : `${textShare.toFixed(1)}%`}
-          detail={`Benchmark: ${TEXT_VIEW_BENCHMARK}% of the 1.4B-view account`}
+          detail="Share of your logged views from text-only posts"
           icon={<Type className="h-5 w-5" />}
         />
         <StatCard
@@ -263,32 +269,34 @@ function DashboardTab({ posts }: { posts: FbPost[] }) {
       <Card className="space-y-4">
         <div className="flex items-center justify-between gap-2">
           <h3 className="font-semibold text-white">Format mix</h3>
-          <Badge>Views logged per format vs. the 78.2% text-only benchmark</Badge>
+          <Badge>Views you&apos;ve logged, by post format</Badge>
         </div>
         <div className="space-y-3">
-          {viewsByFormat.map(({ format, posts: count, views }) => {
+          {viewsByFormat.map(({ format, posts: count, logged, views }) => {
             const meta = FORMAT_META[format];
             const share = totalViews > 0 ? (views / totalViews) * 100 : 0;
+            const summary =
+              count === 0
+                ? "No posts yet"
+                : logged === 0
+                  ? `${counted(count, "post", "posts")} · No results logged yet`
+                  : `${counted(count, "post", "posts")} · ${formatViews(views)} views${totalViews > 0 ? ` · ${share.toFixed(1)}%` : ""}`;
             return (
               <div key={format} className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2 text-sm">
                   <span className={cn("rounded-full border px-2.5 py-0.5 text-[11px] font-medium", meta.chip)}>{meta.label}</span>
-                  <span className="text-xs tabular-nums text-[var(--muted-foreground)]">
-                    {count} posts · {formatViews(views)} views{totalViews > 0 ? ` · ${share.toFixed(1)}%` : ""}
-                  </span>
+                  <span className="text-xs tabular-nums text-[var(--muted-foreground)]">{summary}</span>
                 </div>
                 <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
                   <div className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-500 ease-out" style={{ width: `${Math.min(100, share)}%` }} />
                 </div>
-                {format === "text" ? (
-                  <p className="text-[11px] text-[var(--muted-foreground)]">
-                    Target: text-only should carry ~{TEXT_VIEW_BENCHMARK}% of views. If it&apos;s far below, ship more black-background hook posts.
-                  </p>
-                ) : null}
               </div>
             );
           })}
         </div>
+        <p className="text-[11px] text-[var(--muted-foreground)]">
+          Log each post&apos;s views after a day or two to see which formats work for you.
+        </p>
       </Card>
 
       <Card className="space-y-3">
@@ -432,7 +440,7 @@ function PostForm({
           </div>
 
           <Field label="Target date" hint="The day you plan to put this up — it only sorts your library.">
-            <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="sm:w-48" />
+            <Input type="date" aria-label="Target date" value={date} onChange={(event) => setDate(event.target.value)} className="sm:w-48" />
           </Field>
         </AdvancedOptions>
 
@@ -440,7 +448,7 @@ function PostForm({
           label="Hook (main post)"
           hint="Clickbait headline promising a concrete outcome. End with 👇 so the eye drops into the comments."
         >
-          <Textarea value={hook} onChange={(event) => setHook(event.target.value)} placeholder="This one single hack just… 👇" />
+          <Textarea aria-label="Hook (main post)" value={hook} onChange={(event) => setHook(event.target.value)} placeholder="This one single hack just… 👇" />
           {!hook.includes("👇") && hook.trim() ? (
             <button
               type="button"
@@ -467,7 +475,7 @@ function PostForm({
 
         {format !== "text" || body ? (
           <Field label={bodyLabel}>
-            <Textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder={format === "reel" ? "Hook line, beats, on-screen text…" : "The text that goes on the image…"} />
+            <Textarea aria-label={bodyLabel} value={body} onChange={(event) => setBody(event.target.value)} placeholder={format === "reel" ? "Hook line, beats, on-screen text…" : "The text that goes on the image…"} />
           </Field>
         ) : null}
 
@@ -488,6 +496,7 @@ function PostForm({
             <div key={comment.id} className="flex gap-2">
               <span className="mt-3 w-8 shrink-0 text-right text-sm font-semibold tabular-nums text-[var(--accent)]">{index + 1}/</span>
               <Textarea
+                aria-label={`Comment thread step ${index + 1}`}
                 value={comment.text}
                 onChange={(event) =>
                   setComments((current) => current.map((item) => (item.id === comment.id ? { ...item, text: event.target.value } : item)))
@@ -499,7 +508,7 @@ function PostForm({
                 type="button"
                 aria-label={`Remove step ${index + 1}`}
                 onClick={() => setComments((current) => current.filter((item) => item.id !== comment.id))}
-                className="mt-3 shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--danger)]/15 hover:text-[var(--danger)]"
+                className="mt-3 shrink-0 rounded-lg p-1.5 max-sm:flex max-sm:min-h-10 max-sm:min-w-10 max-sm:items-center max-sm:justify-center text-[var(--muted-foreground)] transition-colors hover:bg-[var(--danger)]/15 hover:text-[var(--danger)]"
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -511,7 +520,7 @@ function PostForm({
           label={`Call to action (final comment · ${comments.filter((comment) => comment.text.trim()).length + 1}/)`}
           hint="The back-end system: every post drives subscribers, affiliate sales, or product traffic. Links live here, never in the hook."
         >
-          <Textarea value={cta} onChange={(event) => setCta(event.target.value)} placeholder="If you want the exact system, grab it here: [link]" className="min-h-20" />
+          <Textarea aria-label="Call to action (final comment)" value={cta} onChange={(event) => setCta(event.target.value)} placeholder="If you want the exact system, grab it here: [link]" className="min-h-20" />
         </Field>
 
         <div className="flex justify-end">
@@ -570,7 +579,7 @@ function SegmentedControl<T extends string>({
               type="button"
               onClick={() => onChange(option)}
               className={cn(
-                "flex flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition",
+                "flex flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition max-sm:min-h-10",
                 active ? "bg-white/10 font-medium text-white" : "text-[var(--muted-foreground)] hover:text-white"
               )}
             >
@@ -857,6 +866,7 @@ function LibraryTab({
   savePost,
   deletePost,
   highlightedId,
+  openLog,
   dateKey
 }: {
   posts: FbPost[];
@@ -864,6 +874,7 @@ function LibraryTab({
   savePost: (post: FbPost, message: string) => Promise<void>;
   deletePost: (id: string) => void;
   highlightedId?: string | null;
+  openLog?: boolean;
   dateKey?: string | null;
 }) {
   const [platformFilter, setPlatformFilter] = useState<"all" | FbPlatform>("all");
@@ -925,6 +936,7 @@ function LibraryTab({
               savePost={savePost}
               deletePost={deletePost}
               highlighted={highlightedId === post.id}
+              openLog={openLog && highlightedId === post.id}
             />
           ))}
         </div>
@@ -938,17 +950,19 @@ function LibraryCard({
   onEdit,
   savePost,
   deletePost,
-  highlighted
+  highlighted,
+  openLog
 }: {
   post: FbPost;
   onEdit: (post: FbPost) => void;
   savePost: (post: FbPost, message: string) => Promise<void>;
   deletePost: (id: string) => void;
   highlighted?: boolean;
+  openLog?: boolean;
 }) {
   const { copiedId, copy } = useCopy();
   const [expanded, setExpanded] = useState(false);
-  const [logging, setLogging] = useState(false);
+  const [logging, setLogging] = useState(Boolean(openLog));
   const [metrics, setMetrics] = useState({
     views: post.views?.toString() ?? "",
     reactions: post.reactions?.toString() ?? "",
@@ -1152,7 +1166,7 @@ function PlaybookTab({ brief, onSaveBrief }: { brief: string; onSaveBrief: (next
         <p className="text-xs text-[var(--muted-foreground)]">
           Your positioning, voice, and hook rules for Facebook/Instagram — edit it here and use it as the source of truth when drafting threads.
         </p>
-        <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} className="min-h-72 font-mono text-xs" />
+        <Textarea aria-label="Positioning brief" value={draft} onChange={(event) => setDraft(event.target.value)} className="min-h-72 font-mono text-xs" />
       </Card>
     </div>
   );

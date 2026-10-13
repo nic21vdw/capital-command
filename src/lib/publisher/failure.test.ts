@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { describeFailure, isConnectionFailure } from "@/lib/publisher/failure";
+import { describeFailure, describeWaiting, duplicateTitleCleared, isConnectionFailure, plainError } from "@/lib/publisher/failure";
+import { channelDuplicateMessage } from "@/lib/publisher/duplicateGuard";
 import { YOUTUBE_RECONNECT_FOR_SCOPE, YOUTUBE_RECONNECT_REQUIRED } from "@/lib/publisher/googleAuth";
 
 describe("failures a fresh connection fixes", () => {
@@ -35,8 +36,28 @@ describe("what a blocked post says on the board", () => {
     const advice = describeFailure({ status: "manual", attempts: 0, note: "TikTok isn't connected yet." }, "tiktok");
 
     expect(advice.action).toBe("reconnect");
-    expect(advice.headline).toContain("No TikTok account was connected");
+    expect(advice.headline).toContain("Post by hand - no TikTok account was connected");
     expect(advice.raw).toBe("TikTok isn't connected yet.");
+  });
+
+  it("does not say a manual post never went out before its slot has come", () => {
+    const now = new Date("2026-10-10T12:00:00.000Z");
+    const before = describeFailure({ status: "manual", attempts: 0 }, "tiktok", {
+      publishAt: "2026-10-12T14:00:00.000Z",
+      when: "Mon, Oct 12, 10:00 AM",
+      now
+    });
+    expect(before.headline).toBe(
+      "Waiting for TikTok - connect to post automatically, or post by hand at Mon, Oct 12, 10:00 AM."
+    );
+    expect(before.headline).not.toMatch(/never went out/);
+    expect(before.action).toBe("reconnect");
+
+    const after = describeFailure({ status: "manual", attempts: 0 }, "tiktok", {
+      publishAt: "2026-10-09T14:00:00.000Z",
+      now
+    });
+    expect(after.headline).toContain("Post by hand - no TikTok account was connected by the slot, so this never went out.");
   });
 
   it("offers a retry when the platform simply wouldn't take it", () => {
@@ -79,5 +100,187 @@ describe("what a blocked post says on the board", () => {
 
     expect(advice.headline).not.toContain("{");
     expect(advice.raw).toBe(raw);
+  });
+});
+
+describe("advice that has to be true", () => {
+  it("tells a duplicate-title refusal to retitle instead of offering a retry that fails again", () => {
+    const error = channelDuplicateMessage({ title: "My clip", url: "https://youtube.com/watch?v=abc" });
+    const advice = describeFailure({ status: "failed", attempts: 1, error }, "youtube");
+
+    expect(advice.action).toBe("none");
+    expect(advice.headline).toContain("Retitle");
+    expect(advice.headline).not.toContain("rejected");
+    expect(advice.raw).toBe(error);
+  });
+
+  it("calls a platform that was never set up a setup problem, not an expired or revoked grant", () => {
+    const facebook = describeFailure(
+      { status: "failed", attempts: 1, error: "Facebook is not configured. Set FB_PAGE_ID and FB_PAGE_ACCESS_TOKEN." },
+      "facebook"
+    );
+    expect(facebook.headline).toContain("isn't set up");
+    expect(facebook.headline).not.toMatch(/expired|revoked/);
+    expect(facebook.viaSettings).toBe(true);
+    expect(facebook.action).toBe("reconnect");
+
+    const tiktok = describeFailure(
+      { status: "failed", attempts: 1, error: "tiktok credentials are not configured for this account." },
+      "tiktok"
+    );
+    expect(tiktok.headline).toContain("isn't set up");
+  });
+
+  it("only promises an automatic re-send for YouTube, the one platform a reconnect re-queues", () => {
+    const youtube = describeFailure({ status: "failed", attempts: 3, error: YOUTUBE_RECONNECT_REQUIRED }, "youtube");
+    expect(youtube.headline).toContain("goes out on its own");
+    expect(youtube.viaSettings).toBeUndefined();
+
+    for (const platform of ["tiktok", "instagram", "facebook"] as const) {
+      const advice = describeFailure({ status: "failed", attempts: 3, error: "401 unauthorized" }, platform);
+      expect(advice.headline).not.toContain("goes out on its own");
+      expect(advice.headline).toContain("Settings");
+      expect(advice.headline).toContain("Retry");
+      expect(advice.viaSettings).toBe(true);
+    }
+  });
+
+  it("says the same for a manual post: only YouTube sends itself once connected", () => {
+    expect(describeFailure({ status: "manual", attempts: 0 }, "youtube").headline).toContain("goes out on its own");
+    expect(describeFailure({ status: "manual", attempts: 0 }, "instagram").headline).toContain("press Retry");
+  });
+
+  it("still counts an unconfigured platform as something a connection fixes (the re-arm scope)", () => {
+    expect(isConnectionFailure({ status: "failed", attempts: 1, error: "Facebook is not configured." })).toBe(true);
+  });
+});
+
+describe("a leg that is waiting rather than failed", () => {
+  it("is silent for a healthy pending leg", () => {
+    expect(describeWaiting({ status: "pending", attempts: 0 }, "youtube")).toBeNull();
+  });
+
+  it("is silent for a failed or manual leg, which have their own advice", () => {
+    expect(describeWaiting({ status: "failed", attempts: 3, error: "x" }, "youtube")).toBeNull();
+    expect(describeWaiting({ status: "manual", attempts: 0 }, "youtube")).toBeNull();
+  });
+
+  it("explains a backoff in a clause that follows 'Retrying at 3:00 PM - '", () => {
+    const waiting = describeWaiting(
+      { status: "pending", attempts: 1, error: "YouTube video upload network error", nextAttemptAt: "2026-07-14T20:00:00.000Z" },
+      "youtube"
+    );
+    expect(waiting?.headline).toBe("YouTube couldn't take it just then");
+    expect(waiting?.raw).toBe("YouTube video upload network error");
+  });
+
+  it("names the upload limit when that is what is holding it", () => {
+    const waiting = describeWaiting(
+      { status: "pending", attempts: 0, error: "quotaExceeded: daily limit", nextAttemptAt: "2026-07-14T20:00:00.000Z" },
+      "youtube"
+    );
+    expect(waiting?.headline).toContain("upload limit");
+  });
+
+  it("shows a booked later attempt even with no error text", () => {
+    expect(describeWaiting({ status: "pending", attempts: 0, nextAttemptAt: "2026-07-14T20:00:00.000Z" }, "tiktok")).not.toBeNull();
+  });
+});
+
+describe("which first step a failure kind asks for", () => {
+  const failed = (error?: string) => ({ status: "failed" as const, attempts: 3, error });
+
+  it("tells a retitle from a reconnect from a plain retry", () => {
+    const duplicate = describeFailure(failed(channelDuplicateMessage({ title: "Day 44", url: "https://youtu.be/x" })), "youtube");
+    expect(duplicate).toMatchObject({ kind: "duplicate-title", action: "none" });
+
+    expect(describeFailure(failed(YOUTUBE_RECONNECT_REQUIRED), "youtube")).toMatchObject({
+      kind: "connection-lapsed",
+      action: "reconnect"
+    });
+    expect(describeFailure({ status: "manual", attempts: 0 }, "tiktok")).toMatchObject({
+      kind: "not-connected",
+      action: "reconnect"
+    });
+    expect(describeFailure(failed("tiktok credentials are not configured for this account."), "tiktok").kind).toBe(
+      "not-connected"
+    );
+    expect(describeFailure(failed("Clip file data/x.mp4 is not on this machine"), "youtube").kind).toBe("missing-media");
+    expect(describeFailure(failed("Video is too long for a Short."), "instagram")).toMatchObject({
+      kind: "retryable",
+      action: "retry"
+    });
+  });
+});
+
+describe("duplicateTitleCleared", () => {
+  const error = channelDuplicateMessage({ title: "What I learned building in public", url: "https://youtu.be/x" });
+
+  it("is false while the post still carries the refused title, whatever its case", () => {
+    expect(duplicateTitleCleared(error, "What I learned building in public")).toBe(false);
+    expect(duplicateTitleCleared(error, "  what i learned BUILDING in public ")).toBe(false);
+  });
+
+  it("is true once the post has a different title", () => {
+    expect(duplicateTitleCleared(error, "What I learned building in public (part 2)")).toBe(true);
+  });
+
+  it("proves nothing from a message that quotes no title", () => {
+    expect(duplicateTitleCleared("already on the channel", "Anything")).toBe(false);
+    expect(duplicateTitleCleared(undefined, "Anything")).toBe(false);
+  });
+});
+
+describe("a manual reminder once the account is connected", () => {
+  const manual = { status: "manual" as const, attempts: 0 };
+  const context = { publishAt: "2026-10-13T14:00:00.000Z", when: "Tue, Oct 13, 2:00 PM", now: new Date("2026-10-11T00:00:00.000Z") };
+
+  it("still says it is not connected while it is not", () => {
+    expect(describeFailure(manual, "tiktok", { ...context, connected: false })).toMatchObject({ kind: "not-connected", action: "reconnect" });
+    expect(describeFailure(manual, "tiktok", context).kind).toBe("not-connected");
+  });
+
+  it("stops saying 'Not connected' and offers a retry once it is", () => {
+    const advice = describeFailure(manual, "tiktok", { ...context, connected: true });
+    expect(advice).toMatchObject({ action: "retry", kind: "retryable" });
+    expect(advice.headline).not.toMatch(/^Waiting for/);
+    expect(advice.headline).toMatch(/connected now/);
+    expect(advice.headline).toContain("Tue, Oct 13, 2:00 PM");
+    const late = describeFailure(manual, "tiktok", { ...context, now: new Date("2026-10-14T00:00:00.000Z"), connected: true });
+    expect(late.headline).toMatch(/Retry now/);
+  });
+});
+
+describe("plainError", () => {
+  it("replaces the YouTube adapter's env-var text", () => {
+    const raw =
+      "This YouTube account is not connected. Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET, then use Connect YouTube in the Uploading Center (or set YOUTUBE_REFRESH_TOKEN for the primary account).";
+    expect(plainError(raw)).toEqual({ text: "YouTube isn't connected - connect it in Settings, then try again.", notConnected: "youtube" });
+  });
+
+  it("finds it inside the removal route's longer message", () => {
+    const raw = `Not removed: YouTube already has this video and it could not be kept private (${"This YouTube account is not connected. Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET."}). It would still go live at its slot.`;
+    const plain = plainError(raw);
+    expect(plain.notConnected).toBe("youtube");
+    expect(plain.text).not.toMatch(/YOUTUBE_|Set /);
+  });
+
+  it("covers the other adapters' not-connected messages", () => {
+    expect(plainError("Instagram is not configured. Set IG_USER_ID and IG_ACCESS_TOKEN.")).toMatchObject({
+      text: "Instagram isn't connected - connect it in Settings, then try again.",
+      notConnected: "instagram"
+    });
+    expect(plainError("Facebook is not configured. Set FB_PAGE_ID and FB_PAGE_ACCESS_TOKEN.").notConnected).toBe("facebook");
+    expect(plainError("TikTok is not configured. Set TIKTOK_CLIENT_KEY, TIKTOK_CLIENT_SECRET and TIKTOK_REFRESH_TOKEN.").notConnected).toBe(
+      "tiktok"
+    );
+    expect(plainError("This TikTok account is not connected — open the Uploading Center and connect it.").notConnected).toBe("tiktok");
+    expect(plainError("tiktok credentials are not configured for this account.").notConnected).toBe("tiktok");
+  });
+
+  it("leaves every other message exactly as it was", () => {
+    for (const message of ["Could not remove that post.", "Video is too long for a Short.", "HTTP 500 from YouTube"]) {
+      expect(plainError(message)).toEqual({ text: message });
+    }
   });
 });

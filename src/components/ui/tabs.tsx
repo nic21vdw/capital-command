@@ -10,7 +10,13 @@ export type TabItem = {
   id: string;
   label: string;
   icon?: LucideIcon;
-  content: React.ReactNode;
+  /**
+   * The panel. A function is told whether its tab is the one showing: panels
+   * of the tabs next to it are kept mounted (tab-keepalive.ts) so a switch is
+   * instant, and a panel that must not exist twice in the page - a board with
+   * its own "Show earlier days" control - draws nothing while it is hidden.
+   */
+  content: React.ReactNode | ((active: boolean) => React.ReactNode);
 };
 
 export function Tabs(props: { tabs: TabItem[]; paramKey?: string }) {
@@ -73,7 +79,7 @@ function TabsInner({ tabs, paramKey = "tab" }: { tabs: TabItem[]; paramKey?: str
               aria-selected={isActive}
               onClick={() => select(tab.id)}
               className={cn(
-                "flex items-center gap-2 whitespace-nowrap rounded-md px-4 py-2 text-sm transition-all duration-200 ease-out",
+                "flex items-center gap-2 whitespace-nowrap rounded-md px-4 py-2 text-sm transition-all duration-200 ease-out max-sm:min-h-10",
                 isActive
                   ? "bg-[var(--accent)] text-[var(--accent-contrast)] shadow-sm"
                   : "text-[var(--muted-foreground)] hover:bg-white/6 hover:text-white"
@@ -95,7 +101,7 @@ function TabsInner({ tabs, paramKey = "tab" }: { tabs: TabItem[]; paramKey?: str
             hidden={!isActive}
             className={cn(isActive && "panel-enter")}
           >
-            {tab.content}
+            {typeof tab.content === "function" ? tab.content(isActive) : tab.content}
           </div>
         );
       })}

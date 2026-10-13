@@ -81,6 +81,76 @@ describe("runDue — one schedule for every platform", () => {
     expect((await queue.get(item.id))!.platforms.youtube?.postId).toBe("only-upload");
   });
 
+  // Publish now and Retry both run one post, and only the first may release a
+  // video YouTube is holding for its slot. The adapter reads publishNow; this is
+  // the half that decides who gets to set it.
+  it("lets only the forced run take a held YouTube video public ahead of its slot", async () => {
+    const { queue, config, log } = setup();
+    const future = "2026-07-20T15:00:00.000Z";
+    const item = testItem({ id: "held", clipPath, publishAt: future, visibility: "public", platformIds: ["youtube"] });
+    item.platforms.youtube = { status: "scheduled", attempts: 0, postId: "vid1" };
+    await queue.add(item);
+    const optionsSeen: Array<{ publishNow?: boolean } | undefined> = [];
+    const youtube = fakeAdapter(
+      "youtube",
+      async () => ({ status: "scheduled", postId: "vid1" }),
+      async (_item, state, options) => {
+        optionsSeen.push(options);
+        return { status: "published", postId: state.postId, detail: "set public" };
+      }
+    );
+
+    // A retry-style run: scoped to the post, NOT forced, a future slot -> not due.
+    const retry = await runDue(DUE, { config, queue, log, itemId: "held", adapters: { youtube } });
+    expect(retry.outcomes).toEqual([]);
+    expect(optionsSeen).toEqual([]);
+
+    const forced = await runDue(DUE, { config, queue, log, itemId: "held", force: true, adapters: { youtube } });
+    expect(forced.outcomes.map((o) => o.outcome)).toEqual(["published"]);
+    expect(optionsSeen).toEqual([{ publishNow: true }]);
+  });
+
+  it("does not publish the other platforms of a post early when only one is re-queued and run without force", async () => {
+    const { queue, config, log } = setup();
+    const future = "2026-07-20T15:00:00.000Z";
+    const item = testItem({ id: "mixed", clipPath, publishAt: future, visibility: "public", platformIds: ["instagram", "tiktok"] });
+    item.platforms.tiktok = { status: "failed", attempts: 3, error: "boom" };
+    await queue.add(item);
+    await queue.rearm(item, { platform: "tiktok" });
+    const instagram = fakeAdapter("instagram", async () => ({ status: "published", postId: "ig1" }));
+    const tiktok = fakeAdapter("tiktok", async () => ({ status: "published", postId: "tt1" }));
+
+    const report = await runDue(DUE, { config, queue, log, itemId: "mixed", adapters: { instagram, tiktok } });
+
+    // Slot is in the future: nothing is due, and certainly not Instagram.
+    expect(report.outcomes).toEqual([]);
+    expect(instagram.calls).toHaveLength(0);
+    expect(tiktok.calls).toHaveLength(0);
+    expect((await queue.get("mixed"))!.platforms.tiktok?.status).toBe("pending");
+  });
+
+  it("tells a fresh upload it is a Publish now only on the forced run", async () => {
+    const { queue, config, log } = setup();
+    const item = testItem({ id: "fresh", clipPath, publishAt: "2026-07-20T15:00:00.000Z", visibility: "public", platformIds: ["youtube"] });
+    await queue.add(item);
+    const youtube = fakeAdapter("youtube", async () => ({ status: "published", postId: "v" }));
+
+    await runDue(DUE, { config, queue, log, itemId: "fresh", force: true, adapters: { youtube } });
+
+    expect(youtube.calls.map((call) => call.publishNow)).toEqual([true]);
+  });
+
+  it("does not mark a scheduler pass as Publish now", async () => {
+    const { queue, config, log } = setup();
+    const item = testItem({ id: "sched", clipPath, publishAt: "2026-07-20T15:00:00.000Z", visibility: "public", platformIds: ["youtube"] });
+    await queue.add(item);
+    const youtube = fakeAdapter("youtube", async () => ({ status: "scheduled", postId: "v" }));
+
+    await runDue(DUE, { config, queue, log, adapters: { youtube } });
+
+    expect(youtube.calls.map((call) => call.publishNow)).toEqual([false]);
+  });
+
   // The point of the mirror pass: a clip only ever scheduled on YouTube is
   // already on Instagram and Facebook before its slot arrives, without anyone
   // keeping a second calendar.
@@ -104,6 +174,10 @@ describe("runDue — one schedule for every platform", () => {
     const stored = await queue.get("future");
     expect(Object.keys(stored!.platforms).sort()).toEqual(["facebook", "instagram", "youtube"]);
     expect(stored!.platforms.instagram?.status).toBe("pending");
+    // The board tags these legs, so a post on a platform nobody picked says why.
+    expect(stored!.platforms.instagram?.mirroredFrom).toBe("youtube");
+    expect(stored!.platforms.facebook?.mirroredFrom).toBe("youtube");
+    expect(stored!.platforms.youtube?.mirroredFrom).toBeUndefined();
   });
 
   it("leaves slots that already passed alone", async () => {

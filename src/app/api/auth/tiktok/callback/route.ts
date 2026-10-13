@@ -1,5 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { redirectWithinApp } from "@/lib/publisher/connectStart";
 import { isPrimaryAccountId, primaryAccountId } from "@/lib/publisher/accounts";
+import { publisherConfig } from "@/lib/publisher/config";
 import { exchangeTiktokCode, tiktokRedirectUri } from "@/lib/publisher/tiktokAuth";
 
 export const runtime = "nodejs";
@@ -19,13 +21,18 @@ export async function GET(request: NextRequest) {
   const denied = request.nextUrl.searchParams.get("error_description") ?? request.nextUrl.searchParams.get("error");
   if (denied || !code) {
     target.searchParams.set("connect_error", denied || "TikTok returned no authorization code.");
-    return NextResponse.redirect(target);
+    target.searchParams.set("connect", "tiktok");
+    return redirectWithinApp(target);
   }
   try {
     await exchangeTiktokCode(code, tiktokRedirectUri(request.nextUrl.origin), accountId);
     target.searchParams.set("connected", "tiktok");
+    // The landing toast promises automatic posting only when TikTok has audited
+    // the app; until then clips go to the creator inbox (see TIKTOK_AUDIT_BLOCKER).
+    if (publisherConfig().tiktok.audited) target.searchParams.set("audited", "1");
   } catch (error) {
     target.searchParams.set("connect_error", error instanceof Error ? error.message : String(error));
+    target.searchParams.set("connect", "tiktok");
   }
-  return NextResponse.redirect(target);
+  return redirectWithinApp(target);
 }

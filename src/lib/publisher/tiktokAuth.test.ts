@@ -74,7 +74,7 @@ describe("tiktokAuthUrl", () => {
   it("refuses to start without client credentials", async () => {
     vi.stubEnv("TIKTOK_CLIENT_KEY", "");
     const { tiktokAuthUrl } = await load();
-    await expect(tiktokAuthUrl(REDIRECT)).rejects.toThrow(/TIKTOK_CLIENT_KEY/);
+    await expect(tiktokAuthUrl(REDIRECT)).rejects.toThrow(/Settings > Accounts/);
   });
 });
 

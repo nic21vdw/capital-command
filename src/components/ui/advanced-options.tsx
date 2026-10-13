@@ -22,6 +22,7 @@ export function AdvancedOptions({
   id,
   summary,
   label = "Customise",
+  wrapSummary = false,
   children,
   className
 }: {
@@ -30,6 +31,11 @@ export function AdvancedOptions({
   /** What the current settings are, read at a glance while closed. */
   summary: string;
   label?: string;
+  /**
+   * Let a long summary wrap onto its own line under the label instead of being
+   * cut at the edge. For summaries that carry a sentence rather than a count.
+   */
+  wrapSummary?: boolean;
   children: React.ReactNode;
   className?: string;
 }) {
@@ -66,13 +72,20 @@ export function AdvancedOptions({
         type="button"
         onClick={toggle}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--muted-foreground)] transition hover:text-white"
+        className={cn(
+          "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--muted-foreground)] transition hover:text-white max-sm:min-h-10",
+          wrapSummary && "flex-wrap gap-y-0.5"
+        )}
       >
         <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform", open && "rotate-180")} />
         <span className="shrink-0 font-medium">{label}</span>
         {/* The summary is what makes hiding these safe: closed still says what
             they are set to, so nothing is a surprise at export time. */}
-        <span className="min-w-0 flex-1 truncate text-right text-xs">{open ? "" : summary}</span>
+        {wrapSummary ? (
+          !open && <span className="min-w-0 basis-full break-words pl-6 text-left text-xs">{summary}</span>
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-right text-xs">{open ? "" : summary}</span>
+        )}
       </button>
       {open && <div className="space-y-3 border-t border-[var(--border)] px-3 py-3">{children}</div>}
     </div>

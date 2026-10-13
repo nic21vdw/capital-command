@@ -3,6 +3,7 @@ import { access, mkdir, readdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dataPath } from "@/lib/paths";
 import { publisherConfig } from "@/lib/publisher/config";
+import { missingCredentialsMessage } from "@/lib/publisher/connectStart";
 import { fetchJson } from "@/lib/publisher/http";
 import { primaryAccountId, tiktokCreatorKey, tiktokRefreshTokenKey } from "@/lib/publisher/accounts";
 import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
@@ -198,10 +199,7 @@ export async function tiktokAuthUrl(
 ): Promise<string> {
   const { tiktok } = publisherConfig();
   if (!tiktok.clientKey || !tiktok.clientSecret) {
-    throw new Error(
-      "Set TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET in .env first (developers.tiktok.com → your app → Login Kit for Desktop, redirect URI " +
-        `${redirectUri}).`
-    );
+    throw new Error(missingCredentialsMessage("tiktok"));
   }
   const verifier = randomBytes(48).toString("hex");
   await setCachedToken(verifierKey(accountId), verifier);

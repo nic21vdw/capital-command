@@ -15,9 +15,11 @@ import { cn } from "@/lib/utils";
  * switching here re-points the whole flow at the other recording.
  */
 export function StreamCard({ collapsed = false }: { collapsed?: boolean }) {
-  const { streams, stream, loaded, select } = useStream();
+  const { streams, stream, select } = useStream();
 
-  if (loaded && streams.length === 0) return null;
+  // Nothing until the list is known: a placeholder picker that vanishes for an
+  // empty list shifted the whole nav up 41px a moment after every first load.
+  if (streams.length === 0) return null;
 
   if (collapsed) {
     return (
@@ -37,8 +39,8 @@ export function StreamCard({ collapsed = false }: { collapsed?: boolean }) {
   }
 
   return (
-    <div className="glass-inset rounded-lg border p-2.5">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
+    <div className="glass-inset rounded-lg border p-2.5 [@media(max-height:960px)]:p-1.5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)] [@media(max-height:960px)]:sr-only">
         Working on
       </p>
       {/* The picker IS the name — showing it twice only cost sidebar height
@@ -51,7 +53,7 @@ export function StreamCard({ collapsed = false }: { collapsed?: boolean }) {
         value={stream?.id ?? ""}
         onChange={(event) => select(event.target.value || null)}
         title={stream?.name}
-        className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-xs text-white"
+        className="mt-1 [@media(max-height:960px)]:mt-0 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-xs text-white"
       >
         <option value="">Every stream</option>
         {streams.map((entry) => (

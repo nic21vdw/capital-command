@@ -150,6 +150,7 @@ export function ScriptsPage() {
         actions={
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Input
+              aria-label="Video title or topic"
               placeholder="Video title or topic"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
@@ -158,7 +159,7 @@ export function ScriptsPage() {
               }}
               className="sm:w-72"
             />
-            <Select value={minutes} onChange={(event) => setMinutes(Number(event.target.value))} className="sm:w-28">
+            <Select aria-label="Script length" value={minutes} onChange={(event) => setMinutes(Number(event.target.value))} className="sm:w-28">
               {[3, 5, 8, 10, 12, 15, 20, 30].map((value) => (
                 <option key={value} value={value}>
                   {value} min

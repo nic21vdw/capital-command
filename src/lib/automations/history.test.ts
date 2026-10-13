@@ -47,6 +47,18 @@ describe("seven-day automation history", () => {
     expect(failures.counts.delivered).toBe(1);
   });
 
+  it("counts today's deliveries in the asked-for time zone and not before local midnight", async () => {
+    // 12:00Z on Oct 8 is 08:00 in Toronto; 03:00Z is still Oct 7 there, 23:00 on the 7th.
+    await recordAutomationEvent({ ...delivered, key: "today" });
+    await recordAutomationEvent({ ...delivered, kind: "failed", key: "failed-today" });
+    await recordAutomationEvent({ ...delivered, at: "2026-10-08T03:00:00.000Z", key: "last-night" });
+    const toronto = await readAutomationHistory({ timeZone: "America/Toronto" });
+    expect(toronto.today).toEqual({ delivered: 1, failed: 1 });
+    const utc = await readAutomationHistory({ timeZone: "UTC" });
+    expect(utc.today).toEqual({ delivered: 2, failed: 1 });
+    expect((await readAutomationHistory()).today).toBeUndefined();
+  });
+
   it("records changed pause controls once and persists the journal on disk", async () => {
     await setAutomationPaused("podcast", true);
     await setAutomationPaused("podcast", true);

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { autoAssignableCount, clipsNeedingCaption, nameClips, planAutoAssign } from "@/components/uploading-center/bulk";
+import {
+  autoAssignableCount,
+  bulkBookingLabel,
+  bulkBookingParts,
+  clipsNeedingCaption,
+  nameClips,
+  planAutoAssign
+} from "@/components/uploading-center/bulk";
 import type { ClipDraft, ReadyClip } from "@/components/uploading-center/use-uploading-center";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 
@@ -258,5 +265,162 @@ describe("the number the schedule-everything button promises", () => {
 
   it("counts everything when nothing is in the way", () => {
     expect(autoAssignableCount(context)).toBe(3);
+  });
+});
+
+describe("planAutoAssign with the shorts-a-day cap", () => {
+  const sevenClips = ["a", "b", "c", "d", "e", "f", "g"].map(clip);
+  // Six open slots a day for three days, as the board draws them.
+  const times = ["07:30", "10:00", "12:30", "15:00", "17:30", "20:00"];
+  const slots = ["2026-08-06", "2026-08-07", "2026-08-08"].flatMap((day) =>
+    times.map((time) => slot(`${day}T${time}:00.000Z`))
+  );
+  const perDay = (plan: ReturnType<typeof planAutoAssign>) => {
+    const counts: Record<string, number> = {};
+    for (const { draft: assigned } of plan.assignments) {
+      counts[assigned.slotUtc.slice(0, 10)] = (counts[assigned.slotUtc.slice(0, 10)] ?? 0) + 1;
+    }
+    return counts;
+  };
+
+  it("never books more shorts on a day than the limit, and moves on to later days", () => {
+    const plan = planAutoAssign({
+      clips: sevenClips,
+      draftFor: () => draft(),
+      isScheduled: never,
+      slots,
+      isTargetSlotTaken: never,
+      shortsCap: { limit: 2, booked: new Map() }
+    });
+    // Before the cap was planned for, all seven landed on the first day and the
+    // server refused the third onward.
+    expect(plan.assignments).toHaveLength(6);
+    expect(perDay(plan)).toEqual({ "2026-08-06": 2, "2026-08-07": 2, "2026-08-08": 2 });
+    expect(plan.unslotted).toBe(1);
+    expect(plan.capBlocked).toBe(1);
+  });
+
+  it("counts shorts already booked on a day, so a second press does not stall on it", () => {
+    const plan = planAutoAssign({
+      clips: sevenClips.slice(0, 3),
+      draftFor: () => draft(),
+      isScheduled: never,
+      slots,
+      isTargetSlotTaken: never,
+      shortsCap: { limit: 2, booked: new Map([["2026-08-06", 2], ["2026-08-07", 1]]) }
+    });
+    expect(perDay(plan)).toEqual({ "2026-08-07": 1, "2026-08-08": 2 });
+    expect(plan.unslotted).toBe(0);
+  });
+
+  it("says the days are full, not that the slots ran out", () => {
+    const plan = planAutoAssign({
+      clips: sevenClips.slice(0, 2),
+      draftFor: () => draft(),
+      isScheduled: never,
+      slots: slots.slice(0, 6),
+      isTargetSlotTaken: never,
+      shortsCap: { limit: 2, booked: new Map([["2026-08-06", 2]]) }
+    });
+    expect(plan.assignments).toHaveLength(0);
+    expect(plan.capBlocked).toBe(2);
+  });
+
+  it("does not call it a full day when there were no free slots anyway", () => {
+    const plan = planAutoAssign({
+      clips: sevenClips.slice(0, 2),
+      draftFor: () => draft(),
+      isScheduled: never,
+      slots: slots.slice(0, 6),
+      isTargetSlotTaken: () => true,
+      shortsCap: { limit: 2, booked: new Map() }
+    });
+    expect(plan.unslotted).toBe(2);
+    expect(plan.capBlocked).toBe(0);
+  });
+
+  // One clip aimed at "All platforms" is a queue item per request (YouTube,
+  // TikTok, and Instagram carrying Facebook), but the server counts distinct
+  // videos, so it is still one short.
+  it("charges a clip once however many platforms it posts to", () => {
+    const plan = planAutoAssign({
+      clips: [clip("a"), clip("b"), clip("c")],
+      draftFor: (candidate) => draft({ platform: candidate.clipId === "c" ? "youtube" : "all" }),
+      isScheduled: never,
+      slots,
+      isTargetSlotTaken: never,
+      shortsCap: { limit: 2, booked: new Map() }
+    });
+    expect(plan.assignments).toHaveLength(3);
+    expect(plan.unslotted).toBe(0);
+    expect(perDay(plan)).toEqual({ "2026-08-06": 2, "2026-08-07": 1 });
+  });
+
+  it("fits two All-platforms clips on a day and moves the third to the next", () => {
+    const plan = planAutoAssign({
+      clips: [clip("a"), clip("b"), clip("c"), clip("d")],
+      draftFor: () => draft({ platform: "all" }),
+      isScheduled: never,
+      slots,
+      isTargetSlotTaken: never,
+      shortsCap: { limit: 2, booked: new Map() }
+    });
+    expect(plan.capBlocked).toBe(0);
+    expect(perDay(plan)).toEqual({ "2026-08-06": 2, "2026-08-07": 2 });
+  });
+
+  it("is unchanged when no cap is given", () => {
+    const plan = planAutoAssign({
+      clips: sevenClips,
+      draftFor: () => draft(),
+      isScheduled: never,
+      slots,
+      isTargetSlotTaken: never
+    });
+    expect(plan.assignments).toHaveLength(7);
+    expect(plan.capBlocked).toBe(0);
+  });
+});
+
+describe("bulkBookingLabel", () => {
+  const times = ["07:30", "10:00", "12:30"];
+  const slots = ["2026-08-06", "2026-08-07", "2026-08-08"].flatMap((day) =>
+    times.map((time) => slot(`${day}T${time}:00.000Z`))
+  );
+  const plan = (count: number, limit?: number) =>
+    planAutoAssign({
+      clips: ["a", "b", "c", "d", "e", "f", "g"].slice(0, count).map(clip),
+      draftFor: () => draft(),
+      isScheduled: never,
+      slots,
+      isTargetSlotTaken: never,
+      ...(limit ? { shortsCap: { limit, booked: new Map() } } : {})
+    });
+
+  it("states the daily pace and where it starts", () => {
+    expect(bulkBookingLabel(plan(7, 2), slots, "2026-08-06")).toBe("Schedule 6 clips: 2 a day from tomorrow");
+  });
+
+  it("names the date when the first slot is not tomorrow", () => {
+    expect(bulkBookingLabel(plan(4, 2), slots, "2026-08-05")).toBe("Schedule 4 clips: 2 a day from 2026-08-06");
+  });
+
+  it("does not talk about a pace for a single day", () => {
+    expect(bulkBookingLabel(plan(2, 2), slots, "2026-08-06")).toBe("Schedule 2 clips for tomorrow");
+    expect(bulkBookingLabel(plan(1, 2), slots, "2026-08-05")).toBe("Schedule 1 clip on 2026-08-06");
+  });
+
+  it("is null when nothing would be booked", () => {
+    expect(bulkBookingLabel({ assignments: [] }, slots, "2026-08-06")).toBeNull();
+  });
+
+  it("splits the action from the pace so the button can stack them", () => {
+    expect(bulkBookingParts(plan(7, 2), slots, "2026-08-06")).toEqual({
+      primary: "Schedule 6 clips",
+      secondary: "2 a day from tomorrow",
+      separator: ": "
+    });
+    expect(bulkBookingParts(plan(1, 2), slots, "2026-08-05")?.primary).toBe("Schedule 1 clip");
+    expect(bulkBookingParts({ assignments: [] }, slots)).toBeNull();
   });
 });

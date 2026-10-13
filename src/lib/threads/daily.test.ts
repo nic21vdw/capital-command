@@ -167,4 +167,58 @@ describe("planTodaysBatch", () => {
     expect(store.items).toHaveLength(1);
     expect(store.items.filter((item) => item.slot === 1)).toHaveLength(1);
   });
+
+  describe("replacePending (after a pack rewrite)", () => {
+    function row(overrides: Partial<ThreadsQueueItem>): ThreadsQueueItem {
+      const now = new Date().toISOString();
+      return {
+        id: "row", batchDate: todayKey(), slot: 1, accountId: "primary", version: "text", topic: "old", format: "insight",
+        text: "Old copy", publishAt: now, createdAt: now, status: "pending", attempts: 0, ...overrides
+      };
+    }
+
+    it("swaps waiting and skipped autopilot rows for the current pack without generating another", async () => {
+      const { planTodaysBatch } = await import("@/lib/threads/daily");
+      store.items = [
+        row({ id: "waiting", slot: 1 }),
+        row({ id: "skipped", slot: 2, status: "skipped" }),
+        row({ id: "mine", slot: 0, origin: "pipeline", text: "By hand" }),
+        row({ id: "tomorrow", slot: 1, batchDate: "2099-01-01" })
+      ];
+
+      const result = await planTodaysBatch({ now: nowish(), replacePending: true, log: () => {} });
+
+      expect(result.created).toBe(1);
+      expect(ensureDailyPack).toHaveBeenCalledWith(expect.objectContaining({ force: undefined }));
+      const ids = store.items.map((item) => item.id);
+      expect(ids).not.toContain("waiting");
+      expect(ids).not.toContain("skipped");
+      expect(ids).toEqual(expect.arrayContaining(["mine", "tomorrow"]));
+      expect(store.items.filter((item) => item.batchDate === todayKey() && item.origin !== "pipeline")).toHaveLength(1);
+      expect(store.items.find((item) => item.text === "punchy")).toBeTruthy();
+    });
+
+    it("never touches a slot that has started, and does not queue that slot again", async () => {
+      const { planTodaysBatch } = await import("@/lib/threads/daily");
+      store.items = [
+        row({ id: "out", slot: 1, status: "published", postId: "threads-1" }),
+        row({ id: "out-2", slot: 1, accountId: "secondary", status: "pending" })
+      ];
+      const before = structuredClone(store.items);
+
+      const result = await planTodaysBatch({ now: nowish(), replacePending: true, log: () => {} });
+
+      expect(result.created).toBe(0);
+      expect(store.items).toEqual(before);
+    });
+
+    it("keeps a skipped row that reached Threads", async () => {
+      const { planTodaysBatch } = await import("@/lib/threads/daily");
+      store.items = [row({ id: "odd", slot: 3, status: "skipped", postId: "threads-9" })];
+
+      await planTodaysBatch({ now: nowish(), replacePending: true, log: () => {} });
+
+      expect(store.items.map((item) => item.id)).toContain("odd");
+    });
+  });
 });

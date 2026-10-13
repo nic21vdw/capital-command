@@ -26,6 +26,8 @@ import { resolveSoundPath } from "@/lib/sfx/sounds";
 import type { SfxSoundId } from "@/types/domain";
 import { finalizeTitle } from "@/lib/title/finalize";
 import { assFilter } from "@/lib/clipping/caption-fonts";
+import { removeByPrefix, removeQuietly } from "@/lib/disk/cleanup";
+import { assertEnoughDiskSpace, renderFailureMessage } from "@/lib/disk/space";
 
 // The Long-Form Editor's export engine. The edited video is baked in stages:
 //   1. Hook — the opening seconds re-rendered with the punch-in zoom and the
@@ -236,6 +238,8 @@ export async function startLongformExport(
     );
   }
 
+  await assertEnoughDiskSpace();
+
   const recordId = crypto.randomUUID().slice(0, 8);
 
   // Shared post-processing step (same one the short-form pipeline uses): run
@@ -277,11 +281,9 @@ export async function startLongformExport(
         await patchRecord(project.id, record.id, { status: "canceled", progress: 0, error: undefined });
         return;
       }
-      await patchRecord(project.id, record.id, {
-        status: "error",
-        error: error instanceof Error ? error.message : String(error)
-      });
+      await patchRecord(project.id, record.id, { status: "error", error: renderFailureMessage(error) });
     })
+    .catch((error) => console.warn(`[longform] Could not record the result of export ${record.id}:`, renderFailureMessage(error)))
     .finally(() => controllers.delete(record.id));
   return record;
 }
@@ -307,6 +309,23 @@ export async function cancelLongformExport(
 }
 
 async function runExport(projectId: string, recordId: string, signal: AbortSignal) {
+  let fileName: string;
+  try {
+    fileName = await renderExport(projectId, recordId, signal);
+  } catch (error) {
+    await removeQuietly(path.join(projectOutputDir(projectId), exportFileName(recordId)));
+    throw error;
+  } finally {
+    await removeByPrefix(projectWorkDir(projectId), `export-${recordId}-`);
+  }
+  await patchRecord(projectId, recordId, { status: "done", progress: 100, file: fileName });
+}
+
+function exportFileName(recordId: string): string {
+  return `edited-${recordId}.mp4`;
+}
+
+async function renderExport(projectId: string, recordId: string, signal: AbortSignal): Promise<string> {
   const stored = await getProject(projectId);
   if (!stored) throw new Error("Project is gone.");
   // A segment render works on the clipped view of the project. Re-deriving it
@@ -519,7 +538,7 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
   // library track looping to fill the clip length), the video's own audio
   // gets its own gain, and the whole mix gets a master gain. Video is
   // stream-copied so only the audio re-encodes.
-  const fileName = `edited-${recordId}.mp4`;
+  const fileName = exportFileName(recordId);
   const finalPath = path.join(outDir, fileName);
   const editedSec = Math.max(0.1, hookSec + bodySec);
   const videoVol = project.music.videoVolume ?? 1;
@@ -558,7 +577,7 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
     }
   }
 
-  await patchRecord(projectId, recordId, { status: "done", progress: 100, file: fileName });
+  return fileName;
 }
 
 /** How much of a sound-effect file plays per hit — keeps stray long uploads in check. */

@@ -104,8 +104,10 @@ async function createImageContainer(
 async function publishImagePost(input: PublishInput, creds: { userId: string; accessToken: string }): Promise<PostResult> {
   const urls = input.images?.publicUrls ?? [];
   if (urls.length === 0) {
+    // Instagram fetches each picture from a public HTTPS URL; the S3_* variables
+    // (Cloudflare R2 free tier works) are what make the app host them.
     throw new PermanentError(
-      "Instagram needs a public HTTPS URL per picture. Configure the S3_* variables so images are hosted (Cloudflare R2 free tier works)."
+      "Add Media hosting in Settings > Accounts first (Instagram and Facebook need a public link to each picture)."
     );
   }
   if (urls.length > MAX_IMAGES_PER_POST) {
@@ -229,8 +231,10 @@ export const instagramAdapter: PlatformAdapter = {
 
     if (!containerId) {
       if (!input.publicUrl) {
+        // Instagram pulls the clip from a public HTTPS URL; the S3_* variables
+        // (Cloudflare R2 free tier works) are what make the app host it.
         throw new PermanentError(
-          "Instagram needs a public HTTPS video URL. Configure the S3_* variables so clips are hosted (Cloudflare R2 free tier works)."
+          "Add Media hosting in Settings > Accounts first (Instagram and Facebook need a public link to each video)."
         );
       }
       // Stay under the rolling 24h publishing limit rather than burning a post.

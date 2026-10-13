@@ -21,6 +21,8 @@ const variants = {
     "tone-success bg-[color-mix(in_srgb,var(--tone)_15%,transparent)] text-[var(--tone)] hover:bg-[color-mix(in_srgb,var(--tone)_26%,transparent)]"
 };
 
+/* On a phone every Button is at least 40px tall and wide, whatever height the call site
+   asked for (`h-8` and friends are desktop density): min-height wins over height. */
 export function Button({
   className,
   children,
@@ -30,7 +32,7 @@ export function Button({
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150 ease-out active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100",
+        "inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium max-sm:min-h-10 max-sm:min-w-10 transition-all duration-150 ease-out active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100",
         variants[variant],
         className
       )}

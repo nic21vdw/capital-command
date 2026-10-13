@@ -117,7 +117,7 @@ describe("feedBlockers", () => {
   it("asks for the bucket's credentials instead when nothing is connected at all", () => {
     const blockers = feedBlockers(show, [episode()], { hosted: false, bucketConnected: false });
     expect(blockers.map((blocker) => blocker.code)).toEqual(["bucket"]);
-    expect(blockers[0].fix).toContain("S3_ENDPOINT");
+    expect(blockers[0].fix).toContain("Media hosting in Settings");
   });
 
   it("is empty for a hosted, complete show", () => {

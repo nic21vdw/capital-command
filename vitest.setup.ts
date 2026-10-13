@@ -52,3 +52,5 @@ const APP_PREFIXES = [
 for (const name of Object.keys(process.env)) {
   if (APP_PREFIXES.some((prefix) => name.startsWith(prefix))) delete process.env[name];
 }
+
+process.env.RENDER_MIN_FREE_GB = "0";
