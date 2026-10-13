@@ -475,6 +475,16 @@ Local control APIs use `allowsRequestOrigin()` with the request Host header.
 NextURL normalizes `127.0.0.1` to `localhost`, so comparing Origin directly to
 `request.nextUrl.origin` rejects valid loopback browser requests.
 
+Every `/api` request that is not GET, HEAD or OPTIONS goes through
+`src/middleware.ts`, which refuses it with 403 unless `mutationOriginAllowed()`
+passes: loopback host, same origin, and no cross-site fetch metadata. Local
+programs that send neither `Origin` nor `Sec-Fetch-Site` (`curl.exe` in
+`publish-runner.ps1`, the ingest CLI) pass; do not make them send one. A route that
+an outside service must call, such as a webhook, has to be added to
+`MUTATION_GUARD_EXEMPT` in `src/lib/security/mutation-guard.ts` with a reason
+and must verify its own signature. `src/middleware.test.ts` fails if a new
+mutating route is neither guarded nor on that list.
+
 Podcast delivery uses a durable schedule and the server heartbeat. Feed
 publication and Spotify ingestion are separate outcomes: a browser login does
 not prove the app is connected or that Spotify has claimed the RSS feed.
