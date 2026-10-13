@@ -24,7 +24,7 @@ import {
 import { windowSegments } from "@/lib/clipping/captions";
 import { loadJobCaptions } from "@/lib/clipping/captions-client";
 import { leadingSilenceSec } from "@/lib/clipping/editor";
-import { hasEditsBeyondAutoRender, renderSignature } from "@/lib/clipping/export-signature";
+import { hasEditsBeyondAutoRender } from "@/lib/clipping/export-signature";
 import { indexProjectsBySource, newestProjectFor, type ClipProjectIndex } from "@/lib/clipping/project-index";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { CaptionSegment, ClipProject } from "@/types/domain";
@@ -1047,7 +1047,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         }
         setCaptionFailures((current) => {
           if (!(clip.key in current)) return current;
-          const { [clip.key]: _cleared, ...rest } = current;
+          const rest = { ...current };
+          delete rest[clip.key];
           return rest;
         });
         return result;

@@ -568,8 +568,8 @@ function QueueEntryCard({
           title={pictures > 1 ? `Open slide 1 of ${pictures}` : "Open the picture"}
           className="relative block h-14 w-8 shrink-0 overflow-hidden max-sm:w-10 rounded-md border border-[var(--border)] bg-black/40"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route, not a next/image loader */}
           {/* Contain, not cover: a slide is copy, and a crop of it is unreadable. */}
+          {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route, not a next/image loader */}
           <img src={imagePostUrl(item.id, 0)} alt="" loading="lazy" className="h-full w-full object-contain" />
           <span className="absolute bottom-0 right-0 flex items-center gap-0.5 rounded-tl-md bg-black/70 px-1 py-0.5 text-[8px] font-semibold text-white">
             {pictures > 1 ? <Images className="h-2.5 w-2.5" /> : <ImageIcon className="h-2.5 w-2.5" />}
