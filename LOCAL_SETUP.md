@@ -90,18 +90,20 @@ overwritten when the launcher updates the code, so your settings and data are
 preserved across updates.
 
 Under the hood there is **no database** — everything the dashboard remembers
-(jobs, settings, tracked content, and so on) lives in that single
-`data\capital-command.json` file. That makes backups easy: copy that one file
-somewhere safe and you've saved everything.
+lives in JSON files under `data\`: the app data in `data\capital-command.json`,
+plus the publish queue, the Threads queue, clip jobs and so on. The backup
+below zips all of them.
 
 ---
 
 ## Backing up your data to Google Drive
 
-Because all your data is one file, it's worth keeping a copy off your PC in case
-the file is ever lost or corrupted. There's a one-click backup that drops a
-timestamped snapshot into your Google Drive — **no API keys and no sign-in**, the
-same way the optional clip-syncing works.
+Your queues and settings live in JSON files under `data\` (the app data, the
+publish and Threads queues, clip jobs, long-form projects, automations and more),
+so it's worth keeping a copy off your PC in case any of them is lost or
+corrupted. The backup zips all of them into your Google Drive — **no API keys and
+no sign-in**, the same way the optional clip-syncing works. Videos, images,
+passwords and tokens are not included.
 
 ### One-time setup
 1. Install **Google Drive for Desktop**
@@ -110,27 +112,35 @@ same way the optional clip-syncing works.
 2. In your `.env`, set `BACKUP_DRIVE_DIR` to a path inside that synced folder:
    - Windows: `BACKUP_DRIVE_DIR=G:\My Drive`
    - (If you already set `CLIPS_DRIVE_DIR`, you can skip this — the backup reuses
-     it automatically.)
+     it automatically. If both are blank, the backup looks for Google Drive for
+     Desktop on its own.)
+3. Run `npm run backup:register` once from the project folder to schedule a
+   nightly backup at 03:30.
 
 ### Each time you want a backup
 Double-click **`backup-to-drive.bat`** (in the project folder, next to the
-launcher). It copies your data to:
+launcher), or run `npm run backup:state`. It writes:
 
 ```
-<your Drive folder>\Nic Vandewetering Backups\capital-command-<date>_<time>.json
+<your Drive folder>\CoLateral Marketing Backups\capital-command-state-<date>-<time>.zip
 ```
 
-Google Drive for Desktop then syncs that file to the cloud automatically. Do this
-whenever you like — once a month is plenty. The most recent 24 snapshots are
-kept and older ones are tidied up automatically.
+Google Drive for Desktop then syncs that file to the cloud automatically. The
+newest 30 backups are kept and older ones are tidied up automatically. Day
+Summary shows when the last backup ran, and warns when it is more than 48 hours
+old or has failed.
 
-> If you leave `BACKUP_DRIVE_DIR` (and `CLIPS_DRIVE_DIR`) blank, the backup still
-> runs but saves into a local `backups\` folder inside the project — handy, but
-> it stays on this PC only and isn't synced to the cloud.
+> If no Google Drive folder can be found, the backup stops with a message and
+> Day Summary shows why; it does not quietly save somewhere else.
 
 ### Restoring from a backup
-To roll back to a saved snapshot, close the app, then copy the snapshot file from
-your Drive folder back to `data\capital-command.json` (rename it to exactly
-`capital-command.json`, replacing the current one). Start the app again and your
-data is back to that point in time.
+Run `npm run backup:restore -- "<path to the zip>"`. That unpacks the backup into
+a staging folder and lists which files would change, without touching `data\`.
+
+To apply it, close the app and run the same command with `--live`. It refuses to
+run while the app is still answering on port 3000, and it saves the current copy
+of every file it replaces to `backups\pre-restore-<time>.zip` first.
+
+Passwords and tokens are never in a backup. After a restore, reconnect your
+platforms in Settings and put your `.env` back; the restore lists exactly what.
 

@@ -19,6 +19,7 @@ import {
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { BackupStatusLine, useBackupView } from "@/components/master-calendar/backup-status-line";
 import { SourceIcon } from "@/components/master-calendar/source-icon";
 import { sourceHrefForDay } from "@/lib/master-calendar/aggregate";
 import { formatDayKey, localTodayKey, relativeDayLabel, shiftDayKey } from "@/lib/master-calendar/day-keys";
@@ -208,6 +209,8 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
     [dateKey, fetchedDate, response]
   );
 
+  const backup = useBackupView();
+
   const relative = relativeDayLabel(dateKey, todayKey);
   const dayLabel = formatDayKey(dateKey, { weekday: "long", month: "long", day: "numeric" });
   const window =
@@ -243,7 +246,8 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
       { label: "By state", value: stateSummary },
       { label: "Posting window", value: window },
       { label: "Failed", value: String(summary.states.failed) },
-      { label: "Networks", value: networksSummary }
+      { label: "Networks", value: networksSummary },
+      { label: "Last backup", value: backup?.text.replace(/^Last backup: /, "") ?? "Checking" }
     ],
     setField: (id, value) => {
       if (id !== "date") return false;
@@ -289,6 +293,8 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
           </Link>
         }
       />
+
+      <BackupStatusLine view={backup} />
 
       <Card className="mb-4 p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
