@@ -1,6 +1,7 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { BackupStatus } from "@/lib/backup/status";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 
 export const STATUS_FILE = "backup-status.json";
 
@@ -17,14 +18,5 @@ export async function readBackupStatus(dataDir: string): Promise<BackupStatus | 
 }
 
 export async function writeBackupStatus(dataDir: string, status: BackupStatus): Promise<void> {
-  const target = path.join(dataDir, STATUS_FILE);
-  const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
-  await mkdir(dataDir, { recursive: true });
-  try {
-    await writeFile(tmp, JSON.stringify(status, null, 2), "utf8");
-    await rename(tmp, target);
-  } catch (error) {
-    await rm(tmp, { force: true }).catch(() => undefined);
-    throw error;
-  }
+  await atomicWriteJson(path.join(dataDir, STATUS_FILE), status);
 }
