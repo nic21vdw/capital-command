@@ -3,10 +3,16 @@ import { TITLE_MAX_LENGTH } from "@/components/uploading-center/clip-card";
 import {
   DEFAULT_RUN_DEFAULTS,
   applyHashtags,
+  draftHashtags,
   draftWithDefaults,
+  captionSummary,
+  cardOptionsSummary,
+  hashtagSummary,
+  NO_HASHTAGS_SUMMARY,
   hydrateDraft,
   pruneDrafts,
   redraftWithDefaults,
+  runHashtags,
   withoutHashtag,
   type PersistedDraft,
   type RunDefaults
@@ -163,5 +169,86 @@ describe("pruneDrafts", () => {
       now
     );
     expect(Object.keys(pruned)).toEqual(["fresh"]);
+  });
+});
+
+describe("the hashtags a run is really going out with", () => {
+  const tags = "#AI #vibecoding #coding #business #buildinpublic #startup #tech #programming #automation #entrepreneur";
+
+  it("reads the trailing hashtag line of the caption, not just the run defaults", () => {
+    const draft = { title: "I stopped reading diffs", caption: `Here is what I do now.\n\n${tags}` };
+    expect(draftHashtags(draft)).toHaveLength(10);
+    expect(hashtagSummary(runHashtags([draft]))).toBe("#AI #vibecoding #coding +7");
+  });
+
+  it("reads hashtags from the title too, and counts each once across cards, whatever its case", () => {
+    const drafts = [
+      { title: "One #AI", caption: "" },
+      { title: "Two", caption: "Words.\n\n#ai #coding" }
+    ];
+    expect(runHashtags(drafts)).toEqual(["#AI", "#coding"]);
+  });
+
+  it("leaves a hashtag inside a sentence alone, as the booking does", () => {
+    expect(draftHashtags({ title: "Plain", caption: "I love #coding so much" })).toEqual([]);
+  });
+
+  it("counts the hashtags in a title and the ones a caption brings, together", () => {
+    const drafts = [
+      { title: "One #AI #coding", caption: "" },
+      { title: "Two", caption: `Words.\n\n${"#a #b #c #d"}` }
+    ];
+    expect(hashtagSummary(runHashtags(drafts))).toBe("#AI #coding #a +3");
+  });
+
+  it("says the channel defaults are added when none is chosen, because the booking adds them", () => {
+    expect(NO_HASHTAGS_SUMMARY).toBe("No hashtags chosen - channel defaults are added");
+  });
+
+  it("says 'chosen', because the ten suggestion chips are not on any clip", () => {
+    expect(hashtagSummary([])).toBe(NO_HASHTAGS_SUMMARY);
+  });
+
+  it("only says 'no hashtags' when there truly are none", () => {
+    expect(hashtagSummary(runHashtags([{ title: "Plain", caption: "Just words." }]))).toBe(NO_HASHTAGS_SUMMARY);
+    expect(hashtagSummary(["#a", "#b"])).toBe("#a #b");
+  });
+});
+
+describe("what the bulk panel says about captions", () => {
+  it("says the AI writes them when a model is available, or when that is not known yet", () => {
+    expect(captionSummary(4, true)).toBe("AI writes 4 captions");
+    expect(captionSummary(1, true)).toBe("AI writes 1 caption");
+    expect(captionSummary(4, undefined)).toBe("AI writes 4 captions");
+  });
+
+  it("owns up to the clip titles when no AI key is set", () => {
+    expect(captionSummary(4, false)).toBe("Captions: the clip titles (no AI key set)");
+  });
+
+  it("says all captioned once nothing is missing, whatever the AI", () => {
+    expect(captionSummary(0, true)).toBe("all captioned");
+    expect(captionSummary(0, false)).toBe("all captioned");
+  });
+});
+
+describe("a clip card's closed Customise row", () => {
+  it("reads the bulk panel's wording for an empty caption and no hashtags", () => {
+    expect(cardOptionsSummary({ title: "Plain", caption: "" }, true)).toBe(`AI writes 1 caption · ${NO_HASHTAGS_SUMMARY}`);
+    expect(cardOptionsSummary({ title: "Plain", caption: "   " }, undefined)).toBe(
+      `AI writes 1 caption · ${NO_HASHTAGS_SUMMARY}`
+    );
+  });
+
+  it("says the clip title is the caption when no AI key can write one", () => {
+    expect(cardOptionsSummary({ title: "Plain", caption: "" }, false)).toBe(
+      `Captions: the clip titles (no AI key set) · ${NO_HASHTAGS_SUMMARY}`
+    );
+  });
+
+  it("names the hashtags the draft carries once there is a caption", () => {
+    expect(cardOptionsSummary({ title: "Plain #AI", caption: "Words.\n#coding #business #tech #startup" }, false)).toBe(
+      "Caption written · #AI #coding #business +2"
+    );
   });
 });

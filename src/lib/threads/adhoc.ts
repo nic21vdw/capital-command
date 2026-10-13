@@ -22,6 +22,8 @@ export type AdhocPlanInput = {
   spacingHours?: number;
   /** How long after now the first one goes out. */
   leadHours?: number;
+  /** An exact instant for the first post; wins over `leadHours`. */
+  startAt?: Date;
   newId?: () => string;
 };
 
@@ -38,6 +40,7 @@ export function planAdhocPosts({
   runId,
   spacingHours = 4,
   leadHours = 2,
+  startAt,
   newId
 }: AdhocPlanInput): ThreadsQueueItem[] {
   const account = config.accounts[0];
@@ -46,7 +49,7 @@ export function planAdhocPosts({
   const createdAt = now.toISOString();
 
   const items: ThreadsQueueItem[] = [];
-  let at = new Date(now.getTime() + leadHours * HOUR);
+  let at = startAt ?? new Date(now.getTime() + leadHours * HOUR);
   for (const raw of texts) {
     const text = fitToThreads(raw.trim());
     if (!text) continue;

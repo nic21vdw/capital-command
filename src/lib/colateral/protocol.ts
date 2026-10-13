@@ -51,7 +51,13 @@ export const APP_MESSAGE = {
   /** Pushed when the visible page's surface changes under its own steam. */
   surface: "capital-command:surface",
   /** The answer to one addressed request, carrying its `id` back. */
-  result: "capital-command:result"
+  result: "capital-command:result",
+  /**
+   * Something happened that the host should put in its notification bell,
+   * without the user having asked. Sent only once a host has spoken to the app
+   * (so the reply address is known) and never twice for the same `id`.
+   */
+  notify: "capital-command:notify"
 } as const;
 
 export type HostMessageType = (typeof HOST_MESSAGE)[keyof typeof HOST_MESSAGE];
@@ -313,3 +319,92 @@ export function appResult(
   return { type: APP_MESSAGE.result, id, ok, ...extra };
 }
 
+/* ---- notifications ------------------------------------------------------ */
+
+export type NotificationLevel = "error" | "warning" | "info";
+
+const NOTIFICATION_LEVELS: ReadonlySet<string> = new Set<NotificationLevel>(["error", "warning", "info"]);
+
+export const NOTIFICATION_TITLE_MAX = 200;
+export const NOTIFICATION_BODY_MAX = 1000;
+const NOTIFICATION_ID_MAX = 200;
+
+/**
+ * One thing worth telling the user about. The `id` is the event's identity and
+ * must be STABLE for it ("publish-failed:<item>:<platform>:<attempt>"), because
+ * the host dedupes on it: sending the same failure again must not ring the
+ * bell twice, and a new failure must not be swallowed.
+ */
+export interface AppNotification {
+  id: string;
+  level: NotificationLevel;
+  /** Up to 200 characters. */
+  title: string;
+  /** Plain-language advice, up to 1000 characters. */
+  body: string;
+  /** Where the host should send the user, e.g. "/uploading-center?item=abc". */
+  route?: string;
+}
+
+export interface AppNotifyMessage {
+  type: typeof APP_MESSAGE.notify;
+  notification: AppNotification;
+}
+
+/**
+ * A route a notification may carry: a path inside the app with an optional
+ * query. `normalizeRoute` drops the query because the bridge addresses PAGES,
+ * but a notification exists to deep-link to one item, so the query is kept
+ * here and checked as narrowly as the path is.
+ */
+export function normalizeNotificationRoute(value: unknown): string | undefined {
+  const raw = str(value).trim();
+  if (!raw || raw.length > 400) return undefined;
+  if (!/^\/[a-zA-Z0-9\-_/]*(\?[a-zA-Z0-9\-_.~%=&:]*)?$/.test(raw)) return undefined;
+  if (raw.startsWith("//") || raw.includes("..")) return undefined;
+  return raw;
+}
+
+/**
+ * Build the wire message for a notification, or null when it is not one:
+ * a missing id, an unknown level or an empty title would only produce a card the
+ * host cannot dedupe or read. Over-long text is cut rather than refused, so a
+ * long error never costs the user the alert.
+ */
+export function buildNotifyMessage(notification: unknown): AppNotifyMessage | null {
+  if (!isRecord(notification)) return null;
+  const id = str(notification.id).trim().slice(0, NOTIFICATION_ID_MAX);
+  const level = str(notification.level);
+  const title = str(notification.title).trim().slice(0, NOTIFICATION_TITLE_MAX);
+  if (!id || !NOTIFICATION_LEVELS.has(level) || !title) return null;
+  const body = str(notification.body).trim().slice(0, NOTIFICATION_BODY_MAX);
+  const route = normalizeNotificationRoute(notification.route);
+  return {
+    type: APP_MESSAGE.notify,
+    notification: { id, level: level as NotificationLevel, title, body, ...(route ? { route } : {}) }
+  };
+}
+
+/**
+ * Sends notifications through `post` at most once per id for the life of the
+ * notifier (one app session). `post` answers whether the message actually went
+ * out: while no host has spoken yet it cannot, and an id is only remembered once
+ * it has been sent, so a failure seen before the handshake is still delivered
+ * after it. Returns true when the notification is now delivered (now or earlier).
+ */
+export function createNotifier(post: (message: AppNotifyMessage) => boolean) {
+  const sent = new Set<string>();
+  return {
+    send(notification: unknown): boolean {
+      const message = buildNotifyMessage(notification);
+      if (!message) return false;
+      if (sent.has(message.notification.id)) return true;
+      if (!post(message)) return false;
+      sent.add(message.notification.id);
+      return true;
+    },
+    hasSent(id: string): boolean {
+      return sent.has(id);
+    }
+  };
+}

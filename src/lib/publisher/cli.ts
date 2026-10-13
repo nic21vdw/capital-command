@@ -345,7 +345,7 @@ async function main() {
   // plan and changes nothing unless --write is passed.
   if (command === "mirror") {
     const { planMirror, planUnmirror, describeMirrorPlan } = await import("@/lib/publisher/mirror");
-    const { newPlatformState } = await import("@/lib/publisher/queue");
+    const { mirroredPlatformState } = await import("@/lib/publisher/queue");
     const queue = publishQueue(config);
     let items = await queue.list();
 
@@ -434,7 +434,7 @@ async function main() {
     const byId = new Map(items.map((i) => [i.id, i]));
     for (const add of plan.additions) {
       const item = byId.get(add.itemId);
-      if (item) item.platforms[add.platform] = newPlatformState();
+      if (item) item.platforms[add.platform] = mirroredPlatformState(lead);
     }
     for (const entry of plan.newItems) {
       const source = byId.get(entry.sourceItemId);
@@ -445,7 +445,7 @@ async function main() {
           id: `${entry.platform.slice(0, 2)}-${entry.slotItemId}-${crypto.randomUUID().slice(0, 6)}`,
           publishAt: entry.publishAt,
           createdAt: new Date().toISOString(),
-          platforms: { [entry.platform]: newPlatformState() }
+          platforms: { [entry.platform]: mirroredPlatformState(lead) }
         },
         "cli-mirror"
       );

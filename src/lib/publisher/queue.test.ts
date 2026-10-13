@@ -135,6 +135,24 @@ describe("publish queue state machine", () => {
     expect(queue.duePlatforms(item, new Date(DUE.getTime() + 60 * 60_000))).toEqual([]);
   });
 
+  it("stamps when a leg last failed, so a repeat failure after a re-arm is told apart from the first", async () => {
+    const { queue } = makeQueue();
+    const item = testItem({ publishAt: PUBLISH_AT, platformIds: ["tiktok"] });
+    await queue.add(item);
+
+    await queue.recordFailure(item, "tiktok", { message: "bad request", transient: false }, DUE);
+    const state = item.platforms.tiktok!;
+    expect(state.status).toBe("failed");
+    expect(state.lastFailedAt).toBe(DUE.toISOString());
+
+    await queue.rearm(item);
+    expect(state.attempts).toBe(0);
+    const later = new Date(DUE.getTime() + 60 * 60_000);
+    await queue.recordFailure(item, "tiktok", { message: "bad request", transient: false }, later);
+    expect(state.attempts).toBe(1);
+    expect(state.lastFailedAt).toBe(later.toISOString());
+  });
+
   it("a fresh claim blocks re-processing until the claim times out", async () => {
     const { queue } = makeQueue();
     const item = testItem({ publishAt: PUBLISH_AT, platformIds: ["instagram"] });

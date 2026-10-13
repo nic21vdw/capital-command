@@ -71,7 +71,7 @@ export function feedBlockers(
     blockers.push({
       code: "bucket",
       problem: "The storage bucket the feed and its episode files live in is not connected yet.",
-      fix: "Set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY in .env. Those are secrets, so they stay in the file."
+      fix: "Add the endpoint, bucket and access keys under Media hosting in Settings > Accounts."
     });
   } else if (options.hosted === false) {
     blockers.push({

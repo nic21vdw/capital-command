@@ -107,6 +107,26 @@ describe("youtube adapter", () => {
     expect(result.postId).toBe("vid-123");
   });
 
+  it("uploads public straight away, with no publishAt, on an explicit Publish now", async () => {
+    const requests = mockFetchRoutes([
+      { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+      {
+        match: "uploadType=resumable",
+        respond: () => jsonResponse({}, { headers: { location: "https://upload.example/session-now" } })
+      },
+      { match: "upload.example/session-now", respond: () => jsonResponse({ id: "vid-now" }) }
+    ]);
+    const adapter = await loadAdapter();
+
+    const result = await adapter.publish({ ...input({ visibility: "public" }), publishNow: true });
+
+    const body = JSON.parse(String(requests[1].body));
+    expect(body.status.privacyStatus).toBe("public");
+    expect(body.status.publishAt).toBeUndefined();
+    expect(result.status).toBe("published");
+    expect(result.detail).toMatch(/published now at your request/);
+  });
+
   it("uploads a long-form video private with no publishAt even when visibility is public", async () => {
     const requests = mockFetchRoutes([
       { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
@@ -517,6 +537,65 @@ describe("youtube adapter", () => {
       expect(result.postId).toBe("vid-waiting");
     });
 
+    it("makes a held video public now when the board's explicit Publish now asks, before its slot", async () => {
+      const requests = mockFetchRoutes([
+        { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+        {
+          match: "id=vid-waiting",
+          respond: () =>
+            jsonResponse({ items: [{ status: { privacyStatus: "private", publishAt: FUTURE, selfDeclaredMadeForKids: false } }] })
+        },
+        { match: "youtube/v3/videos?part=status", respond: () => jsonResponse({ id: "vid-waiting" }) }
+      ]);
+      const adapter = await loadAdapter();
+      const item = testItem({ publishAt: FUTURE, visibility: "public", platformIds: ["youtube"] });
+
+      const result = await adapter.finalize!(item, { status: "scheduled", attempts: 0, postId: "vid-waiting" }, { publishNow: true });
+
+      const body = JSON.parse(String(requests[2].body));
+      expect(body.status.privacyStatus).toBe("public");
+      expect(body.status.publishAt).toBeUndefined();
+      expect(result.status).toBe("published");
+      expect(result.detail).toMatch(/set public now at your request/);
+    });
+
+    it("never flips a held video early when publishNow is not set (retry and the scheduler)", async () => {
+      const requests = mockFetchRoutes([
+        { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+        {
+          match: "id=vid-waiting",
+          respond: () => jsonResponse({ items: [{ status: { privacyStatus: "private", publishAt: FUTURE } }] })
+        }
+      ]);
+      const adapter = await loadAdapter();
+      const item = testItem({ publishAt: FUTURE, visibility: "public", platformIds: ["youtube"] });
+
+      for (const options of [undefined, {}, { publishNow: false }]) {
+        const result = await adapter.finalize!(item, { status: "scheduled", attempts: 0, postId: "vid-waiting" }, options);
+        expect(result.status).toBe("scheduled");
+        expect(result.detail).toMatch(/waiting for its slot/);
+      }
+      expect(requests.some((request) => request.method === "PUT")).toBe(false);
+    });
+
+    it("keeps a long-form video private even on Publish now - it is held for review", async () => {
+      const requests = mockFetchRoutes([
+        { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+        {
+          match: "id=vid-long",
+          respond: () => jsonResponse({ items: [{ status: { privacyStatus: "private", publishAt: FUTURE } }] })
+        },
+        { match: "youtube/v3/videos?part=status", respond: () => jsonResponse({ id: "vid-long" }) }
+      ]);
+      const adapter = await loadAdapter();
+      const item = testItem({ publishAt: FUTURE, visibility: "public", format: "long", platformIds: ["youtube"] });
+
+      const result = await adapter.finalize!(item, { status: "scheduled", attempts: 0, postId: "vid-long" }, { publishNow: true });
+
+      expect(JSON.parse(String(requests[2].body)).status.privacyStatus).toBe("private");
+      expect(result.detail).toMatch(/kept private/);
+    });
+
     it("fails permanently when the video no longer exists", async () => {
       mockFetchRoutes([
         { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
@@ -552,5 +631,47 @@ describe("updateYoutubeVideoPublishAt", () => {
       id: "vid-123",
       status: { privacyStatus: "private", publishAt: "2027-02-01T15:00:00Z", embeddable: true }
     });
+  });
+});
+
+describe("holdYoutubeVideoPrivate (what Remove does for a video YouTube already holds)", () => {
+  const route = (status: Record<string, unknown> | null) => [
+    { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+    { match: "part=status&id=vid-1", respond: () => jsonResponse({ items: status ? [{ status }] : [] }) },
+    { match: "youtube/v3/videos?part=status", respond: () => jsonResponse({ id: "vid-1" }) }
+  ];
+
+  it("clears the go-live time and keeps the video private, never deleting it", async () => {
+    const requests = mockFetchRoutes(route({ privacyStatus: "private", publishAt: FUTURE, embeddable: true }));
+    const { holdYoutubeVideoPrivate } = await import("@/lib/publisher/adapters/youtube");
+
+    expect(await holdYoutubeVideoPrivate("vid-1")).toBe("held");
+
+    const update = requests.find((request) => request.method === "PUT")!;
+    expect(JSON.parse(String(update.body))).toEqual({ id: "vid-1", status: { privacyStatus: "private", embeddable: true } });
+    expect(requests.some((request) => request.method === "DELETE")).toBe(false);
+  });
+
+  it("writes nothing when the video is already private with no go-live time", async () => {
+    const requests = mockFetchRoutes(route({ privacyStatus: "private" }));
+    const { holdYoutubeVideoPrivate } = await import("@/lib/publisher/adapters/youtube");
+
+    expect(await holdYoutubeVideoPrivate("vid-1")).toBe("already-private");
+    expect(requests.some((request) => request.method === "PUT")).toBe(false);
+  });
+
+  it("does not touch a video that is already public, and says so", async () => {
+    const requests = mockFetchRoutes(route({ privacyStatus: "public" }));
+    const { holdYoutubeVideoPrivate } = await import("@/lib/publisher/adapters/youtube");
+
+    expect(await holdYoutubeVideoPrivate("vid-1")).toBe("already-public");
+    expect(requests.some((request) => request.method === "PUT")).toBe(false);
+  });
+
+  it("treats a video that no longer exists as nothing to hold", async () => {
+    mockFetchRoutes(route(null));
+    const { holdYoutubeVideoPrivate } = await import("@/lib/publisher/adapters/youtube");
+
+    expect(await holdYoutubeVideoPrivate("vid-1")).toBe("missing");
   });
 });

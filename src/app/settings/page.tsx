@@ -30,10 +30,14 @@ export default function Page() {
       .then((body: { present?: Record<string, boolean> } | null) => {
         if (cancelled || !body?.present) return;
         const present = body.present;
-        const ready = CONNECTIONS.filter((connection) =>
-          connection.fields.every((field) => present[field.name])
+        // Accounts only: Media hosting is a requirement of two of them, not one.
+        // Optional fields do not count against a row, or YouTube could never
+        // be "ready" without an optional value.
+        const accounts = CONNECTIONS.filter((connection) => connection.id !== "media-hosting");
+        const ready = accounts.filter((connection) =>
+          connection.fields.filter((field) => !field.optional).every((field) => present[field.name])
         ).length;
-        setConnected({ ready, total: CONNECTIONS.length });
+        setConnected({ ready, total: accounts.length });
       })
       .catch(() => undefined);
     return () => {
@@ -79,7 +83,8 @@ export default function Page() {
         id: "autoScheduleOvernight",
         label: "Schedule what an overnight stream produces",
         value: data.settings.autoScheduleOvernight === true,
-        kind: "boolean"
+        kind: "boolean",
+        hint: "Can be switched off here. Turning it on has to be confirmed by a person on the Settings or Automations screen."
       },
       {
         id: "clipDescription",
@@ -141,14 +146,13 @@ export default function Page() {
         }
         case "autoScheduleOvernight": {
           if (typeof value !== "boolean") return false;
+          // Turning it on lets unattended runs queue posts with copy nobody has read, and that
+          // needs a person's confirmation on screen (OvernightConfirmDialog). The canvas can only stop it.
+          if (value) return false;
           void mutate(
             "updateSettings",
-            { ...data.settings, autoScheduleOvernight: value },
-            {
-              successMessage: value
-                ? "Overnight runs will schedule themselves."
-                : "Overnight runs will stop at ready to schedule."
-            }
+            { ...data.settings, autoScheduleOvernight: false },
+            { successMessage: "Overnight runs will stop at ready to schedule." }
           );
           return true;
         }

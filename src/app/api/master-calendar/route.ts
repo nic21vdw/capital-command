@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildMasterCalendarEvents, todayKeyIn } from "@/lib/master-calendar/aggregate";
 import { publisherConfig } from "@/lib/publisher/config";
+import { legConnectionCheck } from "@/lib/publisher/legConnection";
 import { publishQueue } from "@/lib/publisher/queue";
 import { readAppData } from "@/lib/storage/store";
+import { threadsConfig } from "@/lib/threads/config";
+import { readQueue as readThreadsQueue } from "@/lib/threads/queue";
+import { liveStatsDeps } from "@/lib/publisher/youtubeStats";
+import type { YoutubeStat } from "@/lib/publisher/youtubeStatsShared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +23,25 @@ function validDateKey(value: string): boolean {
 }
 
 /**
+ * The last YouTube numbers on disk for the published videos in these events.
+ * Cache only - no call to YouTube - so the page can show numbers with its
+ * events and let the live read refresh them afterwards. A cache that cannot
+ * be read is just no numbers.
+ */
+async function cachedYoutubeStats(events: { youtube?: { videoId: string } }[]): Promise<Record<string, YoutubeStat>> {
+  const ids = new Set(events.flatMap((event) => (event.youtube ? [event.youtube.videoId] : [])));
+  if (ids.size === 0) return {};
+  try {
+    const cache = await liveStatsDeps.readCache();
+    const out: Record<string, YoutubeStat> = {};
+    for (const id of ids) if (cache[id]) out[id] = cache[id];
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
  * GET /api/master-calendar?start=YYYY-MM-DD&days=42 — every distribution
  * surface's events for the requested window of local calendar days, flattened
  * into one list (see buildMasterCalendarEvents). `start` may lie in the past
@@ -30,26 +54,36 @@ export async function GET(request: NextRequest) {
   const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(Math.max(1, Math.floor(daysRaw)), MAX_DAYS) : 42;
   const startKey = startRaw && validDateKey(startRaw) ? startRaw : todayKeyIn(config.timezone);
 
-  const [data, queueItems] = await Promise.all([
+  const [data, queueItems, threadsItems] = await Promise.all([
     readAppData(),
     // Same gate as GET /api/publish: with the publisher off the queue file is
     // not consulted, so the two surfaces always agree on what's scheduled.
-    config.enabled ? publishQueue(config).list() : Promise.resolve([])
+    config.enabled ? publishQueue(config).list() : Promise.resolve([]),
+    // The Threads queue says what actually went out; the X pack only plans it.
+    // A queue that cannot be read leaves Threads as the pack's plan.
+    readThreadsQueue().catch(() => [])
   ]);
 
   const events = buildMasterCalendarEvents({
     data,
     queueItems,
+    threadsItems,
+    threadsTimeZone: threadsConfig().timezone,
     timeZone: config.timezone,
     startKey,
-    days
+    days,
+    // A past-slot leg on an account with no connection reads "needs connection", not "overdue".
+    isConnected: config.enabled ? await legConnectionCheck(config) : undefined
   });
 
   return NextResponse.json({
     timezone: config.timezone,
+    // The publish zone's today: what "Today" means on every screen that reads this.
+    today: todayKeyIn(config.timezone),
     publishEnabled: config.enabled,
     start: startKey,
     days,
-    events
+    events,
+    youtubeStats: await cachedYoutubeStats(events)
   });
 }

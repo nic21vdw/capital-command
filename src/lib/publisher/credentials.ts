@@ -26,6 +26,20 @@ const FILE = "credentials.json";
 let cache: Record<string, string> | null = null;
 let writeQueue = Promise.resolve();
 
+/**
+ * Names whose value was already in the environment (from `.env`) when the saved
+ * file was folded in, so the environment won and any Settings value for them is
+ * ignored. Held on `globalThis` because the instrumentation hook that folds the
+ * file in and the route handlers that report on it are bundled separately - a
+ * module-level set in one would be empty in the other.
+ */
+const ENV_OWNED = Symbol.for("colateral.credentials.envOwned");
+
+function envOwned(): Set<string> {
+  const holder = globalThis as unknown as Record<symbol, Set<string> | undefined>;
+  return (holder[ENV_OWNED] ??= new Set<string>());
+}
+
 /** Forget the cached file, so the next read sees what Settings just wrote. */
 export function forgetCredentials() {
   cache = null;
@@ -61,8 +75,32 @@ async function load(): Promise<Record<string, string>> {
 export async function applyStoredCredentials() {
   const stored = await load();
   for (const [key, value] of Object.entries(stored)) {
-    if (!process.env[key]?.trim()) process.env[key] = value;
+    if (process.env[key]?.trim()) envOwned().add(key);
+    else process.env[key] = value;
   }
+}
+
+/** Where a credential's live value comes from. */
+export type CredentialSource = "env" | "saved";
+
+/**
+ * Where each name's value comes from, or null when it has none. The
+ * environment wins over the saved file on every start, so a value that `.env`
+ * also sets reverts to the `.env` one after a restart whatever Settings saved -
+ * which is why Settings has to say "set in .env" instead of offering to edit it.
+ */
+export async function credentialSources(
+  names: readonly string[]
+): Promise<Record<string, CredentialSource | null>> {
+  const stored = await load();
+  const owned = envOwned();
+  const out: Record<string, CredentialSource | null> = {};
+  for (const name of names) {
+    if (stored[name] && !owned.has(name)) out[name] = "saved";
+    else if (process.env[name]?.trim()) out[name] = "env";
+    else out[name] = null;
+  }
+  return out;
 }
 
 /** Which of these names have a value, from either source. Never the values. */
