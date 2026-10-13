@@ -1,6 +1,7 @@
-import { mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 import { detectSilences } from "@/lib/clipping/analysis";
 import { probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { listJobs } from "@/lib/clipping/jobs";
@@ -31,11 +32,6 @@ const projectsFile = path.join(longformRoot, "projects.json");
 let persistQueue = Promise.resolve();
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function isTransientReplaceError(error: unknown) {
-  const code = (error as NodeJS.ErrnoException).code;
-  return code === "EPERM" || code === "EACCES" || code === "EBUSY";
-}
 
 // Project state lives on globalThis: in Next dev each route gets its own
 // module graph, so plain module-level state would not be shared between the
@@ -122,28 +118,8 @@ async function loadProjects() {
 
 async function persistProjects() {
   const write = async () => {
-    await mkdir(longformRoot, { recursive: true });
     const list = [...projects.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 30);
-    const payload = JSON.stringify(list, null, 2);
-    const tmpPath = `${projectsFile}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tmpPath, payload, "utf8");
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      try {
-        await rename(tmpPath, projectsFile);
-        return;
-      } catch (error) {
-        if (!isTransientReplaceError(error) || attempt === 4) {
-          if (isTransientReplaceError(error)) {
-            await writeFile(projectsFile, payload, "utf8");
-            await unlink(tmpPath).catch(() => undefined);
-            return;
-          }
-          await unlink(tmpPath).catch(() => undefined);
-          throw error;
-        }
-        await wait(100 * (attempt + 1));
-      }
-    }
+    await atomicWriteJson(projectsFile, list);
   };
   persistQueue = persistQueue.then(write, write);
   await persistQueue;

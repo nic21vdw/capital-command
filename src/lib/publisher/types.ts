@@ -154,6 +154,12 @@ export type QueueItem = {
    */
   format?: "short" | "long";
   createdAt: string;
+  /**
+   * When this item was last changed and saved. Stamped by the queue on every
+   * save that touches the item, so two writers editing the same item can be
+   * merged by which change is newer. Absent until the item is next saved.
+   */
+  updatedAt?: string;
   /** Only the requested platforms are present. */
   platforms: Partial<Record<PlatformId, PlatformState>>;
   /** Optional provenance for the UI/logs. */

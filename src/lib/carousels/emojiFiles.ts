@@ -1,7 +1,8 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { appleEmojiUrls, emojiCodepoints } from "@/lib/emoji/apple";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteFile } from "@/lib/storage/atomic-json";
 
 /**
  * The Apple emoji pictures the server draws slides with, kept on disk.
@@ -67,10 +68,7 @@ export async function appleEmojiBytes(glyph: string): Promise<Buffer | null> {
     await mkdir(cacheRoot, { recursive: true }).catch(() => null);
     // Written aside and renamed, so a kill mid-write leaves the temporary file
     // rather than a truncated PNG under the name the next run will trust.
-    const temporary = `${file}.${process.pid}.tmp`;
-    await writeFile(temporary, bytes)
-      .then(() => rename(temporary, file))
-      .catch(() => rm(temporary, { force: true }).catch(() => null));
+    await atomicWriteFile(file, bytes).catch(() => null);
     return bytes;
   })().finally(() => inFlight.delete(key));
 

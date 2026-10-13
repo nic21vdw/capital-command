@@ -25,6 +25,14 @@ export async function register() {
     const { refreshClipDescription } = await import("@/lib/publisher/standingDescription");
     await refreshClipDescription();
 
+    const { sweepStaleTmpFiles } = await import("@/lib/storage/tmp-sweep");
+    void sweepStaleTmpFiles().then(
+      (swept) => {
+        if (swept.removed.length > 0) console.log(`[storage] removed ${swept.removed.length} abandoned temporary file(s) from data/.`);
+      },
+      (error) => console.warn("[storage] could not sweep temporary files:", error)
+    );
+
     const { startPipelineHeartbeat } = await import("@/lib/pipeline/heartbeat");
     startPipelineHeartbeat();
   }

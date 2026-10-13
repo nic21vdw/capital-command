@@ -1,7 +1,8 @@
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { transcribeMedia, type TranscribeOptions } from "@/lib/clipping/whisper";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteFile } from "@/lib/storage/atomic-json";
 import type { CaptionSegment } from "@/types/domain";
 
 /**
@@ -39,16 +40,7 @@ export async function readSourceTranscript(sourceId: string): Promise<CaptionSeg
 
 async function writeSourceTranscript(sourceId: string, segments: CaptionSegment[]) {
   const file = cacheFile(sourceId);
-  const payload = JSON.stringify(segments);
-  await mkdir(path.dirname(file), { recursive: true });
-  const tmpPath = `${file}.${process.pid}.tmp`;
-  await writeFile(tmpPath, payload, "utf8");
-  try {
-    await rename(tmpPath, file);
-  } catch {
-    await writeFile(file, payload, "utf8");
-    await unlink(tmpPath).catch(() => undefined);
-  }
+  await atomicWriteFile(file, JSON.stringify(segments)).catch(() => undefined);
 }
 
 export async function transcribeSource(

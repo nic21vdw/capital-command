@@ -1,9 +1,10 @@
 import { createReadStream, createWriteStream, type ReadStream } from "node:fs";
-import { mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 import { hasAudioStream, hasVideoStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import type { MusicTrack, MusicTrackOrigin } from "@/lib/longform/types";
 
@@ -36,15 +37,7 @@ async function readLibrary(): Promise<MusicTrack[]> {
 
 async function writeLibrary(tracks: MusicTrack[]) {
   const write = async () => {
-    await mkdir(musicRoot, { recursive: true });
-    const tmpPath = `${libraryFile}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tmpPath, JSON.stringify(tracks, null, 2), "utf8");
-    try {
-      await rename(tmpPath, libraryFile);
-    } catch {
-      await writeFile(libraryFile, JSON.stringify(tracks, null, 2), "utf8");
-      await unlink(tmpPath).catch(() => undefined);
-    }
+    await atomicWriteJson(libraryFile, tracks);
   };
   libraryQueue = libraryQueue.then(write, write);
   await libraryQueue;

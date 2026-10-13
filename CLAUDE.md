@@ -286,17 +286,20 @@ is refused.
 
 ## The running app owns the publish queue (`queue.ts`)
 
-`publishQueue()` is a process-wide singleton and `load()` reads
-`data/publish-queue.json` ONCE — `loaded` is a one-shot flag. Every write then
-serializes the whole in-memory map back over the file. So a second process that
-edits the queue while the app is up has its work reverted the moment the app
-next saves anything: a booking, a rename, a delete, `settleSchedule` after a
-pipeline booking. It looks like it worked — the file is right, the audit log
-records it — and then it is silently gone.
+`publishQueue()` is a process-wide singleton that keeps the whole queue in
+memory and serializes it back over `data/publish-queue.json` on every save. A
+save now takes the queue's lock file, re-reads the file, and merges item by item
+before it writes (`queueMerge.ts`): an item the other process added or deleted
+survives, and two edits to different fields of one item both land. Only when both
+sides changed the SAME field does the newer `updatedAt` win, so a second process
+moving a `publishAt` the app also moved can still lose that one field. Before
+this, a second process's edit was reverted the next time the app saved anything,
+and it looked like it worked — the file was right, the audit log recorded it —
+and then it was silently gone.
 
 That is why the publisher CLI is a maintenance tool and not a second door into
 a live queue. Anything that has to change scheduled times while the app is
-running must go through the app's own HTTP API, in-process:
+running should still go through the app's own HTTP API, in-process:
 
 - `POST /api/publish` with an explicit `publishAt` books a video at a chosen
   slot, which is how to place something outside the earliest-free-slot order
@@ -315,6 +318,28 @@ whatever time Facebook already took — delete the Page post and set the leg bac
 to `pending` so it goes up with its other platforms. And YouTube holds its own
 `publishAt`: a moved item that is already `scheduled` on YouTube needs
 `updateYoutubeVideoPublishAt` too, which is what `frontload --push` exists for.
+
+## Writing state files (`src/lib/storage`)
+
+Every JSON file under `data/` is written through `atomicWriteJson` /
+`atomicWriteFile` (`atomic-json.ts`): a uniquely named temporary file in the same
+folder, fsynced, renamed over the target with a bounded retry on Windows
+`EPERM`/`EBUSY`/`EACCES`, and unlinked in a `finally` if anything fails. It
+never falls back to writing the target directly - a full disk during that
+fallback is what emptied the publish queue - so a write that cannot be swapped
+in throws and leaves the old file exactly as it was. Do not hand-write a
+tmp-then-rename again; call the helper.
+
+A store that more than one process writes also takes `withFileLock`
+(`file-lock.ts`): an `O_EXCL` lock file `<target>.lock` holding the holder's pid,
+taken over when that pid is gone or the lock is older than 30 s. The publish
+queue, the Threads queue and heartbeat, the app document and `createJsonStore`
+files use it. Stores written by one process (clip jobs, pipeline runs, long-form
+projects, the music, SFX and podcast files) use the atomic write only.
+
+`sweepStaleTmpFiles` runs once at server start (`instrumentation.ts`) and removes
+`*.tmp` files under `data/` that are more than an hour old and whose target has no
+live lock.
 
 ## Two things the publisher must never do (`schedule.ts`, `duplicates.ts`)
 

@@ -1,9 +1,10 @@
 import { createReadStream, createWriteStream, type ReadStream } from "node:fs";
-import { mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 import { hasAudioStream, hasVideoStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { SFX_SOUND_IDS, isSfxSoundId } from "@/lib/sfx/types";
 import type { SfxSoundId } from "@/types/domain";
@@ -68,15 +69,7 @@ async function readIndex(): Promise<SfxIndex> {
 
 async function writeIndex(index: SfxIndex) {
   const write = async () => {
-    await mkdir(sfxRoot, { recursive: true });
-    const tmpPath = `${indexFile}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tmpPath, JSON.stringify(index, null, 2), "utf8");
-    try {
-      await rename(tmpPath, indexFile);
-    } catch {
-      await writeFile(indexFile, JSON.stringify(index, null, 2), "utf8");
-      await unlink(tmpPath).catch(() => undefined);
-    }
+    await atomicWriteJson(indexFile, index);
   };
   indexQueue = indexQueue.then(write, write);
   await indexQueue;

@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- A failed or interrupted save can no longer empty the publish queue, and two programs saving the queue at once (the app and a booking script, say) no longer wipe out each other's changes. Every data file is now written the same safe way, and the leftover half-written files in `data/` are cleaned up each time the app starts.
+
 - Threads and X posts now plug CoLateral as the all-in-one agentic workspace (agents side by side in your real files, bring your own AI, pay once) instead of engineering tools, and never mention CoLateral Engineering. Your saved X reply brief in Settings may still carry the old wording.
 
 - New **Outreach** page (Studio): keep a list of the creators, newsletters and podcasts you want to offer CoLateral to, filter it by where each conversation stands, see who is due a follow-up and whether you are on pace for 5-10 contacts a week, and copy a message personalised with their name and recent video. Paste a JSON list on the page or run `npm run outreach:import -- <file>` to bring in researched contacts; duplicates are merged by url and nothing you wrote is overwritten. It is a tracker only - it never sends anything.

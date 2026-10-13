@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import { recordQueueMutations, type QueueWriter } from "@/lib/publisher/audit";
 import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
 import { preSchedulesItem } from "@/lib/publisher/nativeScheduling";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
+import { mergeById, snapshotById } from "@/lib/publisher/queueMerge";
 import { rearmItem, type RearmScope } from "@/lib/publisher/rearm";
 import { FileQueueStore, R2QueueStore, type QueueStore } from "@/lib/publisher/store";
 import type { BufferState, PlatformId, PlatformState, PostResult, QueueItem } from "@/lib/publisher/types";
@@ -33,6 +35,8 @@ import type { BufferState, PlatformId, PlatformState, PostResult, QueueItem } fr
 
 export class PublishQueue {
   private items = new Map<string, QueueItem>();
+  private synced = new Map<string, string>();
+  private syncedHash: string | null = null;
   private loaded = false;
   private version: string | null = null;
   private loading: Promise<void> | null = null;
@@ -64,31 +68,62 @@ export class PublishQueue {
     if (this.loaded) {
       if (!this.store.version || (await this.store.version()) === this.version) return;
     }
-    const raw = await this.store.load();
-    const items = new Map<string, QueueItem>();
-    if (raw !== null) {
-      for (const item of JSON.parse(raw) as QueueItem[]) items.set(item.id, item);
-    }
     const version = (await this.store.version?.()) ?? null;
+    const raw = await this.store.load();
     // A failed read/parse leaves the previous snapshot intact and retryable.
-    this.items = items;
+    this.adopt(raw);
     this.version = version;
+  }
+
+  private adopt(raw: string | null): void {
+    const hash = hashText(raw);
+    if (this.loaded && hash === this.syncedHash) return;
+    const stored = new Map<string, QueueItem>();
+    if (raw !== null) {
+      for (const item of JSON.parse(raw) as QueueItem[]) stored.set(item.id, item);
+    }
+    const merged = mergeById(this.synced, this.items, stored);
+    for (const [id, item] of merged) {
+      const held = this.items.get(id);
+      if (!held) this.items.set(id, item);
+      else if (held !== item) {
+        for (const key of Object.keys(held)) delete (held as Record<string, unknown>)[key];
+        Object.assign(held, item);
+      }
+    }
+    for (const id of [...this.items.keys()]) {
+      if (!merged.has(id)) this.items.delete(id);
+    }
+    this.synced = snapshotById(stored.values());
+    this.syncedHash = hash;
     this.loaded = true;
   }
 
   async save(): Promise<void> {
-    const pending = this.saves.then(async () => {
-      const list = [...this.items.values()].sort((a, b) => a.publishAt.localeCompare(b.publishAt));
-      await this.store.save(JSON.stringify(list, null, 2));
-      this.version = (await this.store.version?.()) ?? null;
+    const changedAt = new Date().toISOString();
+    const pending = this.saves.then(() => {
+      const write = () => this.persist(changedAt);
+      return this.store.withLock ? this.store.withLock(write) : write();
     });
     this.saves = pending.catch(() => undefined);
     await pending;
   }
 
+  private async persist(changedAt: string): Promise<void> {
+    for (const item of this.items.values()) {
+      if (JSON.stringify(item) !== this.synced.get(item.id)) item.updatedAt = changedAt;
+    }
+    this.adopt(await this.store.load());
+    const text = JSON.stringify(sortedByPublishAt(this.items.values()), null, 2);
+    await this.store.save(text);
+    this.synced = snapshotById(this.items.values());
+    this.syncedHash = hashText(text);
+    this.version = (await this.store.version?.()) ?? null;
+  }
+
   async list(): Promise<QueueItem[]> {
     await this.load();
-    return [...this.items.values()].sort((a, b) => a.publishAt.localeCompare(b.publishAt));
+    return sortedByPublishAt(this.items.values());
   }
 
   async get(id: string): Promise<QueueItem | undefined> {
@@ -450,6 +485,14 @@ export class PublishQueue {
     state.claimedAt = undefined;
     await this.save();
   }
+}
+
+function sortedByPublishAt(items: Iterable<QueueItem>): QueueItem[] {
+  return [...items].sort((a, b) => a.publishAt.localeCompare(b.publishAt));
+}
+
+function hashText(text: string | null): string | null {
+  return text === null ? null : createHash("sha1").update(text).digest("hex");
 }
 
 /**

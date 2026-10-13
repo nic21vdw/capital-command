@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   TARGET_CLIP_COUNT,
@@ -11,6 +11,7 @@ import {
 import { buildAss, buildClipTitleDialogue, chunkWords, isCaptionPresetId, windowSegments } from "@/lib/clipping/captions";
 import { clipLengthBounds, isClipLengthId, type ClipLengthId } from "@/lib/clipping/clip-length";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteFile } from "@/lib/storage/atomic-json";
 import { captionStyleForPreset, generateClipTitle, leadingSilenceSec } from "@/lib/clipping/editor";
 import { hookTrimSec, shiftSegments } from "@/lib/clipping/hook";
 import { generateViralTitles } from "@/lib/clipping/titles";
@@ -48,7 +49,6 @@ const jobsFile = path.join(clipsRoot, "jobs.json");
 let persistQueue = Promise.resolve();
 let queuedPersist: Promise<void> | null = null;
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * The resolution/frame-rate ceiling the owner last chose, or the source's own
@@ -62,11 +62,6 @@ async function settingsOutputQuality(): Promise<OutputQuality> {
   } catch {
     return { ...DEFAULT_OUTPUT_QUALITY };
   }
-}
-
-function isTransientReplaceError(error: unknown) {
-  const code = (error as NodeJS.ErrnoException).code;
-  return code === "EPERM" || code === "EACCES" || code === "EBUSY";
 }
 
 // Job state lives on globalThis: in Next dev each route gets its own module
@@ -120,26 +115,7 @@ async function writeJobs() {
   );
   queuedPersist = null;
 
-  await mkdir(clipsRoot, { recursive: true });
-  const tmpPath = `${jobsFile}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmpPath, payload, "utf8");
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    try {
-      await rename(tmpPath, jobsFile);
-      return;
-    } catch (error) {
-      if (!isTransientReplaceError(error) || attempt === 4) {
-        if (isTransientReplaceError(error)) {
-          await writeFile(jobsFile, payload, "utf8");
-          await unlink(tmpPath).catch(() => undefined);
-          return;
-        }
-        await unlink(tmpPath).catch(() => undefined);
-        throw error;
-      }
-      await wait(100 * (attempt + 1));
-    }
-  }
+  await atomicWriteFile(jobsFile, payload);
 }
 
 /**
