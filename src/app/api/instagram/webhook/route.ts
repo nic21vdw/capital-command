@@ -34,19 +34,17 @@ function isValidSignature(rawBody: string, signatureHeader: string | null, appSe
 
 /**
  * POST /api/instagram/webhook — receives subscribed events (comments,
- * mentions, messages, etc). Meta expects a fast 200; verify the payload
- * signature (when IG_APP_SECRET is set) before trusting it, then hand off
- * to whatever processing this app needs.
+ * mentions, messages, etc). Meta expects a fast 200; the payload signature
+ * is verified against IG_APP_SECRET before anything is trusted, and every
+ * event is refused while that secret is unset. This route is exempt from the
+ * loopback origin guard in src/middleware.ts for exactly that reason.
  */
 export async function POST(request: Request) {
   const rawBody = await request.text();
   const { appSecret } = publisherConfig().instagram;
 
-  if (appSecret) {
-    const signature = request.headers.get("x-hub-signature-256");
-    if (!isValidSignature(rawBody, signature, appSecret)) {
-      return new NextResponse("Invalid signature", { status: 401 });
-    }
+  if (!appSecret || !isValidSignature(rawBody, request.headers.get("x-hub-signature-256"), appSecret)) {
+    return new NextResponse("Invalid signature", { status: 401 });
   }
 
   try {
