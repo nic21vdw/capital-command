@@ -44,6 +44,8 @@ const KNOWN_SECRETS: Record<string, string> = {
   "voice/xai-oauth.json": "Sign in to Grok Voice again from the Agents page; the saved sign-in was not backed up."
 };
 
+export type EnvVars = Record<string, string | undefined>;
+
 export type BackupLimits = { maxFileBytes: number; maxLogBytes: number };
 
 export type ManifestSecret = { path: string; present: boolean; reconnect: string };
@@ -280,7 +282,7 @@ export async function verifyArchive(file: string): Promise<BackupManifest> {
   return manifest;
 }
 
-export function defaultDriveCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
+export function defaultDriveCandidates(env: EnvVars = process.env): string[] {
   const home = env.USERPROFILE?.trim() || os.homedir();
   const letters = "DEFHIJKLMNOPQRSTUVWXYZ".split("").map((letter) => `${letter}:\\My Drive`);
   return ["G:\\My Drive", path.join(home, "Google Drive"), path.join(home, "My Drive"), ...letters];
@@ -301,7 +303,7 @@ function inBackupFolder(base: string): string {
 
 export function resolveBackupDir(options: {
   explicit?: string;
-  env?: NodeJS.ProcessEnv;
+  env?: EnvVars;
   candidates?: string[];
 }): ResolvedDestination | null {
   const env = options.env ?? process.env;
@@ -341,7 +343,7 @@ export type BackupOptions = {
   dataDir: string;
   rootDir: string;
   destDir?: string;
-  env?: NodeJS.ProcessEnv;
+  env?: EnvVars;
   driveCandidates?: string[];
   now?: Date;
   keep?: number;
