@@ -7,9 +7,14 @@ import type { BackupStatus } from "@/lib/backup/status";
 import { openZip, writeZip, type ZipEntry } from "@/lib/backup/zip";
 
 export const BACKUP_FOLDER_NAME = "CoLateral Marketing Backups";
-export const KEEP_BACKUPS = 30;
+export const KEEP_BACKUPS = 14;
 export const ARCHIVE_PATTERN = /^capital-command-state-\d{8}-\d{4}\.zip$/;
-export const DEFAULT_LIMITS = { maxFileBytes: 50 * 1024 * 1024, maxLogBytes: 5 * 1024 * 1024 };
+export const DEFAULT_LIMITS: BackupLimits = { maxFileBytes: 50 * 1024 * 1024, maxLogBytes: 5 * 1024 * 1024, historyDays: 2 };
+
+const MAX_HISTORY_DAYS = 30;
+const DAY_MS = 86_400_000;
+const HISTORY_FOLDER = "automations/history/";
+const JOURNAL_DATE = /(\d{4}-\d{2}-\d{2})\.jsonl$/;
 
 const CORE_CEILING_BYTES = 500 * 1024 * 1024;
 
@@ -35,7 +40,12 @@ const MEDIA_EXTENSIONS = new Set([
 const SECRET_NAME = /(^|[^a-z])(tokens?|secrets?|credentials?|oauth|passwords?|api-?keys?)([^a-z]|$)/i;
 const SECRET_EXTENSIONS = new Set([".json", ".jsonl", ".txt", ".env", ".key", ".pem"]);
 const LOG_FILE = /\.log(\.\d+|\.old)?$/i;
-const TOOLING_DIRECTORIES = ["clips/bin"];
+const SKIPPED_DIRECTORIES: Record<string, string> = {
+  "clips/bin": "downloaded tooling (speech models, yt-dlp); re-downloaded on demand",
+  snapshots: "copies of capital-command.json the app keeps on the same disk; the backup holds the live file"
+};
+const SOURCES_FOLDER = "clips/sources/";
+const SOURCE_IDENTITY_FILE = "meta.json";
 const STATUS_RELATIVE = "backup-status.json";
 
 const KNOWN_SECRETS: Record<string, string> = {
@@ -46,7 +56,7 @@ const KNOWN_SECRETS: Record<string, string> = {
 
 export type EnvVars = Record<string, string | undefined>;
 
-export type BackupLimits = { maxFileBytes: number; maxLogBytes: number };
+export type BackupLimits = { maxFileBytes: number; maxLogBytes: number; historyDays: number };
 
 export type ManifestSecret = { path: string; present: boolean; reconnect: string };
 
@@ -63,7 +73,7 @@ export type BackupManifest = {
   files: { path: string; bytes: number }[];
   excludedSecrets: ManifestSecret[];
   skipped: ManifestSkipped[];
-  skippedCounts: { media: number; temporary: number; other: number };
+  skippedCounts: { media: number; temporary: number; other: number; history: number; derived: number };
   limits: BackupLimits;
 };
 
@@ -88,7 +98,7 @@ function secretReason(relative: string): string {
   );
 }
 
-async function walk(dir: string, prefix: string, found: { relative: string; absolute: string }[], tooling: string[]) {
+async function walk(dir: string, prefix: string, found: { relative: string; absolute: string }[], skippedDirectories: string[]) {
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
@@ -99,31 +109,48 @@ async function walk(dir: string, prefix: string, found: { relative: string; abso
   for (const entry of entries) {
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
-      if (TOOLING_DIRECTORIES.includes(relative.toLowerCase())) tooling.push(relative);
-      else await walk(path.join(dir, entry.name), relative, found, tooling);
+      if (Object.hasOwn(SKIPPED_DIRECTORIES, relative.toLowerCase())) skippedDirectories.push(relative);
+      else await walk(path.join(dir, entry.name), relative, found, skippedDirectories);
     } else if (entry.isFile()) {
       found.push({ relative, absolute: path.join(dir, entry.name) });
     }
   }
 }
 
+export function historyDaysFromEnv(env: EnvVars = process.env): number {
+  const raw = cleanEnv(env.BACKUP_HISTORY_DAYS);
+  if (!/^\d+$/.test(raw) || Number(raw) < 1) return DEFAULT_LIMITS.historyDays;
+  return Math.min(Number(raw), MAX_HISTORY_DAYS);
+}
+
+function journalIsOld(relative: string, modified: Date, now: Date, historyDays: number): boolean {
+  const dated = JOURNAL_DATE.exec(relative);
+  if (dated) {
+    const oldestKept = new Date(now.getTime() - (historyDays - 1) * DAY_MS).toISOString().slice(0, 10);
+    return dated[1] < oldestKept;
+  }
+  return modified.getTime() < now.getTime() - historyDays * DAY_MS;
+}
+
 export async function collectStateFiles(
   dataDir: string,
   rootDir: string,
-  limits: BackupLimits = DEFAULT_LIMITS
+  limits: Partial<BackupLimits> = {},
+  now: Date = new Date()
 ): Promise<Collected> {
+  const { maxFileBytes, maxLogBytes, historyDays } = { ...DEFAULT_LIMITS, ...limits };
   const found: { relative: string; absolute: string }[] = [];
-  const tooling: string[] = [];
-  await walk(dataDir, "", found, tooling);
+  const skippedDirectories: string[] = [];
+  await walk(dataDir, "", found, skippedDirectories);
   found.sort((a, b) => a.relative.localeCompare(b.relative));
 
   const included: Candidate[] = [];
   const secrets: ManifestSecret[] = [];
-  const skipped: ManifestSkipped[] = tooling.map((relative) => ({
+  const skipped: ManifestSkipped[] = skippedDirectories.map((relative) => ({
     path: `${relative}/`,
-    reason: "downloaded tooling (speech models, yt-dlp); re-downloaded on demand"
+    reason: SKIPPED_DIRECTORIES[relative.toLowerCase()]
   }));
-  const skippedCounts = { media: 0, temporary: 0, other: 0 };
+  const skippedCounts = { media: 0, temporary: 0, other: 0, history: 0, derived: 0 };
 
   for (const file of found) {
     const extension = path.extname(file.relative).toLowerCase();
@@ -143,6 +170,10 @@ export async function collectStateFiles(
       continue;
     }
     if (lowered === STATUS_RELATIVE) continue;
+    if (lowered.startsWith(SOURCES_FOLDER) && extension === ".json" && base.toLowerCase() !== SOURCE_IDENTITY_FILE) {
+      skippedCounts.derived += 1;
+      continue;
+    }
 
     const isLog = LOG_FILE.test(base);
     if (!STATE_EXTENSIONS.has(extension) && !isLog) {
@@ -158,13 +189,17 @@ export async function collectStateFiles(
     }
     const core = CORE_STATE.has(lowered);
 
-    if (isLog && info.size > limits.maxLogBytes) {
-      skipped.push({ path: file.relative, reason: `log over ${formatSize(limits.maxLogBytes)}`, bytes: info.size });
+    if (extension === ".jsonl" && lowered.startsWith(HISTORY_FOLDER) && journalIsOld(lowered, info.mtime, now, historyDays)) {
+      skippedCounts.history += 1;
       continue;
     }
-    const cap = core ? Math.max(limits.maxFileBytes, CORE_CEILING_BYTES) : limits.maxFileBytes;
+    if (isLog && info.size > maxLogBytes) {
+      skipped.push({ path: file.relative, reason: `log over ${formatSize(maxLogBytes)}`, bytes: info.size });
+      continue;
+    }
+    const cap = core ? Math.max(maxFileBytes, CORE_CEILING_BYTES) : maxFileBytes;
     if (info.size > cap) {
-      skipped.push({ path: file.relative, reason: `over ${formatSize(limits.maxFileBytes)}`, bytes: info.size });
+      skipped.push({ path: file.relative, reason: `over ${formatSize(maxFileBytes)}`, bytes: info.size });
       continue;
     }
     included.push({ relative: file.relative, absolute: file.absolute, bytes: info.size, modified: info.mtime, core });
@@ -207,11 +242,11 @@ export async function createStateArchive(options: {
   rootDir: string;
   target: string;
   now?: Date;
-  limits?: BackupLimits;
+  limits?: Partial<BackupLimits>;
 }): Promise<CreatedArchive> {
-  const limits = options.limits ?? DEFAULT_LIMITS;
+  const limits: BackupLimits = { ...DEFAULT_LIMITS, ...options.limits };
   const now = options.now ?? new Date();
-  const collected = await collectStateFiles(options.dataDir, options.rootDir, limits);
+  const collected = await collectStateFiles(options.dataDir, options.rootDir, limits, now);
   const written: { path: string; bytes: number }[] = [];
   const skipped = [...collected.skipped];
   const built: { manifest?: BackupManifest } = {};
@@ -282,14 +317,22 @@ export async function verifyArchive(file: string): Promise<BackupManifest> {
   return manifest;
 }
 
-export function defaultDriveCandidates(env: EnvVars = process.env): string[] {
-  const home = env.USERPROFILE?.trim() || os.homedir();
-  const letters = "DEFHIJKLMNOPQRSTUVWXYZ".split("").map((letter) => `${letter}:\\My Drive`);
-  return ["G:\\My Drive", path.join(home, "Google Drive"), path.join(home, "My Drive"), ...letters];
-}
-
 function cleanEnv(value: string | undefined): string {
   return (value ?? "").trim().replace(/^(["'])(.*)\1$/, "$2").trim();
+}
+
+export function defaultDriveCandidates(env: EnvVars = process.env): string[] {
+  const home = cleanEnv(env.USERPROFILE) || os.homedir();
+  const letters = "DEFHIJKLMNOPQRSTUVWXYZ".split("").map((letter) => `${letter}:\\My Drive`);
+  const oneDrive = [cleanEnv(env.OneDrive), cleanEnv(env.OneDriveConsumer), path.join(home, "OneDrive")];
+  const candidates = ["G:\\My Drive", path.join(home, "Google Drive"), path.join(home, "My Drive"), ...letters, ...oneDrive];
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    const key = candidate.toLowerCase();
+    if (!candidate || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export type ResolvedDestination = {
@@ -313,7 +356,7 @@ export function resolveBackupDir(options: {
     const base = cleanEnv(env[name]);
     if (!base) continue;
     if (!existsSync(base)) {
-      throw new Error(`${name} is set to "${base}" but that folder does not exist. Is Google Drive for desktop running and signed in?`);
+      throw new Error(`${name} is set to "${base}" but that folder does not exist. Is Google Drive for desktop or OneDrive running and signed in?`);
     }
     return { dir: inBackupFolder(base), source: name };
   }
@@ -325,9 +368,10 @@ export function resolveBackupDir(options: {
 }
 
 export const NO_DESTINATION_MESSAGE =
-  "No backup destination found. Set BACKUP_DRIVE_DIR in .env to a folder inside Google Drive for desktop " +
-  "(for example BACKUP_DRIVE_DIR=G:\\My Drive), or install Google Drive for desktop so it appears at " +
-  "G:\\My Drive, %USERPROFILE%\\Google Drive or %USERPROFILE%\\My Drive.";
+  "No backup destination found. Set BACKUP_DRIVE_DIR in .env to a folder inside Google Drive for desktop or " +
+  "OneDrive (for example BACKUP_DRIVE_DIR=G:\\My Drive or BACKUP_DRIVE_DIR=C:\\Users\\you\\OneDrive). " +
+  "Without it the backup looks for Google Drive for desktop at G:\\My Drive, %USERPROFILE%\\Google Drive or " +
+  "%USERPROFILE%\\My Drive, then OneDrive at %OneDrive%, %OneDriveConsumer% or %USERPROFILE%\\OneDrive.";
 
 export async function pruneBackups(dir: string, keep: number = KEEP_BACKUPS): Promise<string[]> {
   const names = (await readdir(dir, { withFileTypes: true }))
@@ -347,7 +391,7 @@ export type BackupOptions = {
   driveCandidates?: string[];
   now?: Date;
   keep?: number;
-  limits?: BackupLimits;
+  limits?: Partial<BackupLimits>;
 };
 
 export type BackupResult =

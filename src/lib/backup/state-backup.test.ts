@@ -1,10 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   BACKUP_FOLDER_NAME,
   KEEP_BACKUPS,
+  defaultDriveCandidates,
+  historyDaysFromEnv,
   resolveBackupDir,
   runStateBackup,
   type BackupManifest
@@ -34,12 +36,19 @@ function seed() {
   put(data, "threads-state.json", '{"state":1}');
   put(data, "automations/control.json", '{"paused":false}');
   put(data, "automations/history/publisher-2026-10-13.jsonl", '{"a":1}\n{"a":2}\n');
+  put(data, "automations/history/threads-2026-10-12.jsonl", '{"a":3}\n');
+  put(data, "automations/history/publisher-2026-10-11.jsonl", '{"old":1}\n');
+  put(data, "automations/history/pipeline-2026-10-06.jsonl", '{"old":2}\n');
+  put(data, "automations/history/notes.json", '{"notes":[]}');
   put(data, "longform/projects.json", '{"projects":[]}');
   put(data, "agents/runs.json", '{"runs":[]}');
   put(data, "title-log.jsonl", '{"t":1}\n');
   put(data, "publish-queue.log", "audit line\n");
   put(data, "clips/jobs.json", JSON.stringify({ jobs: "j".repeat(5000) }));
   put(data, "clips/sources/abc/meta.json", '{"id":"abc"}');
+  put(data, "clips/sources/abc/transcript.json", '{"words":["a","b"]}');
+  put(data, "clips/sources/abc/waveform.json", '{"peaks":[1,2]}');
+  put(data, "snapshots/capital-command-2026-10-13T01-03-31-844Z.json", '{"app":true}');
 
   put(data, "clips/outputs/a.mp4", "video");
   put(data, "clips/outputs/b.mov", "video");
@@ -86,7 +95,9 @@ describe("what goes in the backup", () => {
       [
         "data/agents/runs.json",
         "data/automations/control.json",
+        "data/automations/history/notes.json",
         "data/automations/history/publisher-2026-10-13.jsonl",
+        "data/automations/history/threads-2026-10-12.jsonl",
         "data/capital-command.json",
         "data/clips/jobs.json",
         "data/clips/sources/abc/meta.json",
@@ -114,6 +125,21 @@ describe("what goes in the backup", () => {
     const skipped = Object.fromEntries(manifest.skipped.map((entry) => [entry.path, entry.reason]));
     expect(skipped["analytics/huge-export.json"]).toMatch(/over/i);
     expect(skipped["automations/audit.log"]).toMatch(/log over/i);
+  });
+
+  it("keeps a source's meta.json but not the transcripts and caches rebuilt from its video, and not the app's own snapshot copies", async () => {
+    const { root, data, dest } = seed();
+    const result = await runStateBackup({ dataDir: data, rootDir: root, destDir: dest, now: nightly, limits: LIMITS });
+    if (!result.ok) throw new Error(result.error);
+    const { names, manifest } = readArchive(result.path);
+
+    expect(names).toContain("data/clips/sources/abc/meta.json");
+    expect(names).not.toContain("data/clips/sources/abc/transcript.json");
+    expect(names).not.toContain("data/clips/sources/abc/waveform.json");
+    expect(names.some((name) => name.startsWith("data/snapshots/"))).toBe(false);
+    expect(manifest.skippedCounts.derived).toBe(2);
+    const snapshots = manifest.skipped.find((entry) => entry.path === "snapshots/");
+    expect(snapshots?.reason).toMatch(/copies/i);
   });
 
   it("never puts a secret in the zip and lists each one in the manifest", async () => {
@@ -162,6 +188,78 @@ describe("what goes in the backup", () => {
   });
 });
 
+describe("automation history journals", () => {
+  it("keeps only today's and yesterday's journals and counts the older ones", async () => {
+    const { root, data, dest } = seed();
+    const result = await runStateBackup({ dataDir: data, rootDir: root, destDir: dest, now: nightly, limits: LIMITS });
+    if (!result.ok) throw new Error(result.error);
+    const { names, manifest } = readArchive(result.path);
+
+    const journals = names.filter((name) => name.includes("automations/history/") && name.endsWith(".jsonl")).sort();
+    expect(journals).toEqual([
+      "data/automations/history/publisher-2026-10-13.jsonl",
+      "data/automations/history/threads-2026-10-12.jsonl"
+    ]);
+    expect(manifest.skippedCounts.history).toBe(2);
+    expect(manifest.skipped.some((entry) => entry.path.includes("automations/history/"))).toBe(false);
+    expect(manifest.limits.historyDays).toBe(2);
+  });
+
+  it("falls back to the modified time for a journal with no date in its name", async () => {
+    const { root, data, dest } = seed();
+    const recent = put(data, "automations/history/recent-export.jsonl", "{}\n");
+    const stale = put(data, "automations/history/stale-export.jsonl", "{}\n");
+    const hourAgo = new Date(nightly.getTime() - 3_600_000);
+    const fiveDaysAgo = new Date(nightly.getTime() - 5 * 86_400_000);
+    utimesSync(recent, hourAgo, hourAgo);
+    utimesSync(stale, fiveDaysAgo, fiveDaysAgo);
+
+    const result = await runStateBackup({ dataDir: data, rootDir: root, destDir: dest, now: nightly, limits: LIMITS });
+    if (!result.ok) throw new Error(result.error);
+    const { names, manifest } = readArchive(result.path);
+
+    expect(names).toContain("data/automations/history/recent-export.jsonl");
+    expect(names).not.toContain("data/automations/history/stale-export.jsonl");
+    expect(manifest.skippedCounts.history).toBe(3);
+  });
+
+  it("can be told to keep more days", async () => {
+    const { root, data, dest } = seed();
+    const result = await runStateBackup({
+      dataDir: data,
+      rootDir: root,
+      destDir: dest,
+      now: nightly,
+      limits: { ...LIMITS, historyDays: 3 }
+    });
+    if (!result.ok) throw new Error(result.error);
+    const { names, manifest } = readArchive(result.path);
+    expect(names).toContain("data/automations/history/publisher-2026-10-11.jsonl");
+    expect(names).not.toContain("data/automations/history/pipeline-2026-10-06.jsonl");
+    expect(manifest.skippedCounts.history).toBe(1);
+  });
+
+  it("leaves other files in the history folder alone", async () => {
+    const { root, data, dest } = seed();
+    const result = await runStateBackup({ dataDir: data, rootDir: root, destDir: dest, now: nightly, limits: LIMITS });
+    if (!result.ok) throw new Error(result.error);
+    expect(readArchive(result.path).names).toContain("data/automations/history/notes.json");
+  });
+});
+
+describe("how many days of history", () => {
+  it("defaults to 2 and reads BACKUP_HISTORY_DAYS", () => {
+    expect(historyDaysFromEnv({})).toBe(2);
+    expect(historyDaysFromEnv({ BACKUP_HISTORY_DAYS: "1" })).toBe(1);
+    expect(historyDaysFromEnv({ BACKUP_HISTORY_DAYS: " 7 " })).toBe(7);
+  });
+
+  it("ignores values that make no sense and caps the rest at 30", () => {
+    for (const bad of ["0", "-3", "abc", "", "1.5"]) expect(historyDaysFromEnv({ BACKUP_HISTORY_DAYS: bad })).toBe(2);
+    expect(historyDaysFromEnv({ BACKUP_HISTORY_DAYS: "100" })).toBe(30);
+  });
+});
+
 describe("naming and retention", () => {
   it("names the file capital-command-state-YYYYMMDD-HHMM.zip and leaves no partial file behind", async () => {
     const { root, data, dest } = seed();
@@ -170,7 +268,7 @@ describe("naming and retention", () => {
     expect(readdirSync(dest)).toEqual(["capital-command-state-20261013-0330.zip"]);
   });
 
-  it("keeps the newest 30 backups and removes the older ones, touching nothing else", async () => {
+  it("keeps the newest 14 backups and removes the older ones, touching nothing else", async () => {
     const { root, data, dest } = seed();
     for (let day = 1; day <= 33; day += 1) {
       const stamp = `202609${String(day).padStart(2, "0")}-0330`;
@@ -183,10 +281,10 @@ describe("naming and retention", () => {
     expect(result.ok).toBe(true);
 
     const zips = readdirSync(dest).filter((name) => /^capital-command-state-\d{8}-\d{4}\.zip$/.test(name)).sort();
-    expect(KEEP_BACKUPS).toBe(30);
-    expect(zips).toHaveLength(30);
+    expect(KEEP_BACKUPS).toBe(14);
+    expect(zips).toHaveLength(14);
     expect(zips.at(-1)).toBe("capital-command-state-20261013-0330.zip");
-    expect(zips[0]).toBe("capital-command-state-20260905-0330.zip");
+    expect(zips[0]).toBe("capital-command-state-20260921-0330.zip");
     expect(readdirSync(dest)).toContain("notes.txt");
     expect(readdirSync(dest)).toContain("capital-command-2026-09-01_0330.json");
   });
@@ -247,6 +345,50 @@ describe("backup-status.json", () => {
     const data = temp("bad");
     writeFileSync(path.join(data, "backup-status.json"), "{not json");
     expect(await readBackupStatus(data)).toBeNull();
+  });
+});
+
+describe("auto-detected folders", () => {
+  const profile = "C:\\Users\\nic21";
+  const consumer = "D:\\Personal OneDrive";
+  const isOneDrive = (candidate: string) => /onedrive/i.test(candidate);
+
+  it("checks every Google Drive location before any OneDrive one", () => {
+    const candidates = defaultDriveCandidates({ USERPROFILE: profile, OneDrive: `${profile}\\OneDrive`, OneDriveConsumer: consumer });
+    const firstOneDrive = candidates.findIndex(isOneDrive);
+
+    expect(candidates[0]).toBe("G:\\My Drive");
+    expect(candidates.slice(0, firstOneDrive)).toEqual(expect.arrayContaining([`${profile}\\Google Drive`, `${profile}\\My Drive`, "Z:\\My Drive"]));
+    expect(candidates.slice(firstOneDrive).some((candidate) => /My Drive|Google Drive/.test(candidate))).toBe(false);
+  });
+
+  it("tries %OneDrive% then %OneDriveConsumer% then the profile OneDrive folder, without repeating one", () => {
+    expect(
+      defaultDriveCandidates({ USERPROFILE: profile, OneDrive: `${profile}\\OneDrive`, OneDriveConsumer: consumer }).filter(isOneDrive)
+    ).toEqual([`${profile}\\OneDrive`, consumer]);
+
+    expect(defaultDriveCandidates({ USERPROFILE: profile, OneDrive: "E:\\Work OneDrive" }).filter(isOneDrive)).toEqual([
+      "E:\\Work OneDrive",
+      `${profile}\\OneDrive`
+    ]);
+
+    expect(
+      defaultDriveCandidates({ USERPROFILE: profile, OneDrive: `${profile}\\OneDrive`, OneDriveConsumer: `${profile}\\OneDrive` }).filter(isOneDrive)
+    ).toEqual([`${profile}\\OneDrive`]);
+  });
+
+  it("skips OneDrive variables that are unset or blank", () => {
+    expect(defaultDriveCandidates({ USERPROFILE: profile, OneDrive: "  ", OneDriveConsumer: undefined }).filter(isOneDrive)).toEqual([
+      `${profile}\\OneDrive`
+    ]);
+  });
+
+  it("puts the backup in a CoLateral Marketing Backups folder inside OneDrive", () => {
+    const oneDrive = temp("onedrive");
+    const candidates = defaultDriveCandidates({ USERPROFILE: path.join(tmpdir(), "no-such-profile-xyz"), OneDrive: oneDrive }).filter(
+      (candidate) => candidate === oneDrive
+    );
+    expect(resolveBackupDir({ env: {}, candidates })).toEqual({ dir: path.join(oneDrive, BACKUP_FOLDER_NAME), source: "auto-detected" });
   });
 });
 
@@ -314,6 +456,7 @@ describe("where the backup goes", () => {
     if (!result.ok) {
       expect(result.error).toMatch(/BACKUP_DRIVE_DIR/);
       expect(result.error).toMatch(/Google Drive/);
+      expect(result.error).toMatch(/OneDrive/);
     }
   });
 

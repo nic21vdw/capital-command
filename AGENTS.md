@@ -148,7 +148,7 @@ normal release does, and pushes later if it can.
 `npm run backup:state` zips every `.json`, `.jsonl` and small `.log` file under
 `data\` (the publish and Threads queues, clip jobs, long-form projects,
 automations, agent runs, pipeline and podcast state) into
-`capital-command-state-YYYYMMDD-HHMM.zip`, keeps the newest 30 and records the
+`capital-command-state-YYYYMMDD-HHMM.zip`, keeps the newest 14 and records the
 outcome in `data\backup-status.json` (`at`, `ok`, `path`, `bytes`, `error`,
 `lastSuccessAt`). Day Summary reads that file through `/api/backup/status` and
 shows "Last backup: ..." with a warning when the last good backup is older than
@@ -156,14 +156,22 @@ shows "Last backup: ..." with a warning when the last good backup is older than
 
 - **Where it writes.** `--dest <dir>` exactly as given; else
   `<BACKUP_DRIVE_DIR>\CoLateral Marketing Backups`; else the same under
-  `CLIPS_DRIVE_DIR`; else the first Google Drive for desktop folder it finds
-  (`G:\My Drive`, `%USERPROFILE%\Google Drive`, `%USERPROFILE%\My Drive`, then
-  other drive letters). Nothing found, or a configured folder that does not
+  `CLIPS_DRIVE_DIR`; else the first folder it finds, Google Drive for desktop
+  first (`G:\My Drive`, `%USERPROFILE%\Google Drive`, `%USERPROFILE%\My Drive`,
+  then other drive letters), then OneDrive (`%OneDrive%`, `%OneDriveConsumer%`,
+  `%USERPROFILE%\OneDrive`). Nothing found, or a configured folder that does not
   exist, exits 1 and records the reason in the status file. Production's `.env`
-  sets neither variable, so it relies on auto-detection until `BACKUP_DRIVE_DIR`
-  is set.
-- **What stays out.** Media, `*.tmp`, logs over 5 MB, anything over 50 MB, and
-  `clips\bin\` (downloaded speech models and yt-dlp). Secrets are never put in
+  sets neither variable and this machine has no Google Drive for desktop, so
+  production lands in `%OneDrive%\CoLateral Marketing Backups` unless
+  `BACKUP_DRIVE_DIR` is set.
+- **What stays out.** Media, `*.tmp`, logs over 5 MB, anything over 50 MB,
+  `clips\bin\` (downloaded speech models and yt-dlp), `snapshots\` (the app's own
+  copies of `capital-command.json`, which the zip holds live), every file under
+  `clips\sources\<id>\` except `meta.json` (transcripts, waveforms and footage
+  analysis are rebuilt from the source video, which is not backed up), and
+  `automations\history\*.jsonl` older than 2 days (by the date in the file name,
+  else by modified time; the manifest counts them under `skippedCounts.history`).
+  Set `BACKUP_HISTORY_DAYS` in `.env` to change the 2, for example `1`. Secrets are never put in
   the zip: `.env`, `.env.*`, `publisher-tokens.json`, `credentials.json`,
   `voice\xai-oauth.json` and any other data file named like a token, secret,
   credential or oauth store. They are listed in the zip's `manifest.json` under
@@ -188,6 +196,12 @@ shows "Last backup: ..." with a warning when the last good backup is older than
   production only (like the other register scripts). Run output goes to
   `backup-state.log` in the checkout. `backup-to-drive.bat` runs the same
   `npm run backup:state`.
+- **Size.** Measured read-only against production on 2026-10-13: 245 files,
+  28.2 MB zipped with 2 days of journals, 21.4 MB with `BACKUP_HISTORY_DAYS=1`.
+  Most of it is `clips\jobs.json` (9.7 MB) and the two `publisher-*.jsonl`
+  journals (about 13 MB, roughly 95,000 events a day). Cutting that journal
+  volume is what shrinks the backup; the retention of 14 keeps the
+  total on OneDrive under about 400 MB.
 - The zip format is written by `src/lib/backup/zip.ts` on `node:zlib`, because
   the repo has no zip dependency. PowerShell's `Expand-Archive` opens the files.
   It does not do zip64, so it stops at 65,535 files or 4 GB.

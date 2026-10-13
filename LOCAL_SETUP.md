@@ -96,24 +96,31 @@ below zips all of them.
 
 ---
 
-## Backing up your data to Google Drive
+## Backing up your data to Google Drive or OneDrive
 
 Your queues and settings live in JSON files under `data\` (the app data, the
 publish and Threads queues, clip jobs, long-form projects, automations and more),
 so it's worth keeping a copy off your PC in case any of them is lost or
-corrupted. The backup zips all of them into your Google Drive — **no API keys and
-no sign-in**, the same way the optional clip-syncing works. Videos, images,
-passwords and tokens are not included.
+corrupted. The backup zips all of them into your Google Drive or OneDrive folder
+— **no API keys and no sign-in**, the same way the optional clip-syncing works.
+Videos, images, passwords and tokens are not included, and neither are
+regenerable transcripts or automation history older than 2 days.
 
 ### One-time setup
 1. Install **Google Drive for Desktop**
    (<https://www.google.com/drive/download/>) and sign in, if you haven't
    already. It adds a synced folder on your PC (for example `G:\My Drive`).
-2. In your `.env`, set `BACKUP_DRIVE_DIR` to a path inside that synced folder:
-   - Windows: `BACKUP_DRIVE_DIR=G:\My Drive`
+   OneDrive works the same way: its folder (`C:\Users\<you>\OneDrive`) is used
+   when no Google Drive folder exists.
+2. Optional: in your `.env`, set `BACKUP_DRIVE_DIR` to a path inside the synced
+   folder you want to use:
+   - Windows: `BACKUP_DRIVE_DIR=G:\My Drive` or
+     `BACKUP_DRIVE_DIR=C:\Users\<you>\OneDrive`
    - (If you already set `CLIPS_DRIVE_DIR`, you can skip this — the backup reuses
      it automatically. If both are blank, the backup looks for Google Drive for
-     Desktop on its own.)
+     Desktop, then OneDrive, on its own.)
+   - OneDrive space is limited; `BACKUP_HISTORY_DAYS=1` keeps less automation
+     history in each zip.
 3. Run `npm run backup:register` once from the project folder to schedule a
    nightly backup at 03:30.
 
@@ -125,13 +132,13 @@ launcher), or run `npm run backup:state`. It writes:
 <your Drive folder>\CoLateral Marketing Backups\capital-command-state-<date>-<time>.zip
 ```
 
-Google Drive for Desktop then syncs that file to the cloud automatically. The
-newest 30 backups are kept and older ones are tidied up automatically. Day
-Summary shows when the last backup ran, and warns when it is more than 48 hours
-old or has failed.
+Google Drive for Desktop (or OneDrive) then syncs that file to the cloud
+automatically. The newest 14 backups are kept and older ones are tidied up
+automatically. Day Summary shows when the last backup ran, and warns when it is
+more than 48 hours old or has failed.
 
-> If no Google Drive folder can be found, the backup stops with a message and
-> Day Summary shows why; it does not quietly save somewhere else.
+> If no Google Drive or OneDrive folder can be found, the backup stops with a
+> message and Day Summary shows why; it does not quietly save somewhere else.
 
 ### Restoring from a backup
 Run `npm run backup:restore -- "<path to the zip>"`. That unpacks the backup into

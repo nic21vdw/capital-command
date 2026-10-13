@@ -45,7 +45,7 @@ $register = @{
   Action      = $action
   Trigger     = $trigger
   Settings    = $settings
-  Description = "Zip every queue and setting under data\ to Google Drive and keep the newest 30 (CoLateral Marketing)"
+  Description = "Zip every queue and setting under data\ to Google Drive or OneDrive and keep the newest 14 (CoLateral Marketing)"
 }
 if ($principal) { $register.Principal = $principal }
 
