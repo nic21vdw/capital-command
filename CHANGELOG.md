@@ -14,7 +14,7 @@ already shipped.
 
 ## Unreleased
 
-- A failed or interrupted save can no longer empty the publish queue, and two programs saving the queue at once (the app and a booking script, say) no longer wipe out each other's changes. Every data file is now written the same safe way, and the leftover half-written files in `data/` are cleaned up each time the app starts.
+- A failed or interrupted save can no longer empty the publish queue, and two programs saving the queue at once (the app and a booking script, say) no longer wipe out each other's changes. Every data file, and the `.env` that Settings edits, is now written the same safe way (two Settings saves at once both land, and a duplicated setting line is updated everywhere), and the leftover half-written files in `data/` are cleaned up each time the app starts.
 
 - **Listening and Outreach have proper page titles and answer the command bar.** Their browser tab and taskbar entry now read "Listening | CoLateral Marketing" and "Outreach | CoLateral Marketing", and "open listening" or "open outreach" in the command bar takes you there.
 

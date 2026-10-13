@@ -1,5 +1,6 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { atomicWriteFile } from "@/lib/storage/atomic-json";
 
 /**
  * The one setting the Podcast page can change for itself.
@@ -90,9 +91,9 @@ export function applyEnvValue(contents: string, key: string, value: string): str
   const lines = body.split(/\r?\n/);
 
   const assignment = new RegExp(`^\\s*(?:export\\s+)?${key}\\s*=`);
-  const index = lines.findIndex((line) => assignment.test(line));
-  if (index >= 0) {
-    lines[index] = lines[index].replace(/=.*$/, `=${value}`);
+  const matches = lines.flatMap((line, index) => (assignment.test(line) ? [index] : []));
+  if (matches.length > 0) {
+    for (const index of matches) lines[index] = lines[index].replace(/=.*$/, `=${value}`);
   } else if (lines[lines.length - 1] === "") {
     lines.splice(lines.length - 1, 0, `${key}=${value}`);
   } else {
@@ -100,6 +101,14 @@ export function applyEnvValue(contents: string, key: string, value: string): str
   }
 
   return bom + lines.join(eol);
+}
+
+let envWrites: Promise<unknown> = Promise.resolve();
+
+export function serializeEnvWrite<T>(work: () => Promise<T>): Promise<T> {
+  const run = envWrites.then(work, work);
+  envWrites = run.catch(() => undefined);
+  return run;
 }
 
 /** The `.env` Next loaded this process from. */
@@ -115,8 +124,13 @@ export function envFilePath(): string {
  * restart by hand.
  */
 export async function writePublicBaseUrl(url: string): Promise<void> {
-  const file = envFilePath();
-  const current = await readFile(file, "utf8").catch(() => "");
-  await writeFile(file, applyEnvValue(current, PUBLIC_BASE_URL_KEY, url), "utf8");
+  await serializeEnvWrite(async () => {
+    const file = envFilePath();
+    const current = await readFile(file, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
+    await atomicWriteFile(file, applyEnvValue(current, PUBLIC_BASE_URL_KEY, url), { createFolder: false });
+  });
   process.env[PUBLIC_BASE_URL_KEY] = url;
 }

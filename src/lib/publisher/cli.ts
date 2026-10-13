@@ -326,10 +326,11 @@ async function main() {
 
     const updates = envUpdatesFor(connection, { appId, appSecret });
     if (args.flags.has("write")) {
-      const { readFile, writeFile } = await import("node:fs/promises");
+      const { readFile } = await import("node:fs/promises");
+      const { atomicWriteFile } = await import("@/lib/storage/atomic-json");
       const envPath = path.join(process.cwd(), ".env");
       const existing = await readFile(envPath, "utf8").catch(() => "");
-      await writeFile(envPath, applyEnvUpdates(existing, updates), "utf8");
+      await atomicWriteFile(envPath, applyEnvUpdates(existing, updates), { createFolder: false });
       console.log(`[publisher] wrote ${Object.keys(updates).join(", ")} to ${envPath}`);
       console.log("[publisher] confirm with `npm run publish:instagram:check`, then add instagram to PUBLISH_PLATFORMS.");
     } else {

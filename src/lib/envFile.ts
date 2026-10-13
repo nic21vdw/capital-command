@@ -1,5 +1,6 @@
-import { readFile, writeFile } from "node:fs/promises";
-import { applyEnvValue, envFilePath } from "@/lib/podcast/publicUrl";
+import { readFile } from "node:fs/promises";
+import { applyEnvValue, envFilePath, serializeEnvWrite } from "@/lib/podcast/publicUrl";
+import { atomicWriteFile } from "@/lib/storage/atomic-json";
 
 /**
  * Settings the app lets Nic change from a screen live in `.env`, because that
@@ -31,13 +32,19 @@ function describe(error: unknown): string {
 
 /**
  * Sets several keys in one write. A missing `.env` is created; every other
- * line (comments, secrets, CRLF endings) is left exactly as it was. If the
- * write fails nothing in `process.env` changes either.
+ * line (comments, secrets, CRLF endings) is left exactly as it was. The file
+ * is swapped in atomically and writes are serialised, so a kill mid-write cannot
+ * empty it and two overlapping saves both land. If the write fails nothing in
+ * `process.env` changes either.
  */
-export async function writeEnvValues(values: Record<string, string>, io: EnvIo = {}): Promise<void> {
+export function writeEnvValues(values: Record<string, string>, io: EnvIo = {}): Promise<void> {
+  return serializeEnvWrite(() => writeEnvValuesNow(values, io));
+}
+
+async function writeEnvValuesNow(values: Record<string, string>, io: EnvIo): Promise<void> {
   const file = io.file ?? envFilePath();
   const read = io.read ?? ((path: string) => readFile(path, "utf8"));
-  const write = io.write ?? ((path: string, contents: string) => writeFile(path, contents, "utf8"));
+  const write = io.write ?? ((path: string, contents: string) => atomicWriteFile(path, contents, { createFolder: false }));
   const env = io.env ?? process.env;
 
   let current = "";

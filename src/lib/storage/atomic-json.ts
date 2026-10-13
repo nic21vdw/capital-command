@@ -3,6 +3,7 @@ import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 
 export interface AtomicWriteOptions {
+  createFolder?: boolean;
   space?: number | string;
   attempts?: number;
   backoffMs?: number;
@@ -47,7 +48,7 @@ async function writeTemporary(tmp: string, data: string | Uint8Array): Promise<v
 }
 
 export async function atomicWriteFile(file: string, data: string | Uint8Array, options: AtomicWriteOptions = {}): Promise<void> {
-  await mkdir(path.dirname(file), { recursive: true });
+  if (options.createFolder !== false) await mkdir(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
   let swapped = false;
   try {

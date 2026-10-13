@@ -84,6 +84,13 @@ describe("applyEnvValue", () => {
     );
   });
 
+  it("rewrites every duplicate assignment, not just the first", () => {
+    const before = ["S3_PUBLIC_BASE_URL=https://one.example.com", "S3_REGION=auto", "export S3_PUBLIC_BASE_URL=https://two.example.com", ""].join("\n");
+    expect(applyEnvValue(before, PUBLIC_BASE_URL_KEY, url)).toBe(
+      [`S3_PUBLIC_BASE_URL=${url}`, "S3_REGION=auto", `export S3_PUBLIC_BASE_URL=${url}`, ""].join("\n")
+    );
+  });
+
   it("leaves a commented-out line commented and appends the real one", () => {
     const before = "# S3_PUBLIC_BASE_URL=https://example.invalid\nS3_REGION=auto\n";
     expect(applyEnvValue(before, PUBLIC_BASE_URL_KEY, url)).toBe(

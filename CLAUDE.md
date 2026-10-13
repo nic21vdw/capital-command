@@ -339,6 +339,10 @@ queue, the Threads queue and heartbeat, the app document and `createJsonStore`
 files use it. Stores written by one process (clip jobs, pipeline runs, long-form
 projects, the music, SFX and podcast files) use the atomic write only.
 
+The `.env` that Settings edits goes through the same helper (`envFile.ts`,
+`writePublicBaseUrl`): writes are serialised in-process, every duplicate `KEY=`
+line is rewritten, and comments, CRLF and a BOM survive.
+
 `sweepStaleTmpFiles` runs once at server start (`instrumentation.ts`) and removes
 `*.tmp` files under `data/` that are more than an hour old and whose target has no
 live lock.
