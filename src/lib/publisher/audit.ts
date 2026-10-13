@@ -35,6 +35,7 @@ import { dataPath } from "@/lib/paths";
 export type QueueWriter =
   | "enqueue"
   | "enqueue-image"
+  | "api-carousel-book"
   | "pipeline-queue-outputs"
   | "api-publish-rename"
   | "api-publish-edit"

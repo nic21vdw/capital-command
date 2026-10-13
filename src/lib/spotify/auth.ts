@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { publisherConfig } from "@/lib/publisher/config";
+import { missingCredentialsMessage } from "@/lib/publisher/connectStart";
 import { fetchJson } from "@/lib/publisher/http";
 import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
 
@@ -49,9 +50,7 @@ export function spotifyRedirectUri(origin: string): string {
 function credentials() {
   const { spotify } = publisherConfig();
   if (!spotify.clientId || !spotify.clientSecret) {
-    throw new Error(
-      "Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in .env first (developer.spotify.com/dashboard → your app → Settings)."
-    );
+    throw new Error(missingCredentialsMessage("spotify"));
   }
   return { clientId: spotify.clientId, clientSecret: spotify.clientSecret };
 }

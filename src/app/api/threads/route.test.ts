@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GET } from "@/app/api/threads/route";
+import { NextRequest } from "next/server";
+import { GET, POST } from "@/app/api/threads/route";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 
 const mocks = vi.hoisted(() => ({ read: vi.fn(), paused: vi.fn(), mutate: vi.fn(), run: vi.fn(), tick: vi.fn(), plan: vi.fn() }));
@@ -73,5 +74,58 @@ describe("Threads status reply previews", () => {
     expect(body.replies.items[0].error).toBe("Bearer [hidden]");
     expect(JSON.stringify(body)).not.toContain("sensitive-token-for-test");
     expect(JSON.stringify(body)).not.toContain("secret-error-token");
+  });
+});
+
+describe("Threads status paused flag", () => {
+  it("reports the Automations pause so the page can say Paused instead of Armed", async () => {
+    expect((await (await GET()).json()).paused).toBe(false);
+    mocks.paused.mockResolvedValue(true);
+    expect((await (await GET()).json()).paused).toBe(true);
+  });
+});
+
+function post(body: unknown) {
+  return POST(new NextRequest("http://localhost/api/threads", { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json" } }));
+}
+
+describe("adding a hand-written post", () => {
+  it("queues the post after the existing ones and reports where it landed", async () => {
+    let saved: ThreadsQueueItem[] = [];
+    mocks.mutate.mockImplementation(async (fn: (items: ThreadsQueueItem[]) => { items: ThreadsQueueItem[]; result: unknown }) => {
+      const outcome = fn([queued]);
+      saved = outcome.items;
+      return outcome.result;
+    });
+    const response = await post({ action: "add", text: "A post I wrote myself.", at: "2026-10-03T13:00:00.000Z" });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({ ok: true, added: { publishAt: "2026-10-03T13:00:00.000Z" }, paused: false });
+    expect(saved).toHaveLength(2);
+    expect(saved[1]).toMatchObject({ text: "A post I wrote myself.", status: "pending" });
+  });
+
+  it("refuses an over-long post and leaves the queue as it was", async () => {
+    let saved: ThreadsQueueItem[] = [];
+    mocks.mutate.mockImplementation(async (fn: (items: ThreadsQueueItem[]) => { items: ThreadsQueueItem[]; result: unknown }) => {
+      const outcome = fn([queued]);
+      saved = outcome.items;
+      return outcome.result;
+    });
+    const response = await post({ action: "add", text: "a".repeat(501) });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain("500");
+    expect(saved).toEqual([queued]);
+  });
+});
+
+describe("previewing the next run", () => {
+  it("passes dryRun through to the due-post run, which posts nothing", async () => {
+    mocks.run.mockResolvedValue({ ran: "x", published: 1, failed: 0, skipped: 0, outcomes: [], dryRun: true });
+    const response = await post({ action: "run-due", dryRun: true });
+    expect(response.status).toBe(200);
+    expect(mocks.run).toHaveBeenCalledWith(expect.any(Date), expect.objectContaining({ dryRun: true }));
+    expect(mocks.plan).not.toHaveBeenCalled();
+    expect(mocks.mutate).not.toHaveBeenCalled();
   });
 });

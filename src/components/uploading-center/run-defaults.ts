@@ -1,6 +1,7 @@
 "use client";
 
 import { TITLE_MAX_LENGTH, appendHashtag, hasHashtag } from "@/components/uploading-center/clip-card";
+import { splitTrailingHashtags } from "@/lib/publisher/captionTags";
 import type { ClipDraft, PlatformTarget, ReadyClip } from "@/components/uploading-center/use-uploading-center";
 
 /**
@@ -44,6 +45,84 @@ export function withoutHashtag(title: string, hashtag: string): string {
     .replace(new RegExp(`${escapeRegExp(hashtag)}\\b`, "gi"), "")
     .replace(/\s{2,}/g, " ")
     .trim();
+}
+
+const TITLE_HASHTAG = /#[\p{L}\p{N}_]+/gu;
+
+/**
+ * Every hashtag a draft will carry: the ones in its title, and the trailing
+ * hashtag line of its caption (which is what the AI caption writes and what
+ * travels as `hashtags` when the clip is booked). Pure.
+ */
+export function draftHashtags(draft: Pick<ClipDraft, "title" | "caption">): string[] {
+  return [...(draft.title.match(TITLE_HASHTAG) ?? []), ...splitTrailingHashtags(draft.caption).hashtags];
+}
+
+/**
+ * The hashtags a run is really going out with, read from the drafts themselves
+ * rather than from the run defaults: the AI writes its own per card, so a run
+ * could read "no hashtags" over ten of them. Unique, in first-seen order. Pure.
+ */
+export function runHashtags(drafts: Array<Pick<ClipDraft, "title" | "caption">>): string[] {
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const draft of drafts) {
+    for (const tag of draftHashtags(draft)) {
+      const key = tag.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      tags.push(tag);
+    }
+  }
+  return tags;
+}
+
+/** What the summary says when no hashtag is on any clip; see `hashtagSummary`. */
+export const NO_HASHTAGS_SUMMARY = "No hashtags chosen - channel defaults are added";
+
+/**
+ * "#AI #vibecoding #coding +7", or "No hashtags chosen - channel defaults are
+ * added". Pure.
+ *
+ * "Chosen" because the cards offer ten suggestion chips that read like ten
+ * hashtags; none of them is on a clip until someone picks it (or a caption
+ * brings its own line), and this counts only what is on. The rest of the
+ * sentence is because "no hashtags" was not the whole truth: a booking with
+ * none still gets the channel's standing tags (`fallbackHashtags`), so the
+ * summary read as wrong over posts that carried four.
+ */
+export function hashtagSummary(tags: string[], shown = 3): string {
+  if (tags.length === 0) return NO_HASHTAGS_SUMMARY;
+  const head = tags.slice(0, shown).join(" ");
+  return tags.length > shown ? `${head} +${tags.length - shown}` : head;
+}
+
+/**
+ * What the bulk panel says about captions. With a model available the
+ * unwritten ones are "AI writes N captions"; without one the booking falls back
+ * to the clip's own title (`fallback` in the ai-copy route), and saying "AI
+ * writes" over that is a promise nothing keeps. `aiAvailable` undefined (the
+ * overview has not answered yet) reads as available, the default. Pure.
+ */
+export function captionSummary(missing: number, aiAvailable: boolean | undefined): string {
+  if (missing <= 0) return "all captioned";
+  if (aiAvailable === false) return "Captions: the clip titles (no AI key set)";
+  return `AI writes ${missing} caption${missing === 1 ? "" : "s"}`;
+}
+
+/**
+ * The one line a clip card's closed Customise row reads, built from the same
+ * wording as the bulk panel's: the caption half is `captionSummary` for a card
+ * with nothing typed (so it says "Captions: the clip titles (no AI key set)"
+ * where no AI can write one) and "Caption written" once there is copy, and the
+ * hashtag half is `hashtagSummary` of what the draft really carries. Pure.
+ */
+export function cardOptionsSummary(
+  draft: Pick<ClipDraft, "title" | "caption">,
+  aiAvailable: boolean | undefined
+): string {
+  const caption = draft.caption.trim() ? "Caption written" : captionSummary(1, aiAvailable);
+  return `${caption} · ${hashtagSummary(draftHashtags(draft))}`;
 }
 
 /** The draft a clip starts with under the current run defaults. Pure. */

@@ -120,6 +120,7 @@ export function UpdateCheckButton({ collapsed = false }: { collapsed?: boolean }
         </div>
       )}
 
+      <div className={cn("flex gap-1", collapsed ? "flex-col" : "items-center")}>
       <button
         type="button"
         onClick={() => void activate()}
@@ -127,8 +128,8 @@ export function UpdateCheckButton({ collapsed = false }: { collapsed?: boolean }
         title={collapsed ? `${look.label} — ${look.detail}` : undefined}
         aria-label={collapsed ? look.label : undefined}
         className={cn(
-          "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition",
-          collapsed && "justify-center px-2 py-2",
+          "flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 py-1 text-sm transition",
+          collapsed && "w-full flex-none justify-center px-2 py-2",
           look.accent
             ? "border border-[var(--accent)]/40 bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] font-medium text-white hover:bg-[color-mix(in_srgb,var(--accent)_20%,transparent)]"
             : "text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white",
@@ -157,7 +158,10 @@ export function UpdateCheckButton({ collapsed = false }: { collapsed?: boolean }
           </span>
         )}
       </button>
+      {/* Beside the check, not under it: a second full-width row cost the nav
+          a line of height at every laptop size. */}
       <UpdateHistory collapsed={collapsed} />
+      </div>
     </div>
   );
 }

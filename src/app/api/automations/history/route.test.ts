@@ -13,6 +13,12 @@ describe("automation history API", () => {
     expect(history).toHaveBeenCalledWith({ automationId: "podcast", kind: "retrying", page: 2 });
   });
 
+  it("states the publish zone the page should format its times in", async () => {
+    const body = await (await GET(new NextRequest("http://127.0.0.1:3198/api/automations/history"))).json();
+    expect(typeof body.timezone).toBe("string");
+    expect(() => new Intl.DateTimeFormat("en-US", { timeZone: body.timezone })).not.toThrow();
+  });
+
   it.each(["automationId=unknown", "kind=unknown", "page=0", "page=1.5", "page=1001", "unexpected=value"])("rejects invalid history queries: %s", async (query) => {
     const response = await GET(new NextRequest(`http://127.0.0.1:3198/api/automations/history?${query}`));
     expect(response.status).toBe(400);

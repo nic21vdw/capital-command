@@ -201,7 +201,7 @@ export const PresentationDeck: React.FC = () => {
             disabled={downloading}
             title="Render this segment as an MP4 and download it"
             className={cn(
-              "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition",
+              "flex items-center gap-2 rounded-lg border px-3 py-2 max-sm:min-h-10 text-sm font-medium transition",
               "border-[var(--accent)] text-white hover:bg-white/8",
               "disabled:cursor-not-allowed disabled:opacity-60"
             )}
@@ -223,7 +223,7 @@ export const PresentationDeck: React.FC = () => {
           onClick={() => setMenuOpen((o) => !o)}
           aria-haspopup="listbox"
           aria-expanded={menuOpen}
-          className="flex w-full items-center gap-2 rounded-lg border border-[var(--accent)] bg-white/8 px-3 py-2 text-sm font-medium text-white transition hover:border-[var(--border-strong)]"
+          className="flex w-full items-center gap-2 rounded-lg border border-[var(--accent)] bg-white/8 px-3 py-2 max-sm:min-h-10 text-sm font-medium text-white transition hover:border-[var(--border-strong)]"
         >
           <Clapperboard className="h-4 w-4 text-[var(--accent)]" />
           {project.name}
@@ -315,7 +315,7 @@ export const PresentationDeck: React.FC = () => {
               in, so switching segments reads as a transition, not a swap */}
           <div
             key={`${project.id}:${slide.id}`}
-            className="panel-enter flex items-center justify-center overflow-hidden rounded-xl border border-[var(--border)] bg-black/60 p-3"
+            className="panel-enter deck-player flex items-center justify-center overflow-hidden rounded-xl border border-[var(--border)] bg-black/60 p-3"
           >
             <Player
               // key remounts the player on project/slide change -> restarts + autoplays
@@ -345,7 +345,7 @@ export const PresentationDeck: React.FC = () => {
               type="button"
               onClick={() => setIndex((i) => clamp(i - 1))}
               disabled={index === 0}
-              className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-4 py-2 text-sm text-[var(--muted-foreground)] transition enabled:hover:border-[var(--border-strong)] enabled:hover:text-white disabled:opacity-40"
+              className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-4 py-2 max-sm:min-h-10 text-sm text-[var(--muted-foreground)] transition enabled:hover:border-[var(--border-strong)] enabled:hover:text-white disabled:opacity-40"
             >
               <ChevronLeft className="h-4 w-4" /> Previous
             </button>
@@ -356,7 +356,7 @@ export const PresentationDeck: React.FC = () => {
               type="button"
               onClick={() => setIndex((i) => clamp(i + 1))}
               disabled={index === slides.length - 1}
-              className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-4 py-2 text-sm text-[var(--muted-foreground)] transition enabled:hover:border-[var(--border-strong)] enabled:hover:text-white disabled:opacity-40"
+              className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-4 py-2 max-sm:min-h-10 text-sm text-[var(--muted-foreground)] transition enabled:hover:border-[var(--border-strong)] enabled:hover:text-white disabled:opacity-40"
             >
               Next <ChevronRight className="h-4 w-4" />
             </button>

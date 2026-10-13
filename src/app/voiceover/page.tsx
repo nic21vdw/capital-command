@@ -1,6 +1,8 @@
 import { AppShell } from "@/components/layout/app-shell";
 import { VoiceoverPage } from "@/components/voiceover/voiceover-page";
 
+export const metadata = { title: "Voiceover | CoLateral Marketing" };
+
 export default function Page() {
   return (
     <AppShell>

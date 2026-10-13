@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
+  AlertTriangle,
   ArrowRight,
   AtSign,
   AudioLines,
@@ -24,7 +25,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { POSTING_MODES, PostingTag, type PostingMode } from "@/components/ui/posting-tag";
+import type { AutomationCard } from "@/lib/automations/types";
+import { setupNeed, type SetupInputs } from "@/lib/distribution/setup";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
+import { dateTimeFormat } from "@/lib/publisher/intl";
 import { cn } from "@/lib/utils";
 
 /**
@@ -85,8 +90,12 @@ type Overview = {
     }>;
   };
   xPack: { posts: number; replies: number; date: string } | null;
+  /** Threads posts on today's calendar: the same count the Day Summary shows. */
+  threadsToday?: number;
   publish: {
     enabled: boolean;
+    /** The publish time zone every slot is read in (PUBLISH_TIMEZONE). */
+    timezone?: string;
     configuredPlatforms: string[];
     queued: number;
     scheduled: number;
@@ -96,6 +105,24 @@ type Overview = {
     nextDue: { title: string; publishAt: string } | null;
   };
 };
+
+/**
+ * "Sat, Oct 10, 1:30 AM America/Toronto": the same short stamp the board uses,
+ * read in the PUBLISH time zone. The bare toLocaleString() printed the browser's
+ * zone in a US numeric format ("10/11/2026, 1:30:00 AM"), which is a different
+ * hour from the one the board shows whenever the two zones differ.
+ */
+function formatNextDue(iso: string, timeZone?: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const options: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" };
+  try {
+    const stamp = dateTimeFormat("en-US", timeZone ? { ...options, timeZone } : options).format(date);
+    return timeZone ? `${stamp} (${timeZone})` : stamp;
+  } catch {
+    return dateTimeFormat("en-US", options).format(date);
+  }
+}
 
 type SourceKey = "video" | "audio" | "carousel" | "text" | "idea";
 type OutputKey =
@@ -146,7 +173,7 @@ const SOURCES: Array<{
     icon: PenLine,
     tagline: "A written post — no audio or video yet.",
     startHref: "/x-posts",
-    startCta: "Open Threads",
+    startCta: "Add a Threads post",
   },
   {
     key: "idea",
@@ -159,46 +186,88 @@ const SOURCES: Array<{
 ];
 
 // Canonical metadata + destination tool for each output type.
+//
+// `posting` is the honest answer to "what happens when I schedule this": a
+// one-word mode plus where it really goes. Keep it in step with the code that
+// does the posting (publish queue, Threads autopilot), not with the tool's name.
 const OUTPUTS: Record<
   OutputKey,
-  { label: string; icon: LucideIcon; href: string; cta: string }
+  {
+    label: string;
+    icon: LucideIcon;
+    href: string;
+    cta: string;
+    posting: { mode: PostingMode; where: string };
+  }
 > = {
   longform: {
     label: "Long-form video",
     icon: Clapperboard,
     href: "/longform",
     cta: "Open editor",
+    posting: {
+      mode: "automatic",
+      where: "YouTube, uploaded private so you can review it before it goes public.",
+    },
   },
   shorts: {
     label: "Shorts / Reels",
     icon: Wand2,
     href: "/clips",
     cta: "Cut shorts",
+    posting: {
+      mode: "automatic",
+      where:
+        "YouTube, Instagram and Facebook. TikTok lands in your TikTok inbox: finish the post in the app.",
+    },
   },
   audio: {
     label: "Audio",
     icon: AudioLines,
     href: "/longform",
     cta: "Export audio",
+    posting: {
+      mode: "automatic",
+      where: "Spotify, through the podcast feed the app publishes (one-time feed claim in Spotify).",
+    },
   },
-  x: { label: "X posts", icon: AtSign, href: "/x-posts", cta: "Write posts" },
+  x: {
+    label: "X posts",
+    icon: AtSign,
+    href: "/x-posts",
+    cta: "Write posts",
+    posting: { mode: "copy-only", where: "The app writes them; you copy and post on X." },
+  },
   threads: {
     label: "Thread posts",
     icon: MessageSquare,
     href: "/facebook",
     cta: "Write thread",
+    posting: {
+      mode: "manual",
+      where: "Facebook / Instagram Post Library: copy and paste, nothing is sent.",
+    },
   },
   text: {
     label: "Text-only post",
     icon: FileText,
     href: "/x-posts",
-    cta: "Write post",
+    cta: "Add a Threads post",
+    posting: {
+      mode: "automatic",
+      where: "Threads, sent through the day by the autopilot once it is armed.",
+    },
   },
   carousel: {
     label: "Carousel",
     icon: Images,
     href: "/carousels",
     cta: "Generate",
+    posting: {
+      mode: "automatic",
+      where:
+        "Instagram and Facebook when booked as a one-off. TikTok, YouTube and repeating schedules are reminders.",
+    },
   },
 };
 
@@ -243,7 +312,7 @@ const MATRIX: Record<SourceKey, Partial<Record<OutputKey, Capability>>> = {
     },
     carousel: {
       status: "ready",
-      note: "Generate a carousel (Instagram, Facebook, TikTok) from the video's ideas.",
+      note: "Generate a carousel (posts to Instagram and Facebook) from the video's ideas.",
     },
   },
   audio: {
@@ -411,6 +480,9 @@ const TRANSCRIPT = {
 const MEDIA_CHILDREN: OutputKey[] = ["longform", "shorts", "audio"];
 const TEXT_CHILDREN: OutputKey[] = ["text", "x", "threads", "carousel"];
 const SPOKEN_SOURCES: SourceKey[] = ["video", "audio"];
+// Four 224px columns (900px) is what the page can hold on a rail at laptop widths;
+// a fifth made the tree 1.5x wider than the page and cropped its right-hand side.
+const MAX_ON_ONE_RAIL = 4;
 
 // Live counts surfaced on the matching ready card, so the transform board also
 // shows what's already been produced.
@@ -428,10 +500,12 @@ function statFor(key: OutputKey, overview: Overview): string | undefined {
       return overview.carousels.total > 0
         ? `${overview.carousels.total} made`
         : undefined;
-    case "x":
-      return overview.xPack
-        ? `${overview.xPack.posts} posts queued today`
-        : undefined;
+    case "x": {
+      // The Day Summary's count of Threads posts today (autopilot slots and hand-added
+      // posts alike), not the X pack's own tally, so the two screens agree.
+      const today = overview.threadsToday ?? overview.xPack?.posts ?? 0;
+      return today > 0 ? `${today} Threads post${today === 1 ? "" : "s"} today` : undefined;
+    }
     default:
       return undefined;
   }
@@ -441,6 +515,16 @@ export function DistributionPage() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [source, setSource] = useState<SourceKey>("video");
+  // The Automations cards say whether the podcast and Threads runners are blocked.
+  // Unknown (still loading, or the call failed) must never read as blocked.
+  const [cards, setCards] = useState<AutomationCard[] | null>(null);
+
+  useEffect(() => {
+    void fetch("/api/automations", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((json: { cards?: AutomationCard[] } | null) => setCards(json?.cards ?? null))
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     void fetch("/api/studio/overview", { cache: "no-store" })
@@ -508,6 +592,11 @@ export function DistributionPage() {
     );
   }
 
+  const setupInputs: SetupInputs = {
+    configuredPlatforms: overview.publish.configuredPlatforms,
+    publishEnabled: overview.publish.enabled,
+    cards,
+  };
   const pipeline = PIPELINE[source];
   const caps = MATRIX[source];
   const spoken = SPOKEN_SOURCES.includes(source);
@@ -517,8 +606,11 @@ export function DistributionPage() {
   // Text/social formats. For spoken sources they route through the Transcript
   // node; otherwise they fan directly off the master alongside the media nodes.
   const textNodes = TEXT_CHILDREN.filter((key) => caps[key]);
-  const directNodes = spoken ? mediaNodes : [...mediaNodes, ...textNodes];
   const showTranscript = spoken && textNodes.length > 0;
+  // Spoken sources: the media formats plus the Transcript hang off the master, and the
+  // text formats hang off the Transcript. Others fan everything straight off the master.
+  const firstTier = spoken ? mediaNodes : [...mediaNodes, ...textNodes];
+  const fitsOneRail = firstTier.length + (showTranscript ? 1 : 0) <= MAX_ON_ONE_RAIL;
   const RootIcon = pipeline.root.icon;
 
   return (
@@ -528,6 +620,30 @@ export function DistributionPage() {
         title="Distribution Centre"
         description="Pick what you're starting with, then follow the pipeline down: your raw material becomes a clean master, and from there it fans out into every format you can post. Videos do everything; text and ideas set you up to record and unlock the rest."
       />
+
+      {overview.publish.failed > 0 ? (
+        <Link
+          href="/uploading-center"
+          className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-red-400/40 bg-red-500/10 px-3 py-1 max-sm:min-h-10 text-xs font-medium text-red-300 transition hover:bg-red-500/20"
+        >
+          <AlertTriangle className="h-3.5 w-3.5" />
+          {overview.publish.failed} failed - see why in the Uploading Center
+        </Link>
+      ) : null}
+      {/* The key to the one-word tags on every format below. */}
+      <Card className="mb-6 flex flex-wrap items-start gap-x-6 gap-y-2 py-3">
+        <p className="w-full text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+          What &ldquo;schedule&rdquo; means
+        </p>
+        {(Object.keys(POSTING_MODES) as PostingMode[]).map((mode) => (
+          <div key={mode} className="flex min-w-[220px] flex-1 items-start gap-2">
+            <PostingTag mode={mode} className="mt-0.5 shrink-0" />
+            <p className="text-xs text-[var(--muted-foreground)]">
+              {POSTING_MODES[mode].meaning}
+            </p>
+          </div>
+        ))}
+      </Card>
 
       {/* Big source tabs — the "what do you have?" selector / root of the tree. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -569,9 +685,11 @@ export function DistributionPage() {
       </div>
 
       {/* The pipeline, drawn as a top-down tree: root → clean master → fan-out.
-          Horizontally scrollable on narrow screens, centered on wide ones. */}
-      <div className="mt-8 overflow-x-auto pb-4">
-        <div className="mx-auto flex min-w-max flex-col items-center">
+          It never scrolls sideways (that cropped the Transcript branch with no cue):
+          up to four nodes sit on one rail, more go into a wrapping panel, and the
+          Transcript's text formats get their own panel underneath it. */}
+      <div className="mt-8 pb-4">
+        <div className="mx-auto flex w-full flex-col items-center">
           {/* Root — the raw material, with the jump into where you load it. */}
           <StageCard
             tone="root"
@@ -598,41 +716,59 @@ export function DistributionPage() {
 
           <PipeDrop />
 
-          {/* Fan-out — media nodes off the master; text nodes off the transcript. */}
-          <div className="pipe-branch">
-            {directNodes.map((key) => (
-              <div key={key} className="pipe-col">
+          {/* Fan-out — media nodes off the master, with the Transcript beside them. */}
+          {fitsOneRail ? (
+            <div className="pipe-branch">
+              {firstTier.map((key) => (
+                <div key={key} className="pipe-col">
+                  <OutputCard
+                    outputKey={key}
+                    cap={caps[key]!}
+                    stat={statFor(key, overview)}
+                    inputs={setupInputs}
+                  />
+                </div>
+              ))}
+              {showTranscript ? (
+                <div className="pipe-col self-stretch">
+                  <StageCard
+                    tone="process"
+                    icon={FileText}
+                    label={TRANSCRIPT.label}
+                    note={TRANSCRIPT.note}
+                  />
+                  {/* Runs on down to the panel of text formats below. */}
+                  <PipeDrop grow />
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <FanPanel label={`What ${pipeline.root.label.toLowerCase()} can become`}>
+              {firstTier.map((key) => (
                 <OutputCard
+                  key={key}
                   outputKey={key}
                   cap={caps[key]!}
                   stat={statFor(key, overview)}
+                  inputs={setupInputs}
                 />
-              </div>
-            ))}
+              ))}
+            </FanPanel>
+          )}
 
-            {showTranscript ? (
-              <div className="pipe-col">
-                <StageCard
-                  tone="process"
-                  icon={FileText}
-                  label={TRANSCRIPT.label}
-                  note={TRANSCRIPT.note}
+          {showTranscript ? (
+            <FanPanel label="Written from the transcript">
+              {textNodes.map((key) => (
+                <OutputCard
+                  key={key}
+                  outputKey={key}
+                  cap={caps[key]!}
+                  stat={statFor(key, overview)}
+                  inputs={setupInputs}
                 />
-                <PipeDrop />
-                <div className="pipe-branch">
-                  {textNodes.map((key) => (
-                    <div key={key} className="pipe-col">
-                      <OutputCard
-                        outputKey={key}
-                        cap={caps[key]!}
-                        stat={statFor(key, overview)}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
+              ))}
+            </FanPanel>
+          ) : null}
         </div>
       </div>
 
@@ -645,7 +781,7 @@ export function DistributionPage() {
                 Next scheduled: {overview.publish.nextDue.title}
               </p>
               <p className="text-xs text-[var(--muted-foreground)]">
-                {new Date(overview.publish.nextDue.publishAt).toLocaleString()}
+                {formatNextDue(overview.publish.nextDue.publishAt, overview.publish.timezone)}
               </p>
             </div>
           </div>
@@ -705,11 +841,26 @@ function StageCard({
 }
 
 // The vertical connector between stacked stages in the tree.
-function PipeDrop() {
+function PipeDrop({ grow = false }: { grow?: boolean }) {
   return (
-    <div className="flex h-7 justify-center" aria-hidden>
+    <div className={cn("flex h-7 justify-center", grow && "min-h-7 flex-1")} aria-hidden>
       <span className="w-[2px] bg-[var(--border-strong)]" />
     </div>
+  );
+}
+
+// A bordered group of format cards that wraps to the width it is given.
+function FanPanel({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <section
+      aria-label={label}
+      className="w-full max-w-[940px] rounded-2xl border border-dashed border-[var(--border-strong)] bg-[var(--surface)]/40 p-4"
+    >
+      <p className="mb-3 text-center text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+        {label}
+      </p>
+      <div className="flex flex-wrap items-stretch justify-center gap-3">{children}</div>
+    </section>
   );
 }
 
@@ -717,12 +868,16 @@ function OutputCard({
   outputKey,
   cap,
   stat,
+  inputs,
 }: {
   outputKey: OutputKey;
   cap: Capability;
   stat?: string;
+  inputs: SetupInputs;
 }) {
   const meta = OUTPUTS[outputKey];
+  // "Automatic" is what happens once everything is connected; say so when it is not.
+  const need = meta.posting.mode === "automatic" ? setupNeed(outputKey, inputs) : null;
   const Icon = meta.icon;
   const isReady = cap.status === "ready";
   const href = cap.href ?? (isReady ? meta.href : undefined);
@@ -763,8 +918,36 @@ function OutputCard({
         )}
       </div>
       <p className="text-xs text-[var(--muted-foreground)]">{cap.note}</p>
+      {isReady ? (
+        <div className="flex flex-col items-start gap-1">
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            <PostingTag mode={meta.posting.mode} />
+            {need ? (
+              <Link
+                href={need.href}
+                title={`${need.reason} - fix it in ${need.hrefLabel}`}
+                className="text-[11px] font-medium text-amber-300 underline decoration-dotted underline-offset-2 hover:text-amber-200 max-sm:inline-flex max-sm:min-h-10 max-sm:items-center"
+              >
+                (needs setup)
+              </Link>
+            ) : null}
+          </div>
+          {need ? (
+            <p className="text-[11px] text-amber-300/90">
+              {need.reason.charAt(0).toUpperCase() + need.reason.slice(1)}
+              {/[.\u2026]$/.test(need.reason) ? "" : "."}{" "}
+              <Link href={need.href} className="underline underline-offset-2 hover:text-amber-200 max-sm:inline-flex max-sm:min-h-10 max-sm:items-center">
+                Open {need.hrefLabel}
+              </Link>
+            </p>
+          ) : null}
+          <p className="text-[11px] text-[var(--muted-foreground)]">
+            {meta.posting.where}
+          </p>
+        </div>
+      ) : null}
       {stat ? (
-        <p className="text-xs font-medium text-[var(--accent)]">{stat}</p>
+        <p className="text-xs font-medium text-[var(--foreground)]">{stat}</p>
       ) : null}
       {href ? (
         <Link href={href} className="mt-auto pt-1">

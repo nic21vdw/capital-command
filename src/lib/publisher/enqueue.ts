@@ -17,7 +17,7 @@ import {
   findDuplicateInQueue,
   type DuplicateCandidate
 } from "@/lib/publisher/duplicates";
-import { generateClipMetadata } from "@/lib/publisher/metadata";
+import { completePostMetadata } from "@/lib/publisher/postMetadata";
 import { withFacebookAlongsideInstagram } from "@/lib/publisher/metaPairing";
 import type { QueueWriter } from "@/lib/publisher/audit";
 import { newPlatformState, publishQueue, type PublishQueue } from "@/lib/publisher/queue";
@@ -204,7 +204,13 @@ async function saveBooking(options: Parameters<typeof assertSchedulable>[0] & {
   const pending = bookings.then(async () => {
     await assertSchedulable(options);
     if (options.shortsPerDay !== undefined) {
-      assertShortsRoom(await options.queue.list(), options.publishAt, options.timeZone, options.shortsPerDay);
+      assertShortsRoom(
+        await options.queue.list(),
+        options.publishAt,
+        options.timeZone,
+        options.shortsPerDay,
+        options.item.sourceClipPath ?? options.item.clipPath
+      );
     }
     await options.queue.add(options.item, options.writer);
   });
@@ -240,8 +246,10 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     config.queueBackend === "r2" ||
     process.env.TIKTOK_UPLOAD_MODE?.trim().toLowerCase() === "url";
   if (igAutomated && !hostingConfigured(config)) {
+    // Instagram pulls the clip from a public HTTPS URL. The S3_* variables
+    // (Cloudflare R2 free tier) are what make the app host it.
     throw new Error(
-      "Instagram needs the clip at a public HTTPS URL. Configure S3_ENDPOINT/S3_BUCKET/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY (Cloudflare R2 free tier) or drop instagram from the platforms."
+      "Add Media hosting in Settings > Accounts first (Instagram and Facebook need a public link to each video)."
     );
   }
 
@@ -252,7 +260,16 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   assertBookable(publishAtDate, new Date(), config.timezone, { allowSameDay: options.allowSameDay });
   const format: PostFormat = options.format ?? "short";
   if (format === "short") {
-    assertShortsRoom(await publishQueue(config).list(), publishAtDate, config.timezone, shortsLimit(config));
+    // The video being booked: another platform of a clip already on the day is
+    // not another short. Keyed by the file named here, which is what a
+    // re-rendered item records as its `sourceClipPath`.
+    assertShortsRoom(
+      await publishQueue(config).list(),
+      publishAtDate,
+      config.timezone,
+      shortsLimit(config),
+      path.relative(process.cwd(), absolute)
+    );
   }
 
   // A short-form post is vertical (Shorts / Reels / TikTok), so a landscape
@@ -277,13 +294,11 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     allowDuplicate: options.allowDuplicate
   });
 
-  let { title, caption, hashtags } = options;
-  if (!title || !caption || !hashtags?.length) {
-    const generated = await generateClipMetadata(options.metadataSource ?? { streamTitle: path.basename(absolute) });
-    title ??= generated.title;
-    caption ??= generated.description;
-    hashtags = hashtags?.length ? hashtags : generated.hashtags;
-  }
+  // Whatever the request left blank is filled here, for every route in.
+  const { title: baseTitle, caption, hashtags } = await completePostMetadata(
+    options,
+    options.metadataSource ?? { streamTitle: path.basename(absolute) }
+  );
 
   const id = crypto.randomUUID().slice(0, 8);
 
@@ -292,12 +307,12 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   // pipelines run the same finalizeTitle step, so emoji behaviour stays
   // consistent. With emoji disabled this returns the title unchanged.
   const finalized = await finalizeTitle({
-    baseTitle: title,
+    baseTitle,
     category: options.metadataSource?.topic,
     pipelineType: format,
     videoId: id
   });
-  title = finalized.title;
+  const title = finalized.title;
   const item: QueueItem = {
     id,
     clipPath: path.relative(process.cwd(), prepared.path),
@@ -413,8 +428,10 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
   // automated image post cannot exist without hosting. Say so now.
   const needsHosting = configured.size > 0 || config.queueBackend === "r2";
   if (configured.size > 0 && !hostingConfigured(config)) {
+    // Operator detail (the S3_* variables and the R2 free tier) belongs here,
+    // not in the message the user reads.
     throw new Error(
-      "Instagram and Facebook download pictures from a public HTTPS URL. Configure S3_ENDPOINT/S3_BUCKET/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY (Cloudflare R2 free tier) before scheduling picture posts."
+      "Add Media hosting in Settings > Accounts first (Instagram and Facebook need a public link to each picture)."
     );
   }
 
@@ -429,15 +446,10 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
     allowDuplicate: options.allowDuplicate
   });
 
-  let { title, caption, hashtags } = options;
-  if (!title || !caption || !hashtags?.length) {
-    const generated = await generateClipMetadata(
-      options.metadataSource ?? { streamTitle: path.basename(absolutePaths[0]) }
-    );
-    title ??= generated.title;
-    caption ??= generated.description;
-    hashtags = hashtags?.length ? hashtags : generated.hashtags;
-  }
+  const { title, caption, hashtags } = await completePostMetadata(
+    options,
+    options.metadataSource ?? { streamTitle: path.basename(absolutePaths[0]) }
+  );
 
   const id = crypto.randomUUID().slice(0, 8);
   const relativePaths = absolutePaths.map((absolute) => path.relative(process.cwd(), absolute));
@@ -505,7 +517,13 @@ export async function maybeAutoEnqueueExport(input: {
       .filter((slot) => slot.bookable)
       .map((slot) => slot.utc);
     const publishAt =
-      firstSlotWithShortsRoom(slots, await publishQueue(config).list(), config.timezone, shortsLimit(config)) ??
+      firstSlotWithShortsRoom(
+        slots,
+        await publishQueue(config).list(),
+        config.timezone,
+        shortsLimit(config),
+        path.relative(process.cwd(), path.isAbsolute(input.exportPath) ? input.exportPath : path.join(process.cwd(), input.exportPath))
+      ) ??
       nextBookableSlot({ timeZone: config.timezone }).utc;
     const item = await enqueue({
       clipPath: input.exportPath,

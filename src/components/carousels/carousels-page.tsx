@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
+  CalendarCheck,
   CalendarClock,
   ChevronDown,
   Download,
@@ -16,6 +17,7 @@ import {
   Trash2,
   X
 } from "lucide-react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
@@ -40,6 +42,17 @@ import {
   resolveSlideCount
 } from "@/lib/carousels/deck";
 import type { CarouselImage } from "@/lib/carousels/imageSlides";
+import {
+  anyPlatformPostsItself,
+  bookingMessage,
+  bookingNeedsHands,
+  PLATFORM_LABEL,
+  planCarouselSchedule,
+  type CarouselPlatformId
+} from "@/lib/carousels/schedule";
+import { bookedChipText, type CarouselBooking } from "@/lib/carousels/booked";
+import { statusTone } from "@/lib/statusTone";
+import { usePlatformConnections } from "@/lib/publisher/usePlatformConnections";
 import {
   ASPECT_RATIO_LIST,
   aspectSpec,
@@ -155,6 +168,26 @@ export function CarouselsPage() {
     summaryParts.push(imageNotes.trim() ? "described" : "no description");
   }
 
+  // Which carousels already have a post in the publish queue, so a booked card says so.
+  const [bookings, setBookings] = useState<{ timeZone: string; byCarousel: Record<string, CarouselBooking> }>({
+    timeZone: "UTC",
+    byCarousel: {}
+  });
+  const refreshBookings = useCallback(
+    () =>
+      fetch("/api/studio/carousels/booked", { cache: "no-store" })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((json: { timeZone?: string; bookings?: Record<string, CarouselBooking> } | null) => {
+          if (json) setBookings({ timeZone: json.timeZone ?? "UTC", byCarousel: json.bookings ?? {} });
+        })
+        // The chip is a convenience; the page works without it.
+        .catch(() => undefined),
+    []
+  );
+  useEffect(() => {
+    void refreshBookings();
+  }, [refreshBookings]);
+
   const refreshSources = useCallback(async () => {
     if (sourceRequestInFlight.current) return;
     sourceRequestInFlight.current = true;
@@ -211,20 +244,21 @@ export function CarouselsPage() {
   );
 
   const unschedule = useCallback(
-    async (carouselId: string, scheduleId: string) => {
+    async (carouselId: string, scheduleIds: string[]) => {
       const carousel = carousels.find((entry) => entry.id === carouselId);
       if (!carousel) return;
-      const next = (carousel.schedules ?? []).filter((entry) => entry.id !== scheduleId);
+      // One PATCH for every schedule a row stands for: two requests from the same stale list would undo each other.
+      const next = (carousel.schedules ?? []).filter((entry) => !scheduleIds.includes(entry.id));
       const response = await fetch(`/api/studio/carousels/${carouselId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ schedules: next })
       });
       if (response.ok) {
-        toast.success("Schedule removed.");
+        toast.success("Reminder removed.");
         void refresh();
       } else {
-        toast.error("Could not update the schedule.");
+        toast.error("Could not update the reminders.");
       }
     },
     [carousels, refresh]
@@ -574,6 +608,9 @@ export function CarouselsPage() {
               key={carousel.id}
               carousel={carousel}
               refresh={refresh}
+              booking={bookings.byCarousel[carousel.id]}
+              timeZone={bookings.timeZone}
+              onBooked={refreshBookings}
               highlighted={openCarouselId === carousel.id}
             />
           ))}
@@ -709,10 +746,16 @@ function ImageBatch({
 function CarouselCard({
   carousel,
   refresh,
+  booking,
+  timeZone,
+  onBooked,
   highlighted = false
 }: {
   carousel: Carousel;
   refresh: () => Promise<void> | void;
+  booking?: CarouselBooking;
+  timeZone: string;
+  onBooked: () => Promise<void> | void;
   highlighted?: boolean;
 }) {
   const [ratio, setRatio] = useState<CarouselAspectRatio>(carousel.aspectRatio ?? DEFAULT_ASPECT_RATIO);
@@ -721,6 +764,16 @@ function CarouselCard({
   const [saving, setSaving] = useState(false);
   const [editor, setEditor] = useState<{ index: number; mode: "preview" | "edit" } | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const links = usePlatformConnections();
+  // The tag next to Schedule must not promise "Automatic" while neither network is signed in.
+  const scheduleTag = !links
+    ? "IG/FB"
+    : anyPlatformPostsItself(["instagram", "facebook"], {
+          instagram: links.instagram?.connected ?? false,
+          facebook: links.facebook?.connected ?? false
+        })
+      ? "Automatic IG/FB"
+      : "Reminder only";
   const previewRefs = useRef<Array<HTMLCanvasElement | null>>([]);
 
   const spec = aspectSpec(ratio);
@@ -789,14 +842,58 @@ function CarouselCard({
     }
   };
 
+  // A one-off to Instagram/Facebook is booked in the publish queue and posts
+  // itself; a repeat, TikTok and YouTube stay reminders saved on the carousel.
   const createSchedule = async (schedule: CarouselSchedule) => {
+    const plan = planCarouselSchedule(schedule.platforms as CarouselPlatformId[], schedule.recurrence);
     setSaving(true);
+    let booked: string | null = null;
+    // True only when the route left every booked network queued for automatic
+    // posting AND nothing else was left as a reminder.
+    let allAutomatic = true;
     try {
-      await patchCarousel({ schedules: [...(carousel.schedules ?? []), schedule] });
-      toast.success("Upload scheduled.");
+      if (plan.book.length > 0) {
+        const response = await fetch(`/api/studio/carousels/${carousel.id}/book`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            publishAt: `${schedule.date}T${schedule.time}`,
+            caption: schedule.caption,
+            platforms: plan.book
+          })
+        });
+        const result = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          timeZone?: string;
+          item?: { publishAt: string; platforms: Partial<Record<CarouselPlatformId, string>> };
+        };
+        if (!response.ok || !result.item) {
+          toast.error(result.error ?? "Could not book the post.");
+          if (response.status === 409) void onBooked();
+          return;
+        }
+        booked = bookingMessage(result.item.platforms, result.item.publishAt, result.timeZone ?? "UTC");
+        void onBooked();
+        allAutomatic = !bookingNeedsHands(result.item.platforms);
+        // It is in the queue now; the modal's job is done even if the reminder
+        // for the other networks below fails to save.
+        setScheduleOpen(false);
+      }
+      if (plan.remind.length > 0) {
+        await patchCarousel({ schedules: [...(carousel.schedules ?? []), { ...schedule, platforms: plan.remind }] });
+      }
+      const reminded = plan.remind.map((id) => PLATFORM_LABEL[id]).join(", ");
+      const message = booked
+        ? plan.remind.length > 0
+          ? `${booked} Reminder saved for ${reminded} - nothing posts there automatically.`
+          : booked
+        : "Reminder saved - nothing posts automatically";
+      // Green only when something really is queued to post itself and nothing was left to do by hand.
+      if (booked && allAutomatic && plan.remind.length === 0) toast.success(message);
+      else toast.warning(message);
       setScheduleOpen(false);
     } catch {
-      toast.error("Could not schedule the upload.");
+      toast.error(booked ? `${booked} But the reminder could not be saved.` : "Could not save the reminder.");
     } finally {
       setSaving(false);
     }
@@ -846,6 +943,15 @@ function CarouselCard({
                 {carousel.batch.angle ? ` · ${carousel.batch.angle}` : ""}
               </Badge>
             ) : null}
+            {booking ? (
+              <Link
+                href={`/uploading-center?item=${encodeURIComponent(booking.itemId)}`}
+                title="Open this post in the Uploading Center"
+                className={cn(`tone-${statusTone(booking.posted ? "posted" : "scheduled")}`, "tone-edge tone-soft tone-text inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium hover:brightness-125 max-sm:min-h-10 max-sm:px-3")}
+              >
+                <CalendarCheck className="h-3 w-3" /> {bookedChipText(booking, timeZone)}
+              </Link>
+            ) : null}
           </div>
           <p className="text-xs text-[var(--muted-foreground)]">
             {slides.length} slides · from {SOURCE_LABEL[carousel.sourceType] ?? carousel.sourceType} ·{" "}
@@ -859,7 +965,7 @@ function CarouselCard({
           <Select
             value={ratio}
             onChange={(event) => changeRatio(event.target.value as CarouselAspectRatio)}
-            className="h-8 w-auto px-2 py-0 text-xs"
+            className="h-8 w-auto px-2 py-0 text-xs max-sm:h-10"
             aria-label="Aspect ratio"
           >
             {ASPECT_RATIO_LIST.map((entry) => (
@@ -914,8 +1020,14 @@ function CarouselCard({
             ) : null}
           </div>
 
-          <Button variant="secondary" className="gap-1.5 px-3 py-1.5 text-xs" onClick={() => setScheduleOpen(true)}>
+          <Button
+            variant="secondary"
+            className="gap-1.5 px-3 py-1.5 text-xs"
+            onClick={() => setScheduleOpen(true)}
+            title="A one-off post to Instagram and Facebook is booked and posts itself. TikTok, YouTube and repeating schedules are reminders only."
+          >
             <CalendarClock className="h-3.5 w-3.5" /> Schedule
+            <span className="text-[10px] font-normal opacity-70">{booking ? "Already booked" : scheduleTag}</span>
           </Button>
           <Button variant="danger" className="px-3 py-1.5 text-xs" onClick={() => void remove()} aria-label="Delete carousel">
             <Trash2 className="h-3.5 w-3.5" />
@@ -949,7 +1061,7 @@ function CarouselCard({
                   event.stopPropagation();
                   setEditor({ index, mode: "preview" });
                 }}
-                className="pointer-events-auto inline-flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[10px] font-medium text-white backdrop-blur transition hover:bg-black/80"
+                className="pointer-events-auto inline-flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 max-sm:min-h-10 max-sm:px-3 text-[10px] font-medium text-white backdrop-blur transition hover:bg-black/80"
               >
                 <Eye className="h-3 w-3" /> Preview
               </button>
@@ -959,7 +1071,7 @@ function CarouselCard({
                   event.stopPropagation();
                   setEditor({ index, mode: "edit" });
                 }}
-                className="pointer-events-auto inline-flex items-center gap-1 rounded-md bg-[var(--accent)]/90 px-2 py-1 text-[10px] font-medium text-[var(--accent-contrast)] backdrop-blur transition hover:bg-[var(--accent)]"
+                className="pointer-events-auto inline-flex items-center gap-1 rounded-md bg-[var(--accent)]/90 px-2 py-1 max-sm:min-h-10 max-sm:px-3 text-[10px] font-medium text-[var(--accent-contrast)] backdrop-blur transition hover:bg-[var(--accent)]"
               >
                 <Pencil className="h-3 w-3" /> Edit
               </button>
@@ -984,6 +1096,8 @@ function CarouselCard({
         open={scheduleOpen}
         carouselTitle={carousel.title}
         saving={saving}
+        booking={booking}
+        timeZone={timeZone}
         onClose={() => setScheduleOpen(false)}
         onCreate={createSchedule}
       />

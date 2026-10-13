@@ -17,7 +17,7 @@ import { describeMirrorPlan, planMirror } from "@/lib/publisher/mirror";
 import { AbandonedUploadError, PermanentError, StillProcessingError, ThrottledError, isTransient } from "@/lib/publisher/http";
 import { remainingYoutubeUploads } from "@/lib/publisher/quota";
 import { outstandingTiktokDrafts, usesTiktokInbox } from "@/lib/publisher/tiktokInbox";
-import { PublishQueue, isTerminalStatus, newPlatformState, publishQueue } from "@/lib/publisher/queue";
+import { PublishQueue, isTerminalStatus, mirroredPlatformState, publishQueue } from "@/lib/publisher/queue";
 import { formatInTimezone } from "@/lib/publisher/time";
 import type { PlatformAdapter, PlatformId, PlatformState, PostResult, PublishInput, PublishPlan, QueueItem } from "@/lib/publisher/types";
 
@@ -92,9 +92,17 @@ export type RunDueOptions = {
   /**
    * With itemId: process every non-terminal platform immediately, ignoring
    * publishAt and retry backoff. Instagram/TikTok then post right away
-   * instead of waiting for their scheduled time.
+   * instead of waiting for their scheduled time, and a YouTube video waiting
+   * for its slot is made public now. Only an explicit "Publish now" passes
+   * this - a retry runs without it so a future slot keeps waiting.
    */
   force?: boolean;
+  /**
+   * With itemId + force: act on these platforms only. The board's Publish now
+   * leaves out a leg whose account is not connected, so it stays waiting
+   * instead of being failed by a forced attempt it could never complete.
+   */
+  platforms?: PlatformId[];
 };
 
 export const defaultAdapters: Record<PlatformId, PlatformAdapter> = {
@@ -239,7 +247,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
     for (const platform of config.platforms) {
       const adapter = adapters[platform];
       if (!adapter.configured()) {
-        report.authChecks.push({ platform, ok: false, detail: "not configured (missing credentials in .env)" });
+        report.authChecks.push({ platform, ok: false, detail: "not configured (add credentials in Settings > Accounts)" });
         continue;
       }
       try {
@@ -327,7 +335,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
         for (const add of plan.additions) {
           const item = await queue.get(add.itemId);
           if (!item || item.platforms[add.platform]) continue;
-          item.platforms[add.platform] = newPlatformState();
+          item.platforms[add.platform] = mirroredPlatformState(config.mirror.lead);
           await queue.add(item, "runner-mirror");
         }
         // Shuffled slots hold a different clip per platform, which one item
@@ -341,7 +349,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
               id: crypto.randomUUID().slice(0, 8),
               publishAt: entry.publishAt,
               createdAt: new Date().toISOString(),
-              platforms: { [entry.platform]: newPlatformState() }
+              platforms: { [entry.platform]: mirroredPlatformState(config.mirror.lead) }
             },
             "runner-mirror"
           );
@@ -362,9 +370,13 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
       const item = await queue.get(options.itemId);
       const platforms = item
         ? (Object.entries(item.platforms) as [PlatformId, PlatformState][])
-            // "scheduled" is included so "publish now" flips the video public
-            // immediately instead of waiting for the slot time.
+            // "scheduled" is included so an explicit "publish now" reaches a
+            // video YouTube is holding for its slot: the forced run passes
+            // publishNow down to the adapter, which flips it public now. A
+            // retry never gets here - it runs WITHOUT force, so a future
+            // slot keeps waiting.
             .filter(([, state]) => !isTerminalStatus(state.status) || state.status === "scheduled")
+            .filter(([platform]) => !options.platforms || options.platforms.includes(platform))
             .map(([platform]) => platform)
         : [];
       due = item && platforms.length > 0 ? [{ item, platforms }] : [];
@@ -393,6 +405,9 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
     : Math.max(0, config.tiktok.inboxLimit - tiktokDraftsWaiting);
   let facebookPollMsLeft = FACEBOOK_POLL_BUDGET_MS_PER_RUN;
   let facebookPreschedulesLeft = options.force ? Number.POSITIVE_INFINITY : FACEBOOK_PRESCHEDULES_PER_RUN;
+  // The board's explicit "Publish now" on one post (itemId + force) - the only
+  // run allowed to take a held YouTube video public ahead of its slot.
+  const forcedNow = Boolean(options.force && options.itemId);
 
   for (const { item, platforms } of due) {
     if (!options.itemId && await isAutomationPaused("publisher")) break;
@@ -428,7 +443,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
         if (state && (state.status === "scheduled" || state.postId)) {
           if (adapter.finalize) {
             if (!(await queue.claim(item, platform, now))) continue;
-            result = await adapter.finalize(item, state);
+            result = await adapter.finalize(item, state, { publishNow: forcedNow });
           } else if (state.status === "scheduled") {
             continue;
           } else {
@@ -497,6 +512,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
             localPath,
             publicUrl,
             images,
+            publishNow: forcedNow,
             onHandle: (handle) => queue.recordHandle(item, platform, handle),
             pollBudgetMs:
               platform === "facebook"

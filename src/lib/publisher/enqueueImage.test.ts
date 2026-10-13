@@ -127,7 +127,7 @@ describe("enqueueImagePost", () => {
     vi.stubEnv("S3_BUCKET", "");
     vi.resetModules();
     const { enqueueImagePost } = await load();
-    await expect(enqueueImagePost({ ...BASE, imagePaths: images })).rejects.toThrow(/public HTTPS URL/);
+    await expect(enqueueImagePost({ ...BASE, imagePaths: images })).rejects.toThrow(/Add Media hosting in Settings > Accounts first/);
   });
 
   it("tracks an unconnected platform as a manual reminder, same as a video post", async () => {

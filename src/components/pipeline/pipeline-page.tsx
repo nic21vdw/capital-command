@@ -46,6 +46,7 @@ import type { ChannelCoverage } from "@/lib/ingest/coverage";
 import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { routeLabel } from "@/lib/colateral/routes";
+import { formatSlotDateTime, formatSlotTime } from "@/lib/timeFormat";
 import { cn } from "@/lib/utils";
 import type {
   PipelinePost,
@@ -97,9 +98,9 @@ function formatStartedAt(iso: string) {
   if (Number.isNaN(started.getTime())) return "Unknown date";
   const today = new Date();
   const sameDay = started.toDateString() === today.toDateString();
-  const time = started.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  if (sameDay) return `Today ${time}`;
-  return `${started.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${time}`;
+  // A run starts on this machine, so it reads in the browser's own zone (no zone passed), in the house 12-hour style.
+  if (sameDay) return `Today ${formatSlotTime(started)}`;
+  return formatSlotDateTime(started);
 }
 
 function Spinner() {
@@ -184,7 +185,7 @@ function StreamSearchBar({
 }
 
 const SELECT_CLASS =
-  "h-8 cursor-pointer appearance-none rounded-full border border-[var(--border)] bg-[var(--surface-2)] pl-3 pr-7 text-xs text-white outline-none transition hover:border-[var(--border-strong)] focus:border-[var(--accent)] disabled:opacity-50";
+  "h-8 max-sm:h-10 cursor-pointer appearance-none rounded-full border border-[var(--border)] bg-[var(--surface-2)] pl-3 pr-7 text-xs text-white outline-none transition hover:border-[var(--border-strong)] focus:border-[var(--accent)] disabled:opacity-50";
 
 /**
  * The only two settings the pipeline asks for. They live under the search bar,
@@ -1269,6 +1270,11 @@ export function PipelinePage() {
                               {candidate.kind === "clip" ? "short" : candidate.kind}
                             </span>
                             {candidate.title}
+                            {candidate.kind === "longform" || candidate.kind === "segment" ? (
+                              <span className="ml-1.5 text-[11px] text-[var(--muted-foreground)]">
+                                held private for review
+                              </span>
+                            ) : null}
                             {candidate.imagePaths ? (
                               <span className="ml-1.5 text-[var(--muted-foreground)]">
                                 {candidate.imagePaths.length} slides
@@ -1302,7 +1308,7 @@ export function PipelinePage() {
                     className={SMALL_BUTTON}
                   >
                     {working === "queue" ? <Spinner /> : null}
-                    Schedule {plan.candidates.length - dropped.length} now
+                    Book {plan.candidates.length - dropped.length} at the next free slots
                   </Button>
                   <Button variant="secondary" onClick={() => setPlan(null)} className={SMALL_BUTTON}>
                     Cancel
