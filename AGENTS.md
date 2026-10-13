@@ -189,8 +189,8 @@ shows "Last backup: ..." with a warning when the last good backup is older than
   `backup-state.log` in the checkout. `backup-to-drive.bat` runs the same
   `npm run backup:state`.
 - The zip format is written by `src/lib/backup/zip.ts` on `node:zlib`, because
-  the repo has no zip dependency. Explorer and PowerShell open the files. It
-  does not do zip64, so it stops at 65,535 files or 4 GB.
+  the repo has no zip dependency. PowerShell's `Expand-Archive` opens the files.
+  It does not do zip64, so it stops at 65,535 files or 4 GB.
 
 ## Which model does the work
 
