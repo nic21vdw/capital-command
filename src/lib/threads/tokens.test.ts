@@ -69,6 +69,42 @@ describe("Threads token refresh", () => {
     expect(threadsConfig().accounts[0].accessToken).toBe("refreshed-2");
   });
 
+  it("stores the renewed token with the expiry Meta reported", async () => {
+    stubRefresh(ok("refreshed-1"));
+    await refresh(connect());
+
+    expect(readStoredTokens().primary).toMatchObject({
+      token: "refreshed-1",
+      source: hashToken("env-token"),
+      refreshedAt: NOW.toISOString(),
+      expiresAt: new Date(NOW.getTime() + 5_184_000 * 1000).toISOString()
+    });
+  });
+
+  it("renews on the seventh day and not a minute before", async () => {
+    stubRefresh(ok("refreshed-1"));
+    await refresh(connect());
+    const early = stubRefresh(ok("refreshed-2"));
+
+    await refresh(threadsConfig(), new Date(NOW.getTime() + 7 * DAY - 60_000));
+    expect(early).not.toHaveBeenCalled();
+
+    const due = stubRefresh(ok("refreshed-2"));
+    await refresh(threadsConfig(), new Date(NOW.getTime() + 7 * DAY));
+    expect(due).toHaveBeenCalledTimes(1);
+  });
+
+  it("follows THREADS_TOKEN_REFRESH_DAYS", async () => {
+    vi.stubEnv("THREADS_TOKEN_REFRESH_DAYS", "2");
+    stubRefresh(ok("refreshed-1"));
+    await refresh(connect());
+    const fetchMock = stubRefresh(ok("refreshed-2"));
+
+    await refresh(threadsConfig(), new Date(NOW.getTime() + 3 * DAY));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("lets a new token pasted into .env win over an old refresh", async () => {
     stubRefresh(ok("refreshed-1"));
     await refresh(connect());

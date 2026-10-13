@@ -398,6 +398,12 @@ both. Two accounts posting the same wording would read as mirrored spam.
   ticks each see an empty day and every slot gets posted twice.
 - Never put a token in an API response or a log line — the route exposes only
   each account's id, label, version and offset.
+- A rejected token (HTTP 401, OAuth code 190, "Session has expired") stops the
+  tick on the spot: the post that hit it and every post behind it stay pending
+  with their attempts (and a reply's `plugAttempts`) untouched. Before this, a
+  401 was a permanent error, so one dead token failed 542 of 558 posts in
+  three weeks. Do not route an auth failure back through the `failed` /
+  `retrying` accounting in `runner.ts`. See "Platform health" below.
 - A post that did NOT come from the daily pack is marked `origin: "pipeline"`,
   and every autopilot decision reads `autopilotItemsForDate`, never
   `itemsForDate`. Counting an ad-hoc post as the day's batch would make the
@@ -410,6 +416,39 @@ both. Two accounts posting the same wording would read as mirrored spam.
   to avoid. Prompt and lengths in `src/lib/x-posts/generator.ts`; the fallback
   `library.ts` and its test hold the same shape.
 - See `src/lib/threads/README.md`.
+
+## Platform health (`src/lib/platform-health`)
+
+A platform whose token is rejected used to fail silently: the runner kept
+spending slots on it and nothing on screen said so. Now the first auth failure
+trips a per-platform breaker.
+
+- `isAuthFailure` (`auth.ts`) decides what counts, by message: `HTTP 401`,
+  Meta code 190, "Session has expired", `invalid_grant`, the YouTube and TikTok
+  reconnect texts. A 403, a 400 for a bad parameter or the TikTok sandbox
+  refusal is NOT an auth failure. Adding a pattern here changes what stops a
+  platform, so add a test beside it.
+- `store.ts` keeps `data/platform-auth.json`: platform, `since`, reason, fix
+  link, and a fingerprint (sha256) of the credentials in use when it broke.
+  `platformAuthBlocked` answers "hold this platform?": yes until the next trial
+  is due (30 minutes), and never once the fingerprint differs. That is how a
+  pasted or refreshed token clears it with no one telling the app. A call that
+  succeeds clears it too.
+- The Threads runner stops the whole tick. The publisher runner (`runDue`)
+  holds only the platform that failed and releases the item through
+  `queue.releaseForAuth`, which keeps attempts and sets no backoff. `force`
+  (Publish now) ignores the hold.
+- Fingerprints for YouTube, Instagram, Facebook and TikTok read the primary
+  account's credentials from `publisherConfig()`. An extra account's cached
+  token does not change them, so reconnecting only an extra account clears the
+  state at its next successful post, not before.
+- `GET /api/health/platforms` lists what is broken (never a token or its
+  fingerprint). `PlatformHealthBanner` in the root layout polls it each
+  minute and sets `--platform-banner-height` so the framed screens and the
+  sidebar make room for it. What it shows is decided in `banner.ts`.
+- No notification channel exists beyond that banner: no email, push or desktop
+  notification code, only `sonner` toasts inside an open page. A daily digest
+  needs a sender chosen first.
 
 ## Launch Pad (`src/lib/launch`)
 

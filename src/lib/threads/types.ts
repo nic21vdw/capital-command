@@ -106,6 +106,8 @@ export type ThreadsRunReport = {
   note?: string;
   /** Queue persistence stopped delivery independently of platform outcomes. */
   persistenceError?: string;
+  /** The token was rejected, so the run stopped and left the queue as it found it. */
+  authFailure?: string;
 };
 
 /** One account's tally within a day. */

@@ -3,6 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { isAutomationPaused, recordAutomationOutcome } from "@/lib/automations/store";
 import { recordAutomationEventSafely } from "@/lib/automations/history";
+import { authFailureReason, isAuthFailure } from "@/lib/platform-health/auth";
+import { publisherFingerprint } from "@/lib/platform-health/fingerprint";
+import { clearAuthState, platformAuthBlocked, recordAuthFailure } from "@/lib/platform-health/store";
 import { accountIdConfigured } from "@/lib/publisher/accounts";
 import { facebookAdapter } from "@/lib/publisher/adapters/facebook";
 import { instagramAdapter } from "@/lib/publisher/adapters/instagram";
@@ -393,6 +396,16 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
     : Math.max(0, config.tiktok.inboxLimit - tiktokDraftsWaiting);
   let facebookPollMsLeft = FACEBOOK_POLL_BUDGET_MS_PER_RUN;
   let facebookPreschedulesLeft = options.force ? Number.POSITIVE_INFINITY : FACEBOOK_PRESCHEDULES_PER_RUN;
+  const authHold = new Map<PlatformId, boolean>();
+  const platformHeld = async (platform: PlatformId): Promise<boolean> => {
+    if (options.force) return false;
+    const known = authHold.get(platform);
+    if (known !== undefined) return known;
+    const held = await platformAuthBlocked(platform, publisherFingerprint(platform, config), now);
+    authHold.set(platform, held);
+    if (held) log(`[publisher]   ${platform}: held - its token was rejected, so nothing is sent until it is reconnected in Settings > Accounts.`);
+    return held;
+  };
 
   for (const { item, platforms } of due) {
     if (!options.itemId && await isAutomationPaused("publisher")) break;
@@ -401,6 +414,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
     let images: PublishInput["images"];
     for (const platform of platforms) {
       if (!options.itemId && await isAutomationPaused("publisher")) break;
+      if (await platformHeld(platform)) continue;
       const adapter = adapters[platform];
       const record = async (outcome: RunOutcome["outcome"], detail: string) => {
         report.outcomes.push({ itemId: item.id, clip: item.clipPath, platform, outcome, detail });
@@ -413,6 +427,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
         });
         log(`[publisher]   ${item.id} → ${platform}: ${outcome} — ${detail}`);
       };
+      let calledPlatform = false;
       try {
         // Account-aware: an item on an extra account publishes with that
         // account's own credentials, not the platform's .env defaults.
@@ -428,6 +443,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
         if (state && (state.status === "scheduled" || state.postId)) {
           if (adapter.finalize) {
             if (!(await queue.claim(item, platform, now))) continue;
+            calledPlatform = true;
             result = await adapter.finalize(item, state);
           } else if (state.status === "scheduled") {
             continue;
@@ -505,12 +521,14 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
           };
           const startedAt = Date.now();
           try {
+            calledPlatform = true;
             result = await adapter.publish(input);
           } finally {
             if (platform === "facebook") facebookPollMsLeft -= Date.now() - startedAt;
           }
         }
         await queue.recordSuccess(item, platform, result, now);
+        if (calledPlatform) await clearAuthState(platform);
         await record(result.status, result.detail ?? "");
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -526,6 +544,13 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
           // come back when the platform's window has moved.
           await queue.deferAttempt(item, platform, message, error.retryAfterMinutes, now);
           await record("deferred", `${message} (next attempt ${item.platforms[platform]?.nextAttemptAt ?? "later"})`);
+          continue;
+        }
+        if (isAuthFailure(error)) {
+          authHold.set(platform, true);
+          await queue.releaseForAuth(item, platform, message);
+          await recordAuthFailure(platform, authFailureReason(error), { now, fingerprint: publisherFingerprint(platform, config) });
+          await record("deferred", `${message} (token rejected - nothing more is sent to ${platform} until it is reconnected)`);
           continue;
         }
         if (error instanceof AbandonedUploadError) await queue.clearDeadUpload(item, platform);

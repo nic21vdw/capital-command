@@ -1,3 +1,7 @@
+import { authFailureReason, isAuthFailure } from "@/lib/platform-health/auth";
+import { threadsFingerprint } from "@/lib/platform-health/fingerprint";
+import { clearAuthState, platformAuthBlocked, readAuthStates, recordAuthFailure } from "@/lib/platform-health/store";
+import { RECONNECT_URL } from "@/lib/platform-health/types";
 import { isTransient } from "@/lib/publisher/http";
 import { formatInTimezone } from "@/lib/publisher/time";
 import { ContainerPendingError, ContainerRejectedError, ThreadsPublishPausedError, postToThreads, type ThreadsPublishInput } from "@/lib/threads/api";
@@ -127,6 +131,7 @@ async function runDueInternal(
   const replyOutcomes: ThreadsOutcome[] = [];
   let note: string | undefined;
   let persistenceError: string | undefined;
+  let authFailure: string | undefined;
   const report = (): ThreadsRunReport => ({
     ran: now.toISOString(),
     published: outcomes.filter((outcome) => outcome.outcome === "published").length,
@@ -142,6 +147,7 @@ async function runDueInternal(
     } } : {}),
     ...(note ? { note } : {}),
     ...(persistenceError ? { persistenceError } : {}),
+    ...(authFailure ? { authFailure } : {}),
     dryRun
   });
 
@@ -149,6 +155,16 @@ async function runDueInternal(
   if (blocked) return { ...report(), note: blocked };
   if (!dryRun && await isAutomationPaused("threads")) {
     return { ...report(), note: "Threads automation is paused in Automations." };
+  }
+
+  const fingerprint = threadsFingerprint(config.accounts);
+  if (!dryRun && await platformAuthBlocked("threads", fingerprint, now)) {
+    const waiting = (await readAuthStates()).threads;
+    return {
+      ...report(),
+      authFailure: waiting?.reason ?? "Threads rejected its access token.",
+      note: `Threads is waiting on a working token since ${waiting?.since ?? "the last failure"}. Nothing was sent and no post lost a retry. Reconnect it in Settings > Accounts (${RECONNECT_URL}).`
+    };
   }
 
   const deps = options.deps ?? defaultDeps(config);
@@ -203,6 +219,20 @@ async function runDueInternal(
       throw error;
     }
     await record(item, "published", detail, reply);
+  };
+
+  const stopOnAuthFailure = async (item: ThreadsQueueItem, error: unknown, accountLabel: string, reply: boolean) => {
+    const reason = authFailureReason(error);
+    authFailure = reason;
+    note = "Threads rejected its access token, so this run stopped and left the rest of the queue untouched. Reconnect it in Settings > Accounts.";
+    log(`[threads] ${note} (${reason})`);
+    const at = new Date().toISOString();
+    await recordAuthFailure("threads", `${accountLabel}: ${reason}`, { now, fingerprint });
+    await recordAutomationEventSafely({
+      automationId: "threads", scope: "delivery", kind: "blocked", at, itemId: item.id,
+      destination: `Threads / ${item.accountId}`, detail: `${item.topic}: ${reply ? "link reply: " : ""}token rejected - ${reason}`,
+      key: `${item.id}:${reply ? "reply:" : ""}auth:${at}`
+    });
   };
 
   let replySends = 0;
@@ -313,6 +343,11 @@ async function runDueInternal(
         note = error.message;
         return;
       }
+      if (isAuthFailure(error)) {
+        await persist();
+        await stopOnAuthFailure(item, error, account.label, true);
+        return;
+      }
       replySends += 1;
       item.plugAttempts = (item.plugAttempts ?? 0) + 1;
       item.plugError = error instanceof Error ? error.message : String(error);
@@ -336,6 +371,7 @@ async function runDueInternal(
     // A successful API call is still successful if the following queue save
     // fails. Keep the receipt in memory and reconcile it on the next tick.
     await saveAccepted(item, `${account.label} replied ${result.postId}.`, true);
+    await clearAuthState("threads");
   };
 
   try {
@@ -378,6 +414,7 @@ async function runDueInternal(
     for (const receipt of recoveredReplies) await record(receipt.item, "published", receipt.detail, true);
 
     for (const item of items) {
+      if (authFailure) break;
       const liveBlocked = threadsBlockedReason(currentConfig());
       if (liveBlocked || (!dryRun && await isAutomationPaused("threads"))) {
         note = liveBlocked ?? "Threads automation is paused in Automations.";
@@ -462,6 +499,11 @@ async function runDueInternal(
           note = error.message;
           break;
         }
+        if (isAuthFailure(error)) {
+          await persist();
+          await stopOnAuthFailure(item, error, account.label, false);
+          break;
+        }
         item.attempts += 1;
         item.error = error instanceof Error ? error.message : String(error);
         if (!isTransient(error) || item.attempts >= config.maxAttempts) {
@@ -486,6 +528,7 @@ async function runDueInternal(
       delete item.claimedAt;
       recovery.set(key, { ...result, text: item.text, publishedAt: item.publishedAt });
       await saveAccepted(item, `${account.label} posted ${result.postId}.`);
+      await clearAuthState("threads");
     }
   } catch (error) {
     if (!(error instanceof QueuePersistenceError)) throw error;

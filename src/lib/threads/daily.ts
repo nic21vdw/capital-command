@@ -282,7 +282,7 @@ export async function threadsTick(
     const result = await threadsTickInternal(options);
     if (!options.dryRun) {
       const replies = result.run.replies;
-      const needsAttention = Boolean(result.run.persistenceError) || result.run.failed > 0 || result.run.outcomes.some((outcome) => outcome.outcome === "retrying")
+      const needsAttention = Boolean(result.run.persistenceError) || Boolean(result.run.authFailure) || result.run.failed > 0 || result.run.outcomes.some((outcome) => outcome.outcome === "retrying")
         || Boolean(replies && (replies.failed > 0 || replies.retrying > 0));
       await recordAutomationOutcome("threads", {
         at: new Date().toISOString(),

@@ -33,6 +33,7 @@ data/publish-queue.log*
 data/threads-queue.json
 data/publisher-tokens.json
 data/threads-tokens.json
+data/platform-auth.json
 rebuild-attempt.stamp
 data/social-accounts.json
 data/title-log.jsonl

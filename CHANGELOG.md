@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- When Threads, YouTube, Instagram, Facebook or TikTok rejects its token, the app now says so on every screen instead of failing silently. A red banner at the top names the platform, the date it broke and a Reconnect button into Settings > Accounts, and it goes away by itself once the token changes or a post goes through. The runner also stops at the first rejected token instead of marking every queued post failed (Threads had failed 542 of 558 that way): the posts stay pending with their retries, and it tries again every half hour. `GET /api/health/platforms` lists what is broken. The old failed Threads posts are not re-queued.
+
 - The Threads autopilot no longer goes quiet when its token runs out. Threads tokens expire 60 days after you make them, and nothing renewed yours, so posting just stopped. Every tick now renews each account's token once a week for another 60 days (`THREADS_TOKEN_REFRESH_DAYS` changes how often), and a failed renewal shows in `threads-autopilot.log`. A token that has already expired cannot be renewed: paste a new one into `.env` once and it stays alive from then on.
 
 - If a release dies halfway and leaves no build behind, the Threads autopilot and the publish runner now rebuild and restart the app themselves, at most once an hour, instead of skipping every tick until you rebuild by hand.
