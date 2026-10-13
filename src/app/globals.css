@@ -119,7 +119,7 @@
   --success: #1ed96b;
   --warning: #f0b429;
   --danger: #f05050;
-  --info: #7c5cff;
+  --info: #7a9bff;
   --card-from: #111922;
   --card-to: #111922;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -161,7 +161,7 @@ html {
   --success: #1ed96b;
   --warning: #f0b429;
   --danger: #f05050;
-  --info: #7c5cff;
+  --info: #7a9bff;
   --card-from: #111922;
   --card-to: #111922;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -189,7 +189,7 @@ html {
   --success: #107c10;
   --warning: #ca5010;
   --danger: #d13438;
-  --info: #106ebe;
+  --info: #1f55c8;
   --card-from: #f7f9fc;
   --card-to: #f7f9fc;
   --shadow: 0 1px 2px rgba(16, 44, 77, 0.06), 0 1px 3px rgba(16, 44, 77, 0.1);
@@ -928,12 +928,15 @@ input[type="datetime-local"],
   right: var(--marketing-shell-inset);
 }
 
+/* --command-bar-h is measured from the bar itself (command-bar.tsx): how far
+   its top edge is from the bottom of the viewport. The 7rem is the fallback
+   before it has been measured. */
 .marketing-command-clearance {
-  height: calc(7rem + env(safe-area-inset-bottom));
+  height: calc(var(--command-bar-h, 7rem) + 1rem);
 }
 
 .marketing-shell :where(a, button, input, select, textarea, [tabindex]) {
-  scroll-margin-bottom: 8rem;
+  scroll-margin-bottom: calc(var(--command-bar-h, 7rem) + 1rem);
 }
 
 @media (min-width: 640px) {
@@ -977,7 +980,9 @@ input[type="datetime-local"],
   }
 }
 
-@media (min-height: 720px) {
+/* Only where there is room for a frozen pane: on a phone the header and
+   the quota meter were a third of the screen and could never be scrolled away. */
+@media (min-height: 720px) and (min-width: 640px) {
   .app-frame {
     height: 100dvh;
     overflow: hidden;
@@ -994,7 +999,7 @@ input[type="datetime-local"],
     min-height: 0;
     flex: 1 1 0%;
     overflow-y: auto;
-    padding-bottom: 7rem;
+    padding-bottom: calc(var(--command-bar-h, 7rem) + 1rem);
   }
 
   .app-frame-hide {
@@ -1395,8 +1400,16 @@ input[type="range"]::-moz-range-thumb {
 */
 .pipe-branch {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   align-items: flex-start;
+}
+
+/* Too narrow for one rail: the columns wrap, so the rail across them would lie. */
+@media (max-width: 1279px) {
+  .pipe-col::after {
+    display: none;
+  }
 }
 
 .pipe-col {
@@ -1844,5 +1857,48 @@ html[data-host-backdrop="clear"]:not([data-surface="classic"]):not([data-glass="
   .updating-sweep i {
     width: 100%;
     opacity: 0.6;
+  }
+}
+
+/*
+  Toasts (AppToaster). Sonner lays icon, text and buttons on one row, so a toast
+  with two buttons ("Open Settings" + "Remove anyway") squeezed its message to a
+  word per line. The row now wraps: the message keeps a readable width and any
+  buttons that do not fit drop to their own row underneath, right-aligned.
+*/
+.app-toaster [data-sonner-toast] {
+  flex-wrap: wrap;
+  row-gap: 0.5rem;
+}
+.app-toaster [data-sonner-toast] [data-content] {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.app-toaster [data-sonner-toast] [data-button] {
+  margin-left: auto;
+}
+.app-toaster [data-sonner-toast] [data-cancel] {
+  margin-left: auto;
+}
+.app-toaster [data-sonner-toast] [data-cancel] + [data-button] {
+  margin-left: 0;
+}
+@media (max-width: 639px) {
+  .app-toaster [data-sonner-toast] [data-button],
+  .app-toaster [data-sonner-toast] [data-cancel] {
+    min-height: 40px;
+    padding-inline: 14px;
+  }
+}
+
+/*
+ * The Remotion player draws its own control bar (not a native <video controls>),
+ * with inline-styled buttons 16-25px wide. On a phone each one is a 40px target;
+ * !important is the only way past an inline style.
+ */
+@media (max-width: 639px) {
+  .deck-player button {
+    min-width: 40px !important;
+    min-height: 40px !important;
   }
 }

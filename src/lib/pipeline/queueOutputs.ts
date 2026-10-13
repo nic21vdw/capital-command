@@ -18,7 +18,7 @@ import { withPublishRunLock } from "@/lib/publisher/runLock";
 import { runDue } from "@/lib/publisher/runner";
 import { planScheduleRepair } from "@/lib/publisher/scheduleShuffle";
 import { localDateKey } from "@/lib/publisher/schedule";
-import { movesBreachShortsCap, shortsByDay, shortsLimit } from "@/lib/publisher/shortsCap";
+import { movesBreachShortsCap, shortsByDay, shortsLimit, type ShortsDated } from "@/lib/publisher/shortsCap";
 import { generateSlots, slotGrid } from "@/lib/publisher/slots";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 import type { Carousel } from "@/types/domain";
@@ -353,7 +353,7 @@ function freeSlots(existing: QueueItem[]): string[] {
 export type ShortsCap = {
   timeZone: string;
   limit: number;
-  booked: Pick<QueueItem, "publishAt" | "mediaKind" | "format">[];
+  booked: ShortsDated[];
 };
 
 function shortsCapFor(existing: QueueItem[]): ShortsCap {

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   BookOpen,
   CalendarClock,
@@ -9,10 +10,13 @@ import {
   Clock,
   Copy,
   Download,
+  Eye,
   MessageSquare,
   MessagesSquare,
   RefreshCw,
+  PenLine,
   RotateCcw,
+  Trash2,
   ShieldCheck,
   Sparkles
 } from "lucide-react";
@@ -24,12 +28,24 @@ import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/ui/modal";
+import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs } from "@/components/ui/tabs";
+import { PlainFailure } from "@/components/x-posts/plain-failure";
 import { localDateKey } from "@/lib/x-strategy/analytics";
 import { exportBaseName, toThreadsCsv, toThreadsJson } from "@/lib/x-posts/export";
 import { cn } from "@/lib/utils";
-import type { ThreadsBatchSummary } from "@/lib/threads/types";
+import { tomorrowReady } from "@/lib/threads/tomorrow";
+import type { ThreadsBatchSummary, ThreadsOutcome } from "@/lib/threads/types";
+import { browserTimeZone, fromZonedInput, placeName, threadsClock, toZonedInput, zoneNote, zonedDateKey } from "@/lib/threads/zone";
+import { cadenceBadge, isEarlierPack, orderPackPosts, packOrderNote, packSizeNote, packTimeRange } from "@/lib/threads/packCadence";
+import { accountChipLabel, boardNeedsAccountChips, defaultBatchDate, numberBatchPosts } from "@/lib/threads/board";
+import { formatDayKey } from "@/lib/master-calendar/day-keys";
+import { formatClockTime, formatSlotDateTime } from "@/lib/timeFormat";
+import { SCHEDULED_WORD, statusTone, statusWord } from "@/lib/statusTone";
+import { rewriteDecision } from "@/lib/threads/rewrite";
+import { autopilotHeader, packSplitNote, summarizeThreadsToday, todayHeadline, type ThreadsTodaySummary } from "@/lib/threads/todaySummary";
 import type { ThreadsReplyCounts, ThreadsReplyPolicy, ThreadsReplyPreview, ThreadsReplySummary } from "@/lib/threads/reply-summary";
 import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@/types/domain";
 
@@ -38,15 +54,21 @@ interface GenerateResponse {
   cached: boolean;
   reason: string | null;
   configured: boolean;
+  /** A forced rewrite also swaps the posts still waiting on the queue. */
+  queue?: { replaced: number; plan?: { created: number; skipped?: string }; error?: string };
+  error?: string;
 }
 
 interface AutopilotStatus {
   enabled: boolean;
+  /** The Automations pause switch; a paused autopilot sends nothing. */
+  paused?: boolean;
   configured: boolean;
   blockedReason: string | null;
   settings: {
     timezone: string;
     postsPerDay: number;
+    postingWindow?: { start: number; end: number };
     lateGraceMinutes: number;
     replyPolicy?: ThreadsReplyPolicy;
     accounts: Array<{ id: string; label: string; posts: "text" | "variant"; offsetMinutes: number }>;
@@ -62,12 +84,21 @@ interface AutopilotActionResponse {
   error?: string;
   checks?: Array<{ accountId: string; label: string; ok: boolean; username?: string | null; error?: string }>;
   plan?: { created: number; skipped?: string; startedAt?: string; gapMinutes?: number; droppedPastSlots?: number };
-  run?: { published: number; failed?: number; skipped: number; note?: string };
+  run?: { published: number; failed?: number; skipped: number; note?: string; outcomes?: ThreadsOutcome[]; dryRun?: boolean };
   moved?: number;
+  added?: { id: string; publishAt: string; batchDate: string };
+  paused?: boolean;
 }
+
+/** Where the Automations page lives; pausing and resuming happen there. */
+const AUTOMATIONS_HREF = "/automations";
+const ACCOUNTS_HREF = "/settings#accounts";
 
 /** Threads' own limit — the only one that matters here. */
 const THREADS_LIMIT = 500;
+
+/** Remove is destructive: the danger tint, with an outline so it reads as a button beside Skip. */
+const REMOVE_BUTTON_CLASS = "border border-[color-mix(in_srgb,var(--tone)_55%,transparent)] bg-transparent";
 
 const FORMAT_STYLES: Record<XPostFormat, string> = {
   insight: "border-sky-400/30 bg-sky-400/10 text-sky-200",
@@ -79,17 +110,19 @@ const FORMAT_STYLES: Record<XPostFormat, string> = {
 };
 
 function formatTime(time: string): string {
-  const [hours, minutes] = time.split(":").map(Number);
-  const meridiem = hours >= 12 ? "PM" : "AM";
-  const displayHours = hours % 12 === 0 ? 12 : hours % 12;
-  return `${displayHours}:${String(minutes).padStart(2, "0")} ${meridiem}`;
+  return formatClockTime(time);
 }
 
-/** Absolute local stamp, e.g. "Jul 22, 2:34 PM", for showing when a pack was written. */
-function formatStamp(iso: string): string {
+/** Absolute stamp, e.g. "Jul 22, 2:34 PM", in the autopilot's zone (the browser's only until that is known). */
+function formatStamp(iso: string, timeZone?: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "unknown";
-  return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return formatSlotDateTime(date, timeZone);
+}
+
+/** The zone every time on this page is shown in: the autopilot's own, else the browser's until the status loads. */
+function pageZone(status: { settings: { timezone: string } } | null | undefined): string {
+  return status?.settings.timezone ?? browserTimeZone() ?? "UTC";
 }
 
 /** Human "how long ago" against a live `now`, so the batch's freshness is obvious at a glance. */
@@ -141,12 +174,17 @@ function useCopy() {
 
 export function XPostsPage() {
   const { data, loading, refresh } = useAppData();
-  const today = localDateKey();
+  const autopilot = useAutopilot();
+  // "Today" is the autopilot's own day, in its own zone, as the status states it:
+  // a browser in another zone would pick tomorrow's pack at 8 PM Toronto. Only
+  // when the status could not be read at all does the browser's date stand in;
+  // while it is still loading, today is unknown rather than guessed.
+  const today = autopilot.status?.today.date ?? (autopilot.settled ? localDateKey() : null);
   const dateParam = useSearchParams().get("date");
   const wantedDate = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : today;
 
   const storedPack = useMemo(
-    () => data.xPlanner?.packs.find((pack) => pack.date === wantedDate) ?? null,
+    () => (wantedDate ? (data.xPlanner?.packs.find((pack) => pack.date === wantedDate) ?? null) : null),
     [data.xPlanner, wantedDate]
   );
 
@@ -157,10 +195,41 @@ export function XPostsPage() {
   const autoRequested = useRef(false);
 
   const activePack = pack ?? storedPack;
-  const autopilot = useAutopilot();
   // Until the status has loaded, claim nothing: an unarmed autopilot briefly
   // promising to post is the wrong way round to be wrong.
-  const autopilotArmed = autopilot.status ? !autopilot.status.blockedReason : false;
+  const autopilotPaused = autopilot.status?.paused === true;
+  const autopilotArmed = autopilot.status ? !autopilot.status.blockedReason && !autopilotPaused : false;
+  // One definition of "today" for the header, the card and the surface readings.
+  const todaySummary = useMemo(
+    () => (autopilot.status ? summarizeThreadsToday(autopilot.status.items as Parameters<typeof summarizeThreadsToday>[0], autopilot.status.today.date) : null),
+    [autopilot.status]
+  );
+
+  // May today's pack be written again? One answer for the button, its
+  // confirmation and (server-side) the route: once a post has gone out the pack
+  // is frozen, and a rewrite swaps whatever is still queued so the pack on screen
+  // is the one that sends.
+  const todaysPack = pack?.date === today ? pack : (today ? (data.xPlanner?.packs.find((entry) => entry.date === today) ?? null) : null);
+  const rewrite = useMemo(
+    () =>
+      rewriteDecision({
+        packExists: todaysPack !== null,
+        items: (autopilot.status?.items ?? []) as Parameters<typeof rewriteDecision>[0]["items"],
+        date: today ?? "",
+        autopilot: {
+          paused: autopilotPaused,
+          blockedReason: autopilot.status?.blockedReason ?? null,
+          noAccount: autopilot.status?.settings.accounts.length === 0
+        },
+        pack: todaysPack ? { posts: todaysPack.posts.length, replies: todaysPack.replies.length } : null
+      }),
+    [todaysPack, autopilot.status, today, autopilotPaused]
+  );
+  const [confirmingRewrite, setConfirmingRewrite] = useState(false);
+  const rewriteMode = rewrite.mode === "rewrite";
+  // Until the autopilot's status has been read, a rewrite cannot know what is queued.
+  const rewriteUnknown = today === null || (autopilot.status === null && !autopilot.settled);
+  const generateDisabled = generating || autopilot.busy !== null || rewriteUnknown || !rewrite.allowed;
 
   // Keep the "generated Xm ago" freshness read-out live so a stale, cached pack
   // is visibly old — the whole point is not to copy something from before.
@@ -169,6 +238,7 @@ export function XPostsPage() {
     return () => window.clearInterval(id);
   }, []);
 
+  const reloadAutopilot = autopilot.reload;
   const generate = useCallback(
     async (force: boolean) => {
       setGenerating(true);
@@ -178,44 +248,80 @@ export function XPostsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ force, requestedAt: new Date().toISOString() })
         });
-        if (!response.ok) throw new Error("request failed");
-        const json = (await response.json()) as GenerateResponse;
+        const json = (await response.json().catch(() => ({}))) as Partial<GenerateResponse>;
+        // The server refuses a rewrite once posts have gone out (409) and says why.
+        if (!response.ok || !json.pack) throw new Error(json.error ?? "request failed");
         setPack(json.pack);
-        setReason(json.reason);
+        setReason(json.reason ?? null);
         if (!json.cached) {
-          toast.success(force ? "Fresh pack generated." : "Today's pack is ready.");
+          toast.success(
+            !force
+              ? "Today's pack is ready."
+              : json.queue?.error
+                ? `Fresh pack written, but the queue was not updated: ${json.queue.error}`
+                : json.queue && json.queue.replaced > 0
+                  ? `Fresh pack written. ${json.queue.plan?.created ?? 0} queued sends were laid out again from it.`
+                  : "Fresh pack written."
+          );
           void refresh();
+          // The queue may have changed underneath the board.
+          if (force) void reloadAutopilot();
+        } else if (force && json.reason) {
+          // A rewrite that could not improve on the pack changes nothing, and says why.
+          toast.message("Today's pack was kept.", { description: json.reason });
         }
-      } catch {
-        toast.error("Could not generate today's pack.");
+      } catch (error) {
+        toast.error(error instanceof Error && error.message !== "request failed" ? error.message : "Could not generate today's pack.");
       } finally {
         setGenerating(false);
       }
     },
-    [refresh]
+    [refresh, reloadAutopilot]
   );
+
+  const requestGenerate = useCallback(() => {
+    if (rewriteMode) setConfirmingRewrite(true);
+    else void generate(true);
+  }, [rewriteMode, generate]);
 
   // First visit of the day: kick off generation automatically so the pack is
   // simply there, matching the "every day it suggests" behaviour.
   useEffect(() => {
-    if (loading || storedPack || autoRequested.current) return;
+    if (loading || !wantedDate || storedPack || autoRequested.current) return;
     autoRequested.current = true;
     void generate(false);
-  }, [loading, storedPack, generate]);
+  }, [loading, wantedDate, storedPack, generate]);
+
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchString = useSearchParams().toString();
+  // The banner's button: pick tomorrow's date pill and open the tab it lives on.
+  const { setSelectedDate } = autopilot;
+  const reviewTomorrow = useCallback(
+    (date: string) => {
+      setSelectedDate(date);
+      const params = new URLSearchParams(searchString);
+      params.set("tab", "autopilot");
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [setSelectedDate, pathname, router, searchString]
+  );
 
   // Let an agent on the CoLateral canvas read and drive this page: the same
   // three actions the buttons below trigger, plus what the page is reporting.
   useColateralSurface({
     route: "/x-posts",
-    title: "X / Threads Posts",
+    title: "Threads Autopilot",
     summary: "Write a day of Threads posts and replies, then let the autopilot send them one at a time through the day.",
     fields: [],
     controls: [
       {
         id: "generate",
-        label: "Write today's posts",
+        label: rewriteMode ? "Rewrite today's pack" : "Write today's posts",
         group: "Compose",
-        disabled: generating || autopilot.busy !== null
+        // Replaces the written pack (and the queued posts built from it).
+        destructive: rewriteMode,
+        disabled: generateDisabled
       },
       {
         id: "check-accounts",
@@ -233,24 +339,17 @@ export function XPostsPage() {
       }
     ],
     readings: [
-      { label: "Posts today", value: String(activePack?.posts.length ?? 0) },
-      { label: "Replies ready", value: String(activePack?.replies.length ?? 0) },
-      {
-        label: "Posted today",
-        value: autopilot.status
-          ? `${autopilot.status.today.published}/${
-              autopilot.status.today.total ||
-              autopilot.status.settings.postsPerDay * Math.max(1, autopilot.status.settings.accounts.length)
-            }`
-          : "—"
-      },
-      { label: "Queued", value: String(autopilot.status?.today.pending ?? 0) },
-      { label: "Autopilot", value: autopilotArmed ? "Armed" : "Idle" }
+      { label: "Posts in the written pack", value: String(activePack?.posts.length ?? 0) },
+      { label: "Replies in the written pack", value: String(activePack?.replies.length ?? 0) },
+      { label: "Sent today", value: todaySummary ? `${todaySummary.sent} of ${todaySummary.posts} posts` : "—" },
+      { label: "Scheduled today", value: String(todaySummary?.waiting ?? 0) },
+      { label: "Autopilot", value: autopilotPaused ? "Paused" : autopilotArmed ? "Armed" : "Idle" }
     ],
     click: (id) => {
       if (id === "generate") {
-        if (generating || autopilot.busy !== null) return false;
-        void generate(true);
+        if (generateDisabled) return false;
+        // A rewrite waits for the person's confirmation in the dialog.
+        requestGenerate();
         return true;
       }
       if (id === "check-accounts") {
@@ -272,32 +371,96 @@ export function XPostsPage() {
     }
   });
 
+  // Every time below is the autopilot's clock. Say so once, but only when the
+  // browser's own clock would have read differently.
+  const zoneHint = autopilot.status ? zoneNote(autopilot.status.settings.timezone, browserTimeZone()) : null;
+
   return (
     <div>
       <PageHeader
         eyebrow="Step 2 · Formats"
-        title="X / Threads Posts"
+        title="Threads Autopilot"
         description={
           // Promising that they post themselves is only true when autopilot is
-          // actually armed. Said unconditionally, the header contradicted the
-          // card right below it explaining why nothing was going out.
-          autopilotArmed
-            ? "Write a day of Threads posts and let them go out on their own — press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief, then posts them for you one at a time through the day."
-            : "Press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief. Connect an account below to have them go out on their own."
+          // actually armed, and the numbers are the configured cadence and the
+          // pack actually written - not the generator's ideal of a full pack.
+          `${autopilotHeader({
+            postsPerDay: autopilot.status?.settings.postsPerDay ?? 0,
+            accounts: autopilot.status?.settings.accounts.length ?? 0,
+            linkReplies: autopilot.status?.settings.replyPolicy?.enabled === true,
+            paused: autopilotPaused,
+            armed: autopilotArmed,
+            pack: activePack
+              ? { label: activePack.date === today ? "Today's pack" : `The pack for ${activePack.date}` }
+              : null,
+            known: autopilot.status !== null
+          })}${zoneHint ? ` ${zoneHint}.` : ""}`
         }
         actions={
-          <Button onClick={() => generate(true)} disabled={generating || autopilot.busy !== null} className="shrink-0">
-            <RefreshCw className={cn("mr-2 h-4 w-4", generating && "animate-spin")} />
-            {generating ? "Writing…" : "Write today's posts"}
-          </Button>
+          <span title={rewrite.reason ?? undefined} className="shrink-0">
+            <Button
+              variant={rewriteMode ? "secondary" : "primary"}
+              onClick={requestGenerate}
+              disabled={generateDisabled}
+              className="shrink-0"
+            >
+              <RefreshCw className={cn("mr-2 h-4 w-4", generating && "animate-spin")} />
+              {generating ? "Writing…" : rewriteMode ? "Rewrite today's pack" : "Write today's posts"}
+            </Button>
+          </span>
         }
       />
+
+      {rewrite.reason ? (
+        <p role="status" data-testid="rewrite-blocked" className="-mt-2 mb-6 text-xs text-[var(--muted-foreground)]">
+          {rewrite.reason}
+        </p>
+      ) : null}
+
+      <Modal
+        open={confirmingRewrite}
+        title="Rewrite today's pack?"
+        description="The posts are written again from your positioning brief."
+        onClose={() => setConfirmingRewrite(false)}
+      >
+        <ul className="list-disc space-y-2 pl-5 text-sm text-[var(--foreground)]">
+          {rewrite.confirm.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+        <div className="mt-6 flex flex-wrap justify-end gap-2">
+          <Button variant="secondary" onClick={() => setConfirmingRewrite(false)}>
+            Keep today&apos;s pack
+          </Button>
+          <Button
+            variant="danger"
+            className="border border-[color-mix(in_srgb,var(--tone)_45%,transparent)]"
+            onClick={() => {
+              setConfirmingRewrite(false);
+              void generate(true);
+            }}
+          >
+            Rewrite the pack
+          </Button>
+        </div>
+      </Modal>
 
       {reason ? (
         <div className="mb-6 rounded-2xl border p-3 text-xs tone-warning tone-soft tone-edge tone-text">{reason}</div>
       ) : null}
 
-      {activePack ? <PackSummary pack={activePack} now={now} /> : null}
+      <BlockedNotice status={autopilot.status} />
+
+      <TomorrowBanner status={autopilot.status} onReview={reviewTomorrow} />
+
+      {activePack ? <PackSummary
+          pack={activePack}
+          todaySummary={todaySummary}
+          now={now}
+          timeZone={pageZone(autopilot.status)}
+          today={today}
+          settings={autopilot.status?.settings ?? null}
+        /> : null}
 
       <div className="mt-6">
         <AdvancedOptions
@@ -344,6 +507,11 @@ export function XPostsPage() {
         <AutopilotCard status={autopilot.status} />
       </div>
 
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <NextRunPreview {...autopilot} />
+        <AddPostCard {...autopilot} />
+      </div>
+
       <div className="mt-6">
         {activePack ? (
           <Tabs
@@ -352,13 +520,13 @@ export function XPostsPage() {
                 id: "schedule",
                 label: "Today's posts",
                 icon: Clock,
-                content: <ScheduleTab posts={activePack.posts} />
+                content: <ScheduleTab posts={activePack.posts} date={activePack.date} timeZone={autopilot.status?.settings.timezone ?? null} />
               },
               {
                 id: "autopilot",
                 label: "Scheduled & sent",
                 icon: CalendarClock,
-                content: <AutopilotTab {...autopilot} />
+                content: <AutopilotTab {...autopilot} requestedDate={dateParam} />
               },
               {
                 id: "replies",
@@ -376,7 +544,7 @@ export function XPostsPage() {
                 id: "playbook",
                 label: "How this works",
                 icon: BookOpen,
-                content: <PlaybookTab />
+                content: <PlaybookTab lateGraceMinutes={autopilot.status?.settings.lateGraceMinutes} />
               }
             ]}
           />
@@ -386,8 +554,8 @@ export function XPostsPage() {
               <Sparkles className="h-8 w-8 text-[var(--accent)]" />
               <p className="text-sm text-[var(--muted-foreground)]">
                 {generating || loading
-                  ? "Writing 24 fresh posts and twenty replies…"
-                  : "Nothing written yet — press Write today's posts for a fresh day of 24."}
+                  ? "Writing a fresh day of posts and replies…"
+                  : "Nothing written yet — press Write today's posts for a fresh day."}
               </p>
             </div>
           </Card>
@@ -417,20 +585,13 @@ type QueueItemView = {
   note?: string;
 };
 
-/** "7:10 AM" in the viewer's own clock. */
-function clock(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+/** "7:10 PM" on the autopilot's clock, whatever zone the browser is in. */
+function clock(iso: string, timeZone: string): string {
+  return threadsClock(iso, timeZone);
 }
 
-/** The value shape a datetime-local input wants: local wall clock, no zone. */
-function toLocalInput(iso: string): string {
-  const date = new Date(iso);
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function friendlyDate(dateKey: string): string {
-  if (dateKey === localDateKey()) return "Today";
+function friendlyDate(dateKey: string, today: string): string {
+  if (dateKey === today) return "Today";
   const [y, m, d] = dateKey.split("-").map(Number);
   return new Date(y, (m ?? 1) - 1, d ?? 1).toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
 }
@@ -439,6 +600,10 @@ function friendlyDate(dateKey: string): string {
 function useAutopilot() {
   const [status, setStatus] = useState<AutopilotStatus | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Lives here, not in the tab, so the "tomorrow is ready" banner can pick the pill.
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  // True once the first read has finished, whichever way it went.
+  const [settled, setSettled] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -447,6 +612,8 @@ function useAutopilot() {
       setStatus((await response.json()) as AutopilotStatus);
     } catch {
       setStatus(null);
+    } finally {
+      setSettled(true);
     }
   }, []);
 
@@ -457,7 +624,7 @@ function useAutopilot() {
     void load();
   }, [load]);
 
-  // The scheduler keeps ticking while this page is open; without a refresh the
+  // The autopilot keeps running while this page is open; without a refresh the
   // times and tallies on screen quietly go stale.
   useEffect(() => {
     const id = window.setInterval(() => void load(), 60_000);
@@ -493,17 +660,17 @@ function useAutopilot() {
    * starting right now, replacing whatever was still waiting to go out.
    */
   const scheduleNow = useCallback(
-    () => send({ action: "schedule-now" }, "schedule-now", (json) => describePlan(json.plan)),
-    [send]
+    () => send({ action: "schedule-now" }, "schedule-now", (json) => describePlan(json.plan, pageZone(status))),
+    [send, status]
   );
 
-  return { status, busy, reload: load, send, scheduleNow };
+  return { status, settled, busy, reload: load, send, scheduleNow, selectedDate, setSelectedDate };
 }
 
-function describePlan(plan: AutopilotActionResponse["plan"]): string {
+function describePlan(plan: AutopilotActionResponse["plan"], timeZone: string): string {
   if (!plan) return "Nothing to schedule.";
   if (plan.skipped) return plan.skipped;
-  const from = plan.startedAt ? ` from ${clock(plan.startedAt)}` : "";
+  const from = plan.startedAt ? ` from ${clock(plan.startedAt, timeZone)}` : "";
   const gap = plan.gapMinutes ? `, one every ${plan.gapMinutes} min` : "";
   const dropped = plan.droppedPastSlots
     ? ` ${plan.droppedPastSlots} didn't fit before midnight and were left out.`
@@ -518,9 +685,10 @@ function versionLabel(version: "text" | "variant"): string {
 }
 
 const REPLY_STATES = ["delivered", "pending", "retrying", "dropped", "disabled"] as const;
-const REPLY_TONES: Record<(typeof REPLY_STATES)[number], BadgeTone> = {
-  delivered: "success", pending: "accent", retrying: "warning", dropped: "danger", disabled: "neutral"
-};
+// The same status colours as every other screen: a reply waiting to send is "scheduled" (blue), not the accent.
+const REPLY_TONES: Record<(typeof REPLY_STATES)[number], BadgeTone> = Object.fromEntries(
+  REPLY_STATES.map((state) => [state, statusTone(state)])
+) as Record<(typeof REPLY_STATES)[number], BadgeTone>;
 
 function ReplyCounts({ counts }: { counts: ThreadsReplyCounts }) {
   return (
@@ -532,7 +700,7 @@ function ReplyCounts({ counts }: { counts: ThreadsReplyCounts }) {
   );
 }
 
-function FollowUpReply({ reply, editing }: { reply: ThreadsReplyPreview; editing: boolean }) {
+function FollowUpReply({ reply, editing, timeZone }: { reply: ThreadsReplyPreview; editing: boolean; timeZone: string }) {
   return (
     <section aria-label="Follow-up reply" className="min-w-0 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -544,11 +712,11 @@ function FollowUpReply({ reply, editing }: { reply: ThreadsReplyPreview; editing
       </div>
       <p className="mt-2 whitespace-pre-wrap break-words text-sm text-[var(--foreground)]">{reply.text}</p>
       <p className="mt-2 break-words text-xs text-[var(--muted-foreground)]">{reply.detail}</p>
-      {reply.error && reply.error !== reply.detail ? <p className="mt-1 break-words text-xs tone-danger tone-text">{reply.error}</p> : null}
+      {reply.error && reply.error !== reply.detail ? <div className="mt-1 break-words text-xs tone-danger tone-text"><PlainFailure raw={reply.error} /></div> : null}
       {reply.nextAttemptAt && (reply.status === "pending" || reply.status === "retrying") ? (
         <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-          Earliest {formatStamp(reply.nextAttemptAt)} · sent on the next scheduler check
-          {reply.expiresAt ? ` · window ends ${formatStamp(reply.expiresAt)}` : ""}
+          Earliest {formatStamp(reply.nextAttemptAt, timeZone)} · sent on the autopilot&apos;s next run
+          {reply.expiresAt ? ` · window ends ${formatStamp(reply.expiresAt, timeZone)}` : ""}
         </p>
       ) : null}
       {editing ? <p className="mt-2 text-xs text-[var(--muted-foreground)]">Save your edit to refresh this reply preview.</p> : null}
@@ -560,14 +728,16 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
   if (!status) return null;
 
   const { today, settings, blockedReason, scheduler } = status;
-  const expected = settings.postsPerDay * Math.max(1, settings.accounts.length);
+  const paused = status.paused === true;
+  const summary = summarizeThreadsToday(status.items as Parameters<typeof summarizeThreadsToday>[0], today.date);
+  const noAccount = settings.accounts.length === 0;
   const minutesSince = scheduler?.minutesSince;
   const heartbeat =
     minutesSince === null || minutesSince === undefined
-      ? "never run"
+      ? "The autopilot hasn't run yet on this computer"
       : minutesSince < 1
-        ? "just now"
-        : `${Math.round(minutesSince)} min ago`;
+        ? "The autopilot ran just now"
+        : `The autopilot last ran ${Math.round(minutesSince)} min ago`;
 
   return (
     <Card>
@@ -575,24 +745,31 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
         <div>
           <p className="text-xs uppercase tracking-[0.28em] text-[var(--muted-foreground)]">Threads autopilot</p>
           <h2 className="mt-1 text-xl font-semibold text-white">
-            {today.published}/{today.total || expected} posted today
+            {todayHeadline(summary, {
+              timeZone: settings.timezone,
+              accountLabel: settings.accounts.length > 1 ? (accountId) => accountChipLabel(accountId, settings.accounts) : undefined
+            })}
           </h2>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-            The autopilot sends today&apos;s posts for you, one at each slot — a slot is one fixed posting time in the
-            day.
+            The autopilot sends today&apos;s posts for you, one at each posting time.
           </p>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-            {settings.postsPerDay} slots a day in {settings.timezone} ·{" "}
+            Times in {settings.timezone} ·{" "}
             {settings.accounts.map((account) => `${account.label} (${versionLabel(account.posts)})`).join(", ") ||
-              "no account connected"}
+              "Waiting for an account"}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge tone={blockedReason ? "warning" : "accent"}>{blockedReason ? "Idle" : "Armed"}</Badge>
-          {today.pending ? <Badge>{today.pending} queued</Badge> : null}
-          {today.failed ? <Badge tone="danger">{today.failed} failed</Badge> : null}
-          {today.skipped ? <Badge>{today.skipped} skipped</Badge> : null}
-          {today.nextAt ? <Badge tone="accent">Next {clock(today.nextAt)}</Badge> : null}
+          {paused ? (
+            <Link href={AUTOMATIONS_HREF} title="Resume it on Automations" className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]">
+              <Badge tone="warning">Paused - resume on Automations</Badge>
+            </Link>
+          ) : (
+            // Idle is not a problem (the notice above says why), so it is neutral, not amber.
+            <Badge tone={blockedReason ? "neutral" : "accent"}>{blockedReason ? "Idle" : "Armed"}</Badge>
+          )}
+          {summary.failed ? <Badge tone="danger">{summary.failed} failed</Badge> : null}
+          {summary.skipped ? <Badge>{summary.skipped} skipped</Badge> : null}
         </div>
       </div>
 
@@ -605,10 +782,10 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
             </Badge>
           </div>
           <p className="text-xs text-[var(--muted-foreground)]">
-            {settings.replyPolicy.disabledReason ?? `A contextual link reply follows each eligible post after ${settings.replyPolicy.delayMinutes} min, within a ${settings.replyPolicy.windowMinutes} min window.`}
+            {(noAccount ? "Waiting for an account" : settings.replyPolicy.disabledReason) ?? `A contextual link reply follows each eligible post after ${settings.replyPolicy.delayMinutes} min, within a ${settings.replyPolicy.windowMinutes} min window.`}
           </p>
           {settings.replyPolicy.url ? (
-            <a href={settings.replyPolicy.url} target="_blank" rel="noreferrer" className="block break-all text-xs text-[var(--accent)] underline">
+            <a href={settings.replyPolicy.url} target="_blank" rel="noreferrer" className="block break-all text-xs text-[var(--accent)] underline max-sm:py-3">
               {settings.replyPolicy.url}
             </a>
           ) : null}
@@ -626,18 +803,21 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
       >
         <span className="flex items-center gap-1.5 font-medium">
           <Clock className="h-3.5 w-3.5" />
-          Scheduler checked {heartbeat}
+          {heartbeat}
         </span>
         <span className="text-[var(--muted-foreground)]">
           {scheduler?.healthy
-            ? "Ticking every 5 minutes."
-            : "Expected every 5 minutes — the scheduled task may be off, or the PC asleep."}
+            ? "It checks for due posts every 5 minutes."
+            : minutesSince === null || minutesSince === undefined
+              ? "It runs every 5 minutes once its background runner is installed - see Automations."
+              : "It should run every 5 minutes - its background runner may be off, or the PC asleep."}
         </span>
       </div>
 
-      {blockedReason ? (
+      {paused ? (
         <p className="mt-3 rounded-xl border px-3 py-2 text-xs tone-warning tone-soft tone-edge tone-text">
-          {blockedReason}
+          The autopilot is paused, so nothing is planned or sent and the queued posts below are waiting. Resume it on{" "}
+          <Link href={AUTOMATIONS_HREF} className="font-medium underline">Automations</Link>.
         </p>
       ) : null}
 
@@ -651,20 +831,236 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
   );
 }
 
+/**
+ * The ONE place the page says why the autopilot cannot post. It used to be
+ * repeated in the header, the autopilot card and the add-a-post form, which
+ * read as three separate problems.
+ */
+function BlockedNotice({ status }: { status: AutopilotProps["status"] }) {
+  if (!status?.blockedReason) return null;
+  const noAccount = status.settings.accounts.length === 0;
+  return (
+    <p role="status" className="mb-6 rounded-2xl border px-4 py-3 text-sm tone-warning tone-soft tone-edge tone-text">
+      {noAccount ? (
+        <>
+          No Threads account is connected, so nothing goes out yet. Add the access token in{" "}
+          <Link href={ACCOUNTS_HREF} className="font-medium underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center">
+            Settings &gt; Accounts
+          </Link>
+          .
+        </>
+      ) : (
+        status.blockedReason
+      )}
+    </p>
+  );
+}
+
+/** Tomorrow's batch is written in the evening; this says so, and jumps to it. */
+function TomorrowBanner({ status, onReview }: { status: AutopilotProps["status"]; onReview: (date: string) => void }) {
+  if (!status) return null;
+  const ready = tomorrowReady(status.items as Parameters<typeof tomorrowReady>[0], status.today.date);
+  if (!ready) return null;
+  return (
+    <div role="status" className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-sm tone-accent tone-soft tone-edge">
+      <p className="text-white">
+        <span className="font-semibold">Tomorrow&apos;s {ready.posts} posts are ready - review them.</span>{" "}
+        <span className="text-[var(--muted-foreground)]">
+          {status.paused
+            ? "The autopilot is paused, so they will not go out until you resume it."
+            : status.blockedReason
+              ? status.settings.accounts.length === 0
+                ? null
+                : "They will not go out until the autopilot is switched on; edit or remove any before then."
+              : "They go out on their own from the first slot; edit or remove any before then."}
+          {!status.paused && !status.blockedReason && status.settings.accounts.length === 0 ? (
+            <>
+              They will go out once Threads is connected in{" "}
+              <Link href={ACCOUNTS_HREF} className="font-medium text-[var(--accent)] underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center">
+                Settings &gt; Accounts
+              </Link>
+              ; edit or remove any before then.
+            </>
+          ) : null}
+        </span>
+      </p>
+      <Button variant="secondary" className="shrink-0 px-3 py-1.5 text-xs" onClick={() => onReview(ready.date)}>
+        Review tomorrow
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * "What would the next check send?" - a dry run of the due-post step. It posts
+ * nothing, plans nothing and writes nothing, and it works while paused so a
+ * paused autopilot can still be inspected before it is resumed.
+ */
+function NextRunPreview({ status, busy, send }: AutopilotProps) {
+  const zone = pageZone(status);
+  const today = status?.today.date ?? zonedDateKey(zone);
+  const [result, setResult] = useState<{ outcomes: ThreadsOutcome[]; note?: string } | null>(null);
+  const upcoming = useMemo(
+    () => ((status?.items ?? []) as QueueItemView[]).filter((item) => item.status === "pending").sort((a, b) => a.publishAt.localeCompare(b.publishAt)).slice(0, 3),
+    [status]
+  );
+  const preview = async () => {
+    const json = await send({ action: "run-due", dryRun: true }, "preview");
+    if (json?.run) setResult({ outcomes: json.run.outcomes ?? [], note: json.run.note });
+  };
+  return (
+    <Card className="space-y-3">
+      <div className="flex items-center gap-2 text-white">
+        <Eye className="h-4 w-4 text-[var(--accent)]" />
+        <h3 className="font-semibold">Preview next run</h3>
+      </div>
+      <p className="text-xs text-[var(--muted-foreground)]">
+        Shows what the next check would send right now. Nothing is posted, planned or changed.
+        {status?.paused ? " The autopilot is paused, so this is what would go out once it is resumed." : ""}
+      </p>
+      <Button variant="secondary" onClick={() => void preview()} disabled={busy !== null || !status}>
+        <Eye className="mr-2 h-4 w-4" />
+        {busy === "preview" ? "Checking…" : "Preview next run"}
+      </Button>
+      {result ? (
+        <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--well)] p-3 text-xs">
+          {result.outcomes.length ? (
+            <ul className="space-y-1.5">
+              {result.outcomes.map((outcome) => (
+                <li key={`${outcome.itemId}-${outcome.outcome}`} className="break-words text-white/90">
+                  <span className="font-semibold">Slot {outcome.slot}:</span>{" "}
+                  {outcome.outcome === "failed" || outcome.outcome === "retrying" ? <PlainFailure raw={outcome.detail} className="inline" /> : outcome.detail}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-[var(--muted-foreground)]">{result.note ?? "Nothing is due this minute."}</p>
+          )}
+        </div>
+      ) : null}
+      {upcoming.length ? (
+        <div className="space-y-1.5 border-t border-[var(--border)] pt-3">
+          <p className="text-xs font-semibold text-[var(--foreground)]">Coming up next</p>
+          <ul className="space-y-1.5">
+            {upcoming.map((item) => (
+              <li key={item.id} className="text-xs text-[var(--muted-foreground)]">
+                <span className="tabular-nums text-white">{clock(item.publishAt, zone)}</span>
+                {item.batchDate !== today ? ` (${friendlyDate(item.batchDate, today)})` : ""} · {item.text.length > 140 ? `${item.text.slice(0, 140)}…` : item.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+/** Write one Threads post by hand and put it on the same queue the autopilot drains. */
+function AddPostCard({ status, busy, send }: AutopilotProps) {
+  const zone = pageZone(status);
+  const today = status?.today.date ?? zonedDateKey(zone);
+  const [text, setText] = useState("");
+  const [when, setWhen] = useState<"soon" | "time">("soon");
+  const [at, setAt] = useState("");
+  const trimmed = text.trim();
+  const over = trimmed.length > THREADS_LIMIT;
+  const needsTime = when === "time" && !at;
+  const blocked = status?.blockedReason ?? null;
+  const submit = async () => {
+    // The time typed here is the autopilot's wall clock, not the browser's.
+    const instant = when === "time" ? fromZonedInput(at, zone) : null;
+    if (when === "time" && !instant) return;
+    const json = await send({ action: "add", text: trimmed, ...(instant ? { at: instant.toISOString() } : {}) }, "add", (response) =>
+      response.added
+        ? `Scheduled for ${clock(response.added.publishAt, zone)} on ${friendlyDate(response.added.batchDate, today).toLowerCase()}.${response.paused ? " The autopilot is paused, so it waits until you resume." : ""}`
+        : "Scheduled."
+    );
+    if (json) setText("");
+  };
+  return (
+    <Card className="space-y-3">
+      <div className="flex items-center gap-2 text-white">
+        <PenLine className="h-4 w-4 text-[var(--accent)]" />
+        <h3 className="font-semibold">Add a post</h3>
+      </div>
+      <p className="text-xs text-[var(--muted-foreground)]">
+        Write your own Threads post. It joins the queue and goes out from the first connected account at the time you choose; edit or remove it on Scheduled &amp; sent.
+      </p>
+      <Textarea
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        rows={4}
+        aria-label="New Threads post"
+        placeholder="What do you want to say?"
+        disabled={Boolean(blocked)}
+      />
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)] max-sm:min-h-10">
+          <input type="radio" name="add-when" checked={when === "soon"} onChange={() => setWhen("soon")} className="accent-[var(--accent)]" />
+          In about 2 hours
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)] max-sm:min-h-10">
+          <input type="radio" name="add-when" checked={when === "time"} onChange={() => setWhen("time")} className="accent-[var(--accent)]" />
+          At a time
+        </label>
+        {when === "time" ? (
+          <Input type="datetime-local" value={at} onChange={(event) => setAt(event.target.value)} aria-label="Post at" className="w-52" />
+        ) : null}
+        <span className={cn("ml-auto text-xs tabular-nums", over ? "tone-danger tone-text" : "text-[var(--muted-foreground)]")}>
+          {trimmed.length}/{THREADS_LIMIT}
+        </span>
+      </div>
+      {blocked ? (
+        <p className="text-xs tone-warning tone-text">
+          {status && status.settings.accounts.length === 0 ? (
+            <>
+              Connect a Threads account in{" "}
+              <Link href={ACCOUNTS_HREF} className="font-medium underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center">
+                Settings &gt; Accounts
+              </Link>{" "}
+              first.
+            </>
+          ) : (
+            `Adding posts is off: ${blocked}`
+          )}
+        </p>
+      ) : null}
+      <Button onClick={() => void submit()} disabled={busy !== null || !trimmed || over || needsTime || Boolean(blocked)}>
+        <PenLine className="mr-2 h-4 w-4" />
+        {busy === "add" ? "Adding…" : "Add to the queue"}
+      </Button>
+    </Card>
+  );
+}
+
 /** The batch board: what is going out, when, and every knob to change it. */
-function AutopilotTab({ status, busy, send }: AutopilotProps) {
-  const [selected, setSelected] = useState<string | null>(null);
+function AutopilotTab({
+  status,
+  busy,
+  send,
+  selectedDate: selected,
+  setSelectedDate: setSelected,
+  requestedDate
+}: AutopilotProps & { requestedDate?: string | null }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const zone = pageZone(status);
+  const today = status?.today.date ?? "";
 
   const items = useMemo(() => (status?.items ?? []) as QueueItemView[], [status]);
   const dates = useMemo(() => [...new Set(items.map((item) => item.batchDate))].sort().reverse(), [items]);
-  const active = selected && dates.includes(selected) ? selected : (dates[0] ?? localDateKey());
+  // Opens on today (or ?date=), not on the newest batch - that is tomorrow's
+  // whenever the evening tick has already written it.
+  const active = defaultBatchDate({ dates, today, picked: selected, requested: requestedDate });
   const batch = useMemo(
     () => items.filter((item) => item.batchDate === active).sort((a, b) => a.publishAt.localeCompare(b.publishAt)),
     [items, active]
   );
   const pending = useMemo(() => batch.filter((item) => item.status === "pending"), [batch]);
+  // Counted in POSTS, like the autopilot card's headline: the rows here are per account, so counting them said 13 under a headline of 7.
+  const scheduledPosts = useMemo(() => summarizeThreadsToday(batch as Parameters<typeof summarizeThreadsToday>[0], active).waiting, [batch, active]);
+  // 1..N in sending order, once per post - not the pack slot, which repeats per account.
+  const postNumbers = useMemo(() => numberBatchPosts(batch), [batch]);
   const repliesByItem = useMemo(() => new Map((status?.replies?.items ?? []).map((reply) => [reply.itemId, reply])), [status]);
   const replyCounts = useMemo(() => {
     const counts: ThreadsReplyCounts = { total: 0, delivered: 0, pending: 0, retrying: 0, dropped: 0, disabled: 0 };
@@ -684,6 +1080,17 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
   }
 
   const handle = status.settings.accounts[0]?.label ?? "";
+  // Two accounts post every idea, so two rows share a number and a topic: the
+  // chip is what tells them apart.
+  const showAccountChips = boardNeedsAccountChips(batch, status.settings.accounts);
+
+  // Deleting a queued post cannot be undone, and it sits beside Skip, which can
+  // (via Retry now) - so it asks first and says how the two differ.
+  const removePost = (item: QueueItemView) => {
+    const preview = item.text.length > 90 ? `${item.text.slice(0, 90).trimEnd()}…` : item.text;
+    if (!window.confirm(`Remove this post from the queue?\n\n"${preview}"\n\nIt will not be sent and cannot be brought back. Skip keeps it on the list instead.`)) return;
+    void send({ action: "remove", id: item.id }, `remove-${item.id}`, () => "Removed.");
+  };
 
   return (
     <div className="space-y-4">
@@ -700,21 +1107,21 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
                 key={date}
                 onClick={() => setSelected(date)}
                 className={cn(
-                  "rounded-full border px-3 py-1 text-xs font-medium transition",
+                  "rounded-full border px-3 py-1 text-xs font-medium transition max-sm:min-h-10",
                   date === active
                     ? "border-[var(--accent)] bg-[var(--accent)]/15 text-white"
                     : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
                 )}
               >
-                {friendlyDate(date)}
+                {friendlyDate(date, today)}
               </button>
             ))}
           </div>
-          <p className="text-xs text-[var(--muted-foreground)]">
-            {pending.length} still to post
-            {pending.length > 0
-              ? ` · ${clock(pending[0].publishAt)} → ${clock(pending[pending.length - 1].publishAt)}`
-              : ""}
+          <p className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted-foreground)]">
+            <Badge tone={scheduledPosts > 0 ? statusTone(SCHEDULED_WORD) : "neutral"}>
+              {scheduledPosts} {scheduledPosts === 1 ? "post" : "posts"} scheduled
+            </Badge>
+            {pending.length > 0 ? <span>{clock(pending[0].publishAt, zone)} → {clock(pending[pending.length - 1].publishAt, zone)}</span> : null}
           </p>
         </div>
 
@@ -730,6 +1137,8 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
           {[-60, -15, 15, 60].map((minutes) => (
             <Button
               key={minutes}
+              variant="secondary"
+              className="px-3 py-1.5 text-xs"
               onClick={() =>
                 send(
                   { action: "shift", date: active, minutes },
@@ -755,45 +1164,42 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
       {batch.map((item) => (
         <Card key={item.id} className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/8 text-xs font-semibold text-white">
-              {item.slot}
+            <span
+              title={`Post ${postNumbers.get(item.id) ?? item.slot} of the day`}
+              className="flex h-6 min-w-6 items-center justify-center rounded-full bg-white/8 px-1 text-xs font-semibold text-white"
+            >
+              {postNumbers.get(item.id) ?? item.slot}
             </span>
             {item.status === "pending" ? (
               <Input
                 type="datetime-local"
-                defaultValue={toLocalInput(item.publishAt)}
+                aria-label={`Post time for post ${postNumbers.get(item.id) ?? item.slot}`}
+                defaultValue={toZonedInput(item.publishAt, zone)}
                 onBlur={(event) => {
-                  const next = new Date(event.target.value);
-                  if (Number.isNaN(next.getTime()) || next.toISOString() === item.publishAt) return;
+                  const next = fromZonedInput(event.target.value, zone);
+                  if (!next || next.toISOString() === item.publishAt) return;
                   void send({ action: "reschedule", id: item.id, at: next.toISOString() }, `time-${item.id}`, () =>
-                    `Moved to ${clock(next.toISOString())}.`
+                    `Moved to ${clock(next.toISOString(), zone)}.`
                   );
                 }}
                 className="w-52"
               />
             ) : (
-              <span className="text-sm font-semibold text-white">{clock(item.publishAt)}</span>
+              <span className="text-sm font-semibold text-white">{clock(item.publishAt, zone)}</span>
             )}
-            <Badge
-              tone={
-                item.status === "published"
-                  ? "success"
-                  : item.status === "failed"
-                    ? "danger"
-                    : item.status === "skipped"
-                      ? "warning"
-                      : "neutral"
-              }
-            >
-              {item.status}
-            </Badge>
+            <Badge tone={statusTone(item.status)}>{statusWord(item.status)}</Badge>
             <Badge>{item.topic}</Badge>
+            {showAccountChips ? (
+              <Badge tone="accent" title="The account that posts this row">
+                {accountChipLabel(item.accountId, status.settings.accounts)}
+              </Badge>
+            ) : null}
             {item.postId && handle ? (
               <a
                 href={`https://www.threads.com/@${handle}`}
                 target="_blank"
                 rel="noreferrer"
-                className="text-xs text-[var(--accent)] underline"
+                className="text-xs text-[var(--accent)] underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center"
               >
                 view on Threads
               </a>
@@ -820,7 +1226,7 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
                   <Check className="mr-2 h-4 w-4" />
                   Save
                 </Button>
-                <Button onClick={() => setEditing(null)} disabled={busy !== null}>
+                <Button variant="secondary" onClick={() => setEditing(null)} disabled={busy !== null}>
                   Cancel
                 </Button>
                 <span className="text-xs text-[var(--muted-foreground)]">{draft.length}/500</span>
@@ -831,16 +1237,15 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
           )}
 
           {item.error ? (
-            <p className="text-xs tone-danger tone-text">
-              {item.status === "failed" ? "Didn't post — " : null}
-              {item.error}
-            </p>
+            <div className="text-xs tone-danger tone-text">
+              <PlainFailure raw={item.error} prefix={item.status === "failed" ? "Didn't post — " : undefined} />
+            </div>
           ) : null}
           {item.note && item.status !== "pending" ? (
             <p className="text-xs text-[var(--muted-foreground)]">{item.note}</p>
           ) : null}
 
-          {repliesByItem.has(item.id) ? <FollowUpReply reply={repliesByItem.get(item.id)!} editing={editing === item.id} /> : null}
+          {repliesByItem.has(item.id) ? <FollowUpReply reply={repliesByItem.get(item.id)!} editing={editing === item.id} timeZone={zone} /> : null}
 
           {(item.status === "failed" || item.status === "skipped") && editing !== item.id ? (
             // The copy was already written and approved; recovering it should
@@ -853,7 +1258,7 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
                       ? "Posted."
                       : json.run?.failed
                         ? "It failed again — the reason is on the post."
-                        : "Back in the queue for the next tick."
+                        : "Back in the queue - it goes out on the autopilot's next run."
                   )
                 }
                 disabled={busy !== null}
@@ -862,6 +1267,7 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
                 Retry now
               </Button>
               <Button
+                variant="secondary"
                 onClick={() => {
                   setEditing(item.id);
                   setDraft(item.text);
@@ -872,9 +1278,12 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
                 Edit copy
               </Button>
               <Button
-                onClick={() => send({ action: "remove", id: item.id }, `remove-${item.id}`, () => "Removed.")}
+                variant="danger"
+                className={REMOVE_BUTTON_CLASS}
+                onClick={() => removePost(item)}
                 disabled={busy !== null}
               >
+                <Trash2 className="mr-2 h-4 w-4" />
                 Remove
               </Button>
             </div>
@@ -883,6 +1292,7 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
           {item.status === "pending" && editing !== item.id ? (
             <div className="flex flex-wrap gap-2">
               <Button
+                variant="secondary"
                 onClick={() => {
                   setEditing(item.id);
                   setDraft(item.text);
@@ -893,15 +1303,19 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
                 Edit copy
               </Button>
               <Button
+                variant="secondary"
                 onClick={() => send({ action: "skip", id: item.id }, `skip-${item.id}`, () => "Skipped.")}
                 disabled={busy !== null}
               >
                 Skip
               </Button>
               <Button
-                onClick={() => send({ action: "remove", id: item.id }, `remove-${item.id}`, () => "Removed.")}
+                variant="danger"
+                className={REMOVE_BUTTON_CLASS}
+                onClick={() => removePost(item)}
                 disabled={busy !== null}
               >
+                <Trash2 className="mr-2 h-4 w-4" />
                 Remove
               </Button>
             </div>
@@ -912,34 +1326,58 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
   );
 }
 
-function PackSummary({ pack, now }: { pack: XDailyPack; now: number }) {
-  const first = pack.posts[0];
-  const last = pack.posts[pack.posts.length - 1];
-  const ageMs = now - new Date(pack.createdAt).getTime();
-  // A pack older than an hour is almost certainly a cached earlier run — flag it
-  // amber so it's obvious you'd be copying yesterday-morning's batch.
-  const stale = Number.isFinite(ageMs) && ageMs > 60 * 60 * 1000;
+function PackSummary({
+  pack,
+  now,
+  timeZone,
+  today,
+  settings,
+  todaySummary
+}: {
+  pack: XDailyPack;
+  todaySummary: ThreadsTodaySummary | null;
+  now: number;
+  timeZone: string;
+  today: string | null;
+  settings: AutopilotStatus["settings"] | null;
+}) {
+  const timeRange = packTimeRange(pack.posts);
+  // An earlier batch is one from a day that has ended in the autopilot's zone -
+  // by its DATE, not its age: a pack written at 6 AM is still today's at 3 PM.
+  const stale = isEarlierPack(pack.date, today);
+  const isToday = today !== null && pack.date === today;
+  const cadence = cadenceBadge({ postsPerDay: settings?.postsPerDay, accounts: settings?.accounts.length, window: settings?.postingWindow });
+  const sizeNote = packSizeNote({ packPosts: pack.posts.length, postsPerDay: settings?.postsPerDay, label: isToday ? "Today" : "This pack" });
+  // Only today's pack is held up against today's count; another day's pack has no "today" to reconcile with.
+  const splitNote = isToday && todaySummary?.dateKey === pack.date ? packSplitNote(todaySummary) : null;
   const relative = relativeFrom(pack.createdAt, now);
   const took = durationSeconds(pack.requestedAt, pack.createdAt);
   return (
     <Card>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.28em] text-[var(--muted-foreground)]">Today&apos;s pack · {pack.date}</p>
+          <p className="text-xs uppercase tracking-[0.28em] text-[var(--muted-foreground)]">{isToday || today === null ? "Today's pack" : "Pack"} · {formatDayKey(pack.date, { month: "short", day: "numeric" })}</p>
           <h2 className="mt-1 text-xl font-semibold text-white">
-            {pack.posts.length} posts · {pack.replies.length} replies
+            {/* "Ideas", not "posts": today's count of posts is on the autopilot card below, and it also holds hand-added ones. */}
+            {pack.posts.length} post {pack.posts.length === 1 ? "idea" : "ideas"} · {pack.replies.length} {pack.replies.length === 1 ? "reply" : "replies"}
           </h2>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             A pack is one day&apos;s posts and replies, all written in a single run.
+            {sizeNote ? ` ${sizeNote}` : ""}
+            {splitNote ? ` ${splitNote}` : ""}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {first && last ? (
-            <Badge>
-              {formatTime(first.time)} → {formatTime(last.time)}
-            </Badge>
+          {timeRange ? (
+            <span title="When the posts in this pack are timed to go out">
+              <Badge>Pack times: {timeRange}</Badge>
+            </span>
           ) : null}
-          <Badge>~every 40 min</Badge>
+          {cadence ? (
+            <span title="The autopilot's configured posting window, which a pack is timed against">
+              <Badge>Autopilot window: {cadence}</Badge>
+            </span>
+          ) : null}
           {pack.focus ? <Badge tone="accent">Focus: {pack.focus}</Badge> : null}
           <Badge tone={pack.source === "ai" ? "accent" : "neutral"}>
             {pack.source === "ai" ? "Claude-written" : "Idea library"}
@@ -958,31 +1396,45 @@ function PackSummary({ pack, now }: { pack: XDailyPack; now: number }) {
           Generated {relative}
         </span>
         <span className="text-[var(--muted-foreground)]">
-          Done {formatStamp(pack.createdAt)}
-          {pack.requestedAt ? ` · clicked ${formatStamp(pack.requestedAt)}` : ""}
+          Done {formatStamp(pack.createdAt, timeZone)}
+          {pack.requestedAt ? ` · clicked ${formatStamp(pack.requestedAt, timeZone)}` : ""}
           {took !== null ? ` · took ${took}s` : ""}
         </span>
         {stale ? (
-          <span className="font-medium">This is an earlier batch — press Write today&apos;s posts for a fresh 24.</span>
+          <span className="font-medium">This is an earlier batch, not today&apos;s pack.</span>
         ) : null}
       </div>
     </Card>
   );
 }
 
-function ScheduleTab({ posts }: { posts: XSuggestedPost[] }) {
+function ScheduleTab({ posts, date, timeZone }: { posts: XSuggestedPost[]; date: string; timeZone: string | null }) {
+  // Listed by the clock, not by slot: a pack time is a wall-clock time on the
+  // pack's own date, so a 1:20 AM slot is that morning, before the 9:05 AM one.
+  const { ordered, early, reordered } = useMemo(() => orderPackPosts(posts), [posts]);
+  const note = reordered
+    ? packOrderNote({
+        posts,
+        early,
+        dayLabel: formatDayKey(date, { weekday: "long", month: "short", day: "numeric" }),
+        zoneName: timeZone ? placeName(timeZone) : null
+      })
+    : null;
   return (
-    <div className="relative space-y-4">
-      {/* Timeline rail behind the time chips. */}
-      <div aria-hidden className="absolute bottom-6 left-[52px] top-6 hidden w-px bg-white/10 sm:block" />
-      {posts.map((post) => (
-        <PostCard key={post.id} post={post} />
-      ))}
+    <div className="space-y-4">
+      {note ? <p className="text-xs text-[var(--muted-foreground)]">{note}</p> : null}
+      <div className="relative space-y-4">
+        {/* Timeline rail behind the time chips. */}
+        <div aria-hidden className="absolute bottom-6 left-[52px] top-6 hidden w-px bg-white/10 sm:block" />
+        {ordered.map((post, index) => (
+          <PostCard key={post.id} post={post} number={index + 1} early={early.has(post.id)} />
+        ))}
+      </div>
     </div>
   );
 }
 
-function PostCard({ post }: { post: XSuggestedPost }) {
+function PostCard({ post, number, early }: { post: XSuggestedPost; number: number; early: boolean }) {
   const { copiedId, copy } = useCopy();
   const text = post.threadsVariant;
   const overLimit = text.length > THREADS_LIMIT;
@@ -997,10 +1449,14 @@ function PostCard({ post }: { post: XSuggestedPost }) {
       </div>
       <Card className="min-w-0 flex-1 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/8 text-xs font-semibold text-white">
-            {post.slot}
+          <span
+            title={`Post ${number} of the day (slot ${post.slot} in the pack)`}
+            className="flex h-6 w-6 items-center justify-center rounded-full bg-white/8 text-xs font-semibold text-white"
+          >
+            {number}
           </span>
           <span className="text-xs font-semibold text-white sm:hidden">{formatTime(post.time)}</span>
+          {early ? <Badge>Early morning</Badge> : null}
           <span
             className={cn(
               "rounded-full border px-2.5 py-0.5 text-[11px] font-medium capitalize",
@@ -1013,6 +1469,21 @@ function PostCard({ post }: { post: XSuggestedPost }) {
         </div>
 
         <p className="whitespace-pre-wrap text-sm leading-relaxed text-white/90">{text}</p>
+
+        {post.text && post.text !== text ? (
+          <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--well)] p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-[var(--foreground)]">
+                X wording <span className="font-normal text-[var(--muted-foreground)]">- copy it and post it on X yourself; the app never posts to X</span>
+              </p>
+              <Button variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => copy(`${post.id}:x`, post.text)}>
+                {copiedId === `${post.id}:x` ? <Check className="mr-1.5 h-3.5 w-3.5" /> : <Copy className="mr-1.5 h-3.5 w-3.5" />}
+                Copy X wording
+              </Button>
+            </div>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-white/80">{post.text}</p>
+          </div>
+        ) : null}
 
         <div className="flex flex-wrap items-center justify-end gap-3">
           <span
@@ -1029,7 +1500,7 @@ function PostCard({ post }: { post: XSuggestedPost }) {
             ) : (
               <Copy className="mr-1.5 h-3.5 w-3.5" />
             )}
-            Copy
+            Copy Threads wording
           </Button>
         </div>
       </Card>
@@ -1129,7 +1600,7 @@ function RepliesTab({ replies }: { replies: XSuggestedReply[] }) {
   return (
     <div>
       <p className="mb-4 text-sm text-[var(--muted-foreground)]">
-        Twenty adaptable replies for when you&apos;re scrolling — each is keyed to a kind of conversation you&apos;ll run
+        {replies.length} adaptable replies for when you&apos;re scrolling — each is keyed to a kind of conversation you&apos;ll run
         into. Personalize a detail before posting so it reads as written in the moment, and never paste the same reply
         twice.
       </p>
@@ -1163,8 +1634,8 @@ const GUARDRAILS: Array<{ title: string; body: string }> = [
     body: "Slot times carry a few minutes of daily jitter, and each account posts on its own offset. Posting exactly on the hour, every hour, every day is a classic automation fingerprint — drift a little, skip a slot when life happens."
   },
   {
-    title: "A missed slot is skipped, never fired late",
-    body: "If the machine was asleep all morning, those posts are dropped rather than dumped into the feed on waking. Fourteen posts landing in one minute is the single most obvious spam signal there is."
+    title: "A badly missed slot is skipped, not dumped later",
+    body: "A post that is only a little late still goes out (up to {grace} minutes after its slot). If the machine was off for longer, the app spreads what is left of the day across the hours remaining at a wide spacing instead of posting it all at once, and what no longer fits is dropped. Fourteen posts landing in one minute is the single most obvious spam signal there is."
   },
   {
     title: "Two accounts never post the same words",
@@ -1192,7 +1663,7 @@ const GUARDRAILS: Array<{ title: string; body: string }> = [
   }
 ];
 
-function PlaybookTab() {
+function PlaybookTab({ lateGraceMinutes }: { lateGraceMinutes?: number }) {
   return (
     <div className="space-y-6">
       <Card className="space-y-3">
@@ -1201,7 +1672,7 @@ function PlaybookTab() {
           <h3 className="font-semibold">The daily system</h3>
         </div>
         <ol className="list-decimal space-y-2 pl-5 text-sm text-[var(--muted-foreground)]">
-          <li>Write today&apos;s posts — a fresh day of posts plus 20 replies, written against your positioning brief.</li>
+          <li>Write today&apos;s posts — a fresh day of posts and replies to adapt, written against your positioning brief.</li>
           <li>
             Each one is then sent at its own slot — a fixed posting time — and Scheduled &amp; sent shows what has gone
             out.
@@ -1231,7 +1702,7 @@ function PlaybookTab() {
           {GUARDRAILS.map((rail) => (
             <Card key={rail.title} className="space-y-1.5">
               <h4 className="text-sm font-semibold text-white">{rail.title}</h4>
-              <p className="text-sm text-[var(--muted-foreground)]">{rail.body}</p>
+              <p className="text-sm text-[var(--muted-foreground)]">{rail.body.replace("{grace}", String(lateGraceMinutes ?? 45))}</p>
             </Card>
           ))}
         </div>

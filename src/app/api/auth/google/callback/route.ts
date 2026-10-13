@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { redirectWithinApp } from "@/lib/publisher/connectStart";
 import { isPrimaryAccountId, primaryAccountId } from "@/lib/publisher/accounts";
-import { exchangeGoogleCode } from "@/lib/publisher/googleAuth";
+import { exchangeGoogleCode, googleRedirectUri } from "@/lib/publisher/googleAuth";
 import { publishQueue } from "@/lib/publisher/queue";
 import { connectRearmScope, rearmItems } from "@/lib/publisher/rearm";
 import { runDue } from "@/lib/publisher/runner";
@@ -22,10 +23,11 @@ export async function GET(request: NextRequest) {
   const accountId = request.nextUrl.searchParams.get("state") || primaryAccountId("youtube");
   if (denied || !code) {
     target.searchParams.set("connect_error", denied || "Google returned no authorization code.");
-    return NextResponse.redirect(target);
+    target.searchParams.set("connect", "youtube");
+    return redirectWithinApp(target);
   }
   try {
-    await exchangeGoogleCode(code, `${request.nextUrl.origin}/api/auth/google/callback`, accountId);
+    await exchangeGoogleCode(code, googleRedirectUri(request.nextUrl.origin), accountId);
 
     // A revoked refresh token is permanent until the user reconnects. Once a
     // fresh token is stored, revive only this account's uploads that were
@@ -49,6 +51,7 @@ export async function GET(request: NextRequest) {
     if (!isPrimaryAccountId(accountId)) target.searchParams.set("account", accountId);
   } catch (error) {
     target.searchParams.set("connect_error", error instanceof Error ? error.message : String(error));
+    target.searchParams.set("connect", "youtube");
   }
-  return NextResponse.redirect(target);
+  return redirectWithinApp(target);
 }

@@ -39,9 +39,10 @@ export function UpdateHistory({ collapsed }: { collapsed: boolean }) {
   return (
     <>
       <button type="button" onClick={() => { setLoading(true); setError(null); setOpen(true); }} title="Update history" aria-label="Update history"
-        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white">
+        className={collapsed
+          ? "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white"
+          : "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white"}>
         <Clock3 className="h-4 w-4 shrink-0" />
-        {!collapsed && <span>Update history</span>}
       </button>
       {open && (
         <dialog ref={dialog} aria-labelledby="update-history-title" onCancel={(event) => { event.preventDefault(); close(); }}

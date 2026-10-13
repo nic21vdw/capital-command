@@ -280,8 +280,10 @@ async function publishImagePost(
 ): Promise<PostResult> {
   const urls = input.images?.publicUrls ?? [];
   if (urls.length === 0) {
+    // Facebook fetches each picture from a public HTTPS URL; the S3_* variables
+    // (Cloudflare R2 free tier works) are what make the app host them.
     throw new PermanentError(
-      "Facebook needs a public HTTPS URL per picture. Configure the S3_* variables so images are hosted (Cloudflare R2 free tier works)."
+      "Add Media hosting in Settings > Accounts first (Instagram and Facebook need a public link to each picture)."
     );
   }
   if (urls.length > MAX_IMAGES_PER_POST) {
@@ -446,8 +448,10 @@ export const facebookAdapter: PlatformAdapter = {
 
     if (!videoId) {
       if (!input.publicUrl) {
+        // Facebook pulls the clip from a public HTTPS URL; the S3_* variables
+        // (Cloudflare R2 free tier works) are what make the app host it.
         throw new PermanentError(
-          "Facebook needs a public HTTPS video URL. Configure the S3_* variables so clips are hosted (Cloudflare R2 free tier works)."
+          "Add Media hosting in Settings > Accounts first (Instagram and Facebook need a public link to each video)."
         );
       }
       const started = await fetchJson<{ video_id?: string; upload_url?: string }>(`${graphBase()}/${creds.pageId}/video_reels`, {

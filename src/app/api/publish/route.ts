@@ -15,19 +15,33 @@ export const dynamic = "force-dynamic";
 // The post-enqueue upload streams the whole clip to YouTube.
 export const maxDuration = 300;
 
-/** GET /api/publish — the queue with per-platform status. */
-export async function GET() {
+/**
+ * GET /api/publish — the queue with per-platform status.
+ *
+ * Reading never needs posting to be on: while it is off the board still shows
+ * what is queued (YouTube and Facebook go on publishing what they already hold),
+ * so this answers with the list and `enabled: false`. Only the stamping and the
+ * sweep below write to the queue, so they run only while posting is on; every
+ * write route (POST, PATCH, DELETE, publish, upload, run) still refuses.
+ *
+ * `?board=1` is sent only by the Uploading Center's board, and only a read from
+ * there counts as someone seeing a failure. The Clip Editor reads this too
+ * (to find a clip's bookings), and a failure it passed over unseen used to start
+ * its 30-day sweep clock before anyone had looked at the board.
+ */
+export async function GET(request: NextRequest) {
   const config = publisherConfig();
+  const queue = publishQueue(config);
   if (!config.enabled) {
-    return NextResponse.json({ enabled: false, items: [] });
+    return NextResponse.json({ enabled: false, items: await queue.list() });
   }
   // A permanently-failed post STAYS on the board with its reason, so the
   // failure is something you see and can retry rather than something that
-  // silently emptied its slot. Reading the board is what stamps the failure as
-  // seen; only a seen failure older than the retention window is swept.
-  const queue = publishQueue(config);
+  // silently emptied its slot. Reading the board (and only the board) is what
+  // stamps the failure as seen; only a seen failure older than the retention
+  // window is swept.
   const now = new Date();
-  await queue.markFailedSeen(now);
+  if (request.nextUrl.searchParams.get("board") === "1") await queue.markFailedSeen(now);
   const purged = await queue.purgeFailed(now);
   if (purged.length > 0) {
     console.log(
@@ -47,13 +61,19 @@ export async function GET() {
  *          board's Publish now (or the next scheduler pass) acts on it again
  *   rearm  the same across the queue for one platform+account — what a connect
  *          flow calls once credentials exist, so work blocked as "manual" or
- *          by a dead token comes back instead of needing to be re-scheduled
+ *          by a dead token comes back instead of needing to be re-scheduled.
+ *          `statuses` narrows which states come back and `maxSlotAgeHours`
+ *          leaves older slots failed (counted in `skippedOld`)
  */
 const actionSchema = z.object({
   action: z.enum(["retry", "rearm"]),
   itemId: z.string().min(1).optional(),
   platform: z.enum(["youtube", "instagram", "tiktok", "facebook"]).optional(),
-  accountId: z.string().min(1).optional()
+  accountId: z.string().min(1).optional(),
+  /** "rearm" only: which blocked states to revive (default: the connect flow's, failed and manual). */
+  statuses: z.array(z.enum(["failed", "manual"])).min(1).optional(),
+  /** "rearm" only: leave legs whose slot is further in the past than this many hours failed. */
+  maxSlotAgeHours: z.number().positive().finite().optional()
 });
 
 const enqueueSchema = z.object({
@@ -64,7 +84,8 @@ const enqueueSchema = z.object({
   clipPath: z.string().min(1).optional(),
   publishAt: z.string().min(1),
   title: z.string().min(1).optional(),
-  caption: z.string().min(1).optional(),
+  // Blank is allowed on purpose: enqueue treats it as "not given" and writes one (completePostMetadata).
+  caption: z.string().optional(),
   hashtags: z.array(z.string()).optional(),
   platforms: z.array(z.enum(["youtube", "instagram", "tiktok", "facebook"])).optional(),
   visibility: z.enum(["public", "private", "unlisted"]).optional(),
@@ -191,7 +212,7 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleAction(
-  { action, itemId, platform, accountId }: z.infer<typeof actionSchema>,
+  { action, itemId, platform, accountId, statuses, maxSlotAgeHours }: z.infer<typeof actionSchema>,
   config: ReturnType<typeof publisherConfig>
 ) {
   const queue = publishQueue(config);
@@ -210,11 +231,25 @@ async function handleAction(
   if (!platform) return NextResponse.json({ error: '"rearm" needs a platform.' }, { status: 400 });
   // Scoped to failures a connection fixes: a rejected video stays rejected, or
   // one reconnect would march every dead post back into the queue.
-  const changed = rearmItems(await queue.list(), connectRearmScope(platform, accountId));
+  // The board's bulk retry asks for failed legs only (a `manual` leg may have
+  // been posted by hand) and not for slots long past, which would post at once;
+  // the connect callback passes neither and keeps its wider behaviour.
+  let skippedOld = 0;
+  const changed = rearmItems(
+    await queue.list(),
+    connectRearmScope(platform, accountId, {
+      statuses,
+      maxSlotAgeMs: maxSlotAgeHours === undefined ? undefined : maxSlotAgeHours * 3_600_000,
+      onSkipped: () => {
+        skippedOld += 1;
+      }
+    })
+  );
   if (changed.length > 0) await queue.save();
   return NextResponse.json({
     ok: true,
     recovered: changed.length,
+    skippedOld,
     itemIds: changed.map((entry) => entry.item.id)
   });
 }

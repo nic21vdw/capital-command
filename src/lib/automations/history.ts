@@ -3,6 +3,7 @@ import { appendFile, mkdir, open, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { dataPath } from "@/lib/paths";
+import { localCalendarParts } from "@/lib/publisher/time";
 import { AUTOMATION_EVENT_KINDS, AUTOMATION_IDS, type AutomationEventKind, type AutomationHistory, type AutomationHistoryEvent, type AutomationId } from "@/lib/automations/types";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -58,7 +59,13 @@ export async function recordAutomationEventSafely(input: Parameters<typeof recor
   }
 }
 
-export type HistoryQuery = { automationId?: AutomationId; kind?: AutomationEventKind | "activity"; page?: number };
+export type HistoryQuery = {
+  automationId?: AutomationId;
+  kind?: AutomationEventKind | "activity";
+  page?: number;
+  /** When set, the result also carries today's delivery counts for this IANA zone. */
+  timeZone?: string;
+};
 
 export async function readAutomationHistory(query: HistoryQuery = {}, now = new Date()): Promise<AutomationHistory> {
   const from = new Date(now.getTime() - WEEK_MS).toISOString();
@@ -116,8 +123,15 @@ export async function readAutomationHistory(query: HistoryQuery = {}, now = new 
     workerIssues: events.filter((event) => event.scope === "worker" && event.kind === "failed").length,
     scheduled: delivery.filter((event) => event.kind === "scheduled").length
   };
+  const todayKey = query.timeZone ? localCalendarParts(now, query.timeZone).dateKey : null;
+  const today = todayKey
+    ? (() => {
+        const sameDay = delivery.filter((event) => localCalendarParts(new Date(event.at), query.timeZone!).dateKey === todayKey);
+        return { delivered: sameDay.filter((event) => event.kind === "delivered").length, failed: sameDay.filter((event) => event.kind === "failed").length };
+      })()
+    : undefined;
   const filtered = events.filter((event) => !query.kind || (query.kind === "activity" ? !(event.scope === "worker" && ["completed", "paused"].includes(event.kind)) : event.kind === query.kind));
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const page = Math.max(1, Math.min(pages, query.page ?? 1));
-  return { from, to, counts, total: filtered.length, page, pages, events: filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), warnings: [...warnings] };
+  return { from, to, counts, total: filtered.length, page, pages, events: filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), warnings: [...warnings], ...(today ? { today } : {}) };
 }

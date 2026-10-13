@@ -3,6 +3,7 @@ import { publisherConfig } from "@/lib/publisher/config";
 import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabled";
 import { publishQueue } from "@/lib/publisher/queue";
 import { runDue } from "@/lib/publisher/runner";
+import { ALL_PLATFORMS, type PlatformId } from "@/lib/publisher/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,11 +11,23 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
- * POST /api/publish/:id/publish — push one queue item to its providers right
- * now (YouTube uploads immediately with status.publishAt; Instagram/TikTok
- * post immediately instead of waiting for their slot).
+ * POST /api/publish/:id/publish — push one queue item to its providers.
+ *
+ * `{ "mode": "now" }`: "Publish now" means now. Every platform not yet
+ * finished posts immediately, and a YouTube video held for its slot is made
+ * public. Only the board's confirmed Publish now sends this, and it must say so
+ * explicitly: a forced run publishes early, so it is never the default.
+ *
+ * `{ "mode": "now", "platforms": ["youtube"] }` acts on those platforms only;
+ * the board sends it when some of the post's platforms are not connected, so
+ * they stay waiting rather than being failed by an attempt that cannot work.
+ *
+ * `{ "mode": "slot" }`, no body, or any other mode: what Retry sends after
+ * re-arming a leg. The run is scoped to this post but NOT forced, so a slot
+ * that has passed posts now, a future slot keeps waiting, and the post's other
+ * platforms are left alone.
  */
-export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const config = publisherConfig();
   if (!config.enabled) {
     return NextResponse.json({ error: PUBLISHING_OFF_MESSAGE }, { status: 400 });
@@ -24,7 +37,20 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   if (!(await queue.get(id))) {
     return NextResponse.json({ error: "No such scheduled post." }, { status: 404 });
   }
-  const report = await runDue(new Date(), { itemId: id, force: true });
+  let mode: unknown;
+  let platforms: unknown;
+  try {
+    const body = (await request.json()) as { mode?: unknown; platforms?: unknown } | null;
+    mode = body?.mode;
+    platforms = body?.platforms;
+  } catch {
+    // No body: the safe slot mode below.
+  }
+  const only =
+    mode === "now" && Array.isArray(platforms)
+      ? ALL_PLATFORMS.filter((platform: PlatformId) => platforms.includes(platform))
+      : undefined;
+  const report = await runDue(new Date(), { itemId: id, force: mode === "now", ...(only ? { platforms: only } : {}) });
   const item = await queue.get(id);
   return NextResponse.json({ report, item });
 }

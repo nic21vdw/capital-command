@@ -330,7 +330,7 @@ export function MusicStudioPage() {
                   type="button"
                   onClick={() => void writeBrief()}
                   disabled={writingBrief || !prompt.trim()}
-                  className="inline-flex items-center gap-1.5 text-xs text-[var(--accent)] transition hover:underline disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 text-xs max-sm:min-h-10 text-[var(--accent)] transition hover:underline disabled:opacity-50"
                 >
                   {writingBrief ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
                   Write it for me
@@ -344,10 +344,10 @@ export function MusicStudioPage() {
               />
             </div>
 
-            <Input placeholder="Track title (optional)" value={title} onChange={(event) => setTitle(event.target.value)} />
+            <Input aria-label="Track title" placeholder="Track title (optional)" value={title} onChange={(event) => setTitle(event.target.value)} />
 
             <div className="flex flex-wrap items-center gap-4">
-              <label className="flex items-center gap-2 text-sm text-white">
+              <label className="flex items-center gap-2 text-sm text-white max-sm:min-h-10">
                 <input
                   type="checkbox"
                   checked={instrumental}

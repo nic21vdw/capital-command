@@ -39,15 +39,40 @@ export type RearmScope = {
    * failed for THAT reason and leaves other permanent failures alone.
    */
   where?: (state: PlatformState, platform: PlatformId) => boolean;
+  /**
+   * Leave alone any leg whose item's slot is more than this long before `now`
+   * (default: no limit). A failure from days ago, re-armed, would post the
+   * moment the runner next ran - long after the slot it was meant for - so the
+   * board's bulk retry sets this and tells the user to retry those one by one.
+   */
+  maxSlotAgeMs?: number;
+  /** The clock for `maxSlotAgeMs` (default: the current time). */
+  now?: Date;
+  /** Called for each leg that WOULD have been revived but for `maxSlotAgeMs`. */
+  onSkipped?: (item: QueueItem, platform: PlatformId) => void;
 };
+
+export type ConnectRearmOptions = Pick<RearmScope, "statuses" | "maxSlotAgeMs" | "now" | "onSkipped">;
 
 /**
  * The scope a connect/reconnect flow re-arms with: this account's posts on this
  * platform, but only the ones that were waiting on the connection. A video the
  * platform itself rejected is just as rejected after a reconnect.
  */
-export function connectRearmScope(platform: PlatformId, accountId?: string): RearmScope {
-  return { platform, accountId, where: (state) => isConnectionFailure(state) };
+export function connectRearmScope(
+  platform: PlatformId,
+  accountId?: string,
+  options: ConnectRearmOptions = {}
+): RearmScope {
+  return { ...options, platform, accountId, where: (state) => isConnectionFailure(state) };
+}
+
+/** True when the item's slot is further in the past than the scope allows. */
+function slotTooOld(item: QueueItem, scope: RearmScope): boolean {
+  if (scope.maxSlotAgeMs === undefined) return false;
+  const slot = new Date(item.publishAt).getTime();
+  if (!Number.isFinite(slot)) return false;
+  return slot < (scope.now ?? new Date()).getTime() - scope.maxSlotAgeMs;
 }
 
 function isRearmable(status: PlatformStatus, statuses: RearmableStatus[]): status is RearmableStatus {
@@ -64,6 +89,10 @@ export function rearmItem(item: QueueItem, scope: RearmScope = {}): PlatformId[]
     if (!isRearmable(state.status, statuses)) continue;
     if (scope.accountId && !itemBelongsToAccount(item, platform, scope.accountId)) continue;
     if (scope.where && !scope.where(state, platform)) continue;
+    if (slotTooOld(item, scope)) {
+      scope.onSkipped?.(item, platform);
+      continue;
+    }
 
     state.status = "pending";
     state.attempts = 0;

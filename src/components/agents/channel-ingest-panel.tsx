@@ -111,7 +111,7 @@ export function ChannelIngestPanel() {
           <Youtube className="h-4 w-4 text-[var(--accent)]" />
           <h2 className="font-semibold text-white">Channel ingest</h2>
         </div>
-        <button onClick={() => void load()} aria-label="Refresh channel ingest" className="text-[var(--muted-foreground)] hover:text-white">
+        <button onClick={() => void load()} aria-label="Refresh channel ingest" className="flex items-center justify-center text-[var(--muted-foreground)] hover:text-white max-sm:h-10 max-sm:w-10">
           <RefreshCw className="h-3.5 w-3.5" />
         </button>
       </div>

@@ -81,7 +81,7 @@ export function ChannelCoverageCard({
           type="button"
           onClick={onRescan}
           disabled={rescanning}
-          className="flex shrink-0 items-center gap-1 rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white disabled:opacity-50"
+          className="flex shrink-0 items-center gap-1 rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white disabled:opacity-50 max-sm:min-h-10 max-sm:px-4"
         >
           {rescanning ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
           Scan the channel

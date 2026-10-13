@@ -48,5 +48,5 @@ export async function POST(request: NextRequest) {
     config.timezone
   );
 
-  return NextResponse.json({ copy });
+  return NextResponse.json({ copy, source: copy.source ?? "ai" });
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Check, Copy, ExternalLink, Loader2, Pencil, RefreshCw, Trash2, TriangleAlert, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -53,6 +53,7 @@ function minutes(seconds: number) {
 }
 
 export function PodcastPage() {
+  const fieldId = useId();
   const [state, setState] = useState<PodcastResponse | null>(null);
   const [draft, setDraft] = useState<PodcastShow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -366,11 +367,12 @@ export function PodcastPage() {
 
         {state.bucketConnected && (!state.publicBaseUrl || changingHost) ? (
           <div className="mt-4 border-t border-[var(--border)] pt-4">
-            <label className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+            <label htmlFor={`${fieldId}-host`} className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
               Public address of the bucket
             </label>
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
               <Input
+                id={`${fieldId}-host`}
                 className="min-w-[16rem] flex-1"
                 placeholder="https://pub-xxxxxxxxxxxx.r2.dev"
                 value={hostDraft}
@@ -442,11 +444,12 @@ export function PodcastPage() {
           <div className="mt-4 space-y-3">
             {FIELDS.map((field) => (
               <div key={field.key}>
-                <label className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+                <label htmlFor={`${fieldId}-${field.key}`} className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
                   {field.label}
                 </label>
                 {field.long ? (
                   <Textarea
+                    id={`${fieldId}-${field.key}`}
                     className="mt-1.5"
                     rows={4}
                     value={String(draft[field.key])}
@@ -454,6 +457,7 @@ export function PodcastPage() {
                   />
                 ) : (
                   <Input
+                    id={`${fieldId}-${field.key}`}
                     className="mt-1.5"
                     value={String(draft[field.key])}
                     onChange={(event) => setDraft({ ...draft, [field.key]: event.target.value })}
@@ -465,14 +469,15 @@ export function PodcastPage() {
               </div>
             ))}
             <div>
-              <label className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+              <label htmlFor={`${fieldId}-artwork`} className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
                 Upload cover art
               </label>
               <input
+                id={`${fieldId}-artwork`}
                 type="file"
                 accept="image/png,image/jpeg"
                 disabled={!state.configured || busy !== null}
-                className="mt-1.5 block w-full text-sm text-[var(--muted-foreground)] file:mr-3 file:rounded-lg file:border file:border-[var(--border)] file:bg-white/5 file:px-3 file:py-2 file:text-sm file:text-white hover:file:bg-white/10 disabled:opacity-50"
+                className="mt-1.5 block w-full text-sm text-[var(--muted-foreground)] file:mr-3 file:rounded-lg file:border file:border-[var(--border)] file:bg-white/5 file:px-3 file:py-2 max-sm:file:min-h-10 file:text-sm file:text-white hover:file:bg-white/10 disabled:opacity-50"
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   event.target.value = "";
@@ -483,7 +488,7 @@ export function PodcastPage() {
                 {busy === "artwork" ? "Uploading…" : "Checked for square and size before it goes anywhere."}
               </p>
             </div>
-            <label className="flex items-center gap-2 text-sm text-white">
+            <label className="flex items-center gap-2 text-sm text-white max-sm:min-h-10">
               <input
                 type="checkbox"
                 checked={draft.explicit}
@@ -528,6 +533,7 @@ export function PodcastPage() {
             ) : (
               <>
                 <select
+                  aria-label="Finished export to schedule as an episode"
                   className="mt-3 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-white"
                   value={selected ? `${selected.projectId}:${selected.exportId}` : ""}
                   onChange={(event) => setPicked(event.target.value)}

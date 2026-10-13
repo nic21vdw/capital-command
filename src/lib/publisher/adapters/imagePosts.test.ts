@@ -120,7 +120,7 @@ describe("Instagram picture posts", () => {
     const adapter = (await import("@/lib/publisher/adapters/instagram")).instagramAdapter;
     const input = imageInput("instagram", ["https://media.test/1.png"]);
     input.images = { localPaths: [], publicUrls: [] };
-    await expect(adapter.publish(input)).rejects.toThrow(/public HTTPS URL/);
+    await expect(adapter.publish(input)).rejects.toThrow(/Add Media hosting in Settings > Accounts first/);
   });
 });
 

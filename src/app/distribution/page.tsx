@@ -2,6 +2,8 @@ import { Suspense } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { DistributionPage } from "@/components/distribution/distribution-page";
 
+export const metadata = { title: "Distribution Centre | CoLateral Marketing" };
+
 export default function Page() {
   return (
     <AppShell>

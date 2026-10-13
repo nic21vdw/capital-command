@@ -13,7 +13,15 @@ import { IMAGE_REFUSALS, isImagePost } from "@/lib/publisher/images";
 import { bareTags, composeDescription } from "@/lib/publisher/metadata";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
-import type { PlatformAdapter, PlatformState, PostResult, PublishInput, PublishPlan, QueueItem } from "@/lib/publisher/types";
+import type {
+  FinalizeOptions,
+  PlatformAdapter,
+  PlatformState,
+  PostResult,
+  PublishInput,
+  PublishPlan,
+  QueueItem
+} from "@/lib/publisher/types";
 
 /**
  * YouTube Data API v3 — the one platform with native scheduling.
@@ -91,8 +99,9 @@ function buildBody(input: PublishInput): { body: YoutubeBody; scheduled: boolean
   const held = youtubeHoldsForReview(item);
   // publishAt is only honored on videos uploaded as "private", and only makes
   // sense when the end state is public and the time is still in the future.
-  // A long-form upload never takes one: it stays private for review.
-  const scheduled = !held && item.visibility === "public" && publishAt.getTime() > Date.now();
+  // A long-form upload never takes one: it stays private for review. An
+  // explicit "Publish now" skips the hold and uploads it public straight away.
+  const scheduled = !held && !input.publishNow && item.visibility === "public" && publishAt.getTime() > Date.now();
   const body: YoutubeBody = {
     snippet: {
       title: item.title.slice(0, 100),
@@ -193,7 +202,7 @@ export async function updateYoutubeVideoTitle(videoId: string, title: string, ac
  * A long-form video is the opposite: leave it private, and clear publishAt
  * so YouTube does not flip it.
  */
-async function finalizeYoutube(item: QueueItem, state: PlatformState): Promise<PostResult> {
+async function finalizeYoutube(item: QueueItem, state: PlatformState, options: FinalizeOptions = {}): Promise<PostResult> {
   if (!state.postId) {
     throw new PermanentError(`YouTube post for ${item.clipPath} has no video id recorded — cannot verify it went public.`);
   }
@@ -211,9 +220,7 @@ async function finalizeYoutube(item: QueueItem, state: PlatformState): Promise<P
       return { status: "published", postId: state.postId, detail: "already public on YouTube" };
     }
     if (status.publishAt || status.privacyStatus !== "private") {
-      const nextStatus: Record<string, unknown> = { ...status, privacyStatus: "private" };
-      delete nextStatus.publishAt;
-      await writeYoutubeStatus(state.postId, token, nextStatus);
+      await clearYoutubeGoLive(state.postId, token, status);
       return {
         status: "published",
         postId: state.postId,
@@ -231,8 +238,11 @@ async function finalizeYoutube(item: QueueItem, state: PlatformState): Promise<P
   }
   // Reached from publish() on a retry, this can run BEFORE the slot: the video
   // is sitting private with its publishAt ahead of it, exactly as intended, and
-  // forcing it public here would post it early.
-  if (new Date(item.publishAt).getTime() > Date.now()) {
+  // forcing it public here would post it early. Only the board's explicit
+  // "Publish now" (options.publishNow, set by the forced run alone) goes past
+  // this guard; a retry and the scheduler never do.
+  const early = new Date(item.publishAt).getTime() > Date.now();
+  if (early && !options.publishNow) {
     return { status: "scheduled", postId: state.postId, detail: "already uploaded and waiting for its slot on YouTube" };
   }
   // Keep the rest of the status part intact; drop publishAt (it has passed
@@ -243,8 +253,42 @@ async function finalizeYoutube(item: QueueItem, state: PlatformState): Promise<P
   return {
     status: "published",
     postId: state.postId,
-    detail: "YouTube left the video private past its slot time — set it public via videos.update"
+    detail:
+      early && options.publishNow
+        ? "set public now at your request, ahead of its slot"
+        : "YouTube left the video private past its slot time — set it public via videos.update"
   };
+}
+
+/** Writes the status back private with no go-live time, keeping every other field. */
+async function clearYoutubeGoLive(videoId: string, token: string, status: Record<string, unknown>): Promise<void> {
+  const nextStatus: Record<string, unknown> = { ...status, privacyStatus: "private" };
+  delete nextStatus.publishAt;
+  await writeYoutubeStatus(videoId, token, nextStatus);
+}
+
+/**
+ * Keeps a video the channel already holds from going live: clears its go-live
+ * time and leaves it private. This is what Remove does for a post YouTube has
+ * already taken - reversible (set a time again in Studio), and it never deletes
+ * the video. A video that is already public cannot be taken back by this, and
+ * one that no longer exists needs nothing.
+ */
+export async function holdYoutubeVideoPrivate(
+  videoId: string,
+  accountId?: string
+): Promise<"held" | "already-private" | "already-public" | "missing"> {
+  const token = await youtubeAccessToken(accountId);
+  const current = await fetchJson<{ items?: Array<{ status?: Record<string, unknown> }> }>(
+    `${VIDEOS_URL}?part=status&id=${encodeURIComponent(videoId)}`,
+    { label: "YouTube video status check", method: "GET", headers: { Authorization: `Bearer ${token}` } }
+  );
+  const status = current.items?.[0]?.status;
+  if (!status) return "missing";
+  if (status.privacyStatus === "public") return "already-public";
+  if (!status.publishAt && status.privacyStatus === "private") return "already-private";
+  await clearYoutubeGoLive(videoId, token, status);
+  return "held";
 }
 
 type SessionState = {
@@ -368,7 +412,7 @@ export const youtubeAdapter: PlatformAdapter = {
     const state = input.item.platforms.youtube;
     // The video is already on the channel — a retry that re-uploaded here would
     // leave two copies of the same clip. Finish that one instead.
-    if (state?.postId) return finalizeYoutube(input.item, state);
+    if (state?.postId) return finalizeYoutube(input.item, state, { publishNow: input.publishNow });
     // Everything up to here is safe to repeat: reading config, refreshing the
     // token and loading the file put nothing on the channel. A failure in this
     // stretch (the "token refresh network error" kind) can retry freely.
@@ -383,7 +427,9 @@ export const youtubeAdapter: PlatformAdapter = {
         ? "uploaded private for review - YouTube will not publish it"
         : scheduled
           ? `scheduled via status.publishAt=${toRfc3339Utc(new Date(input.item.publishAt))}`
-          : `uploaded as ${body.status.privacyStatus}`
+          : input.publishNow
+            ? `published now at your request (uploaded as ${body.status.privacyStatus})`
+            : `uploaded as ${body.status.privacyStatus}`
     });
 
     // A session URL left over from a previous attempt means bytes may already
@@ -425,5 +471,5 @@ export const youtubeAdapter: PlatformAdapter = {
     return describe(id);
   },
 
-  finalize: finalizeYoutube
+  finalize: (item, state, options) => finalizeYoutube(item, state, options)
 };
