@@ -1,5 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
-import { applyEnvValue, envFilePath } from "@/lib/podcast/publicUrl";
+import { writeEnvValues } from "@/lib/envFile";
 import { publisherConfig } from "@/lib/publisher/config";
 
 // Whether the app may post at all. It has always lived in `.env`, which meant
@@ -18,10 +17,7 @@ export function publishingEnabled(): boolean {
 }
 
 export async function setPublishingEnabled(enabled: boolean): Promise<void> {
-  const file = envFilePath();
-  const current = await readFile(file, "utf8").catch(() => "");
-  await writeFile(file, applyEnvValue(current, KEY, enabled ? "true" : "false"), "utf8");
-  process.env[KEY] = enabled ? "true" : "false";
+  await writeEnvValues({ [KEY]: enabled ? "true" : "false" });
 }
 
 /** What is in the way of an unattended run booking anything, in his words. */

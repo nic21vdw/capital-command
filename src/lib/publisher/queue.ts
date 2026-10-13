@@ -390,6 +390,7 @@ export class PublishQueue {
     if (!state) return;
     state.attempts += 1;
     state.error = error.message;
+    state.lastFailedAt = now.toISOString();
     state.claimedAt = undefined;
     if (!error.transient || state.attempts >= this.config.maxAttempts) {
       state.status = "failed";
@@ -502,6 +503,11 @@ export function isFailedLongEnoughToPurge(item: QueueItem, now: Date, retentionD
 
 export function newPlatformState(): PlatformState {
   return { status: "pending", attempts: 0 };
+}
+
+/** A platform leg added by the mirror: pending, and marked as following `lead`. */
+export function mirroredPlatformState(lead: PlatformId): PlatformState {
+  return { status: "pending", attempts: 0, mirroredFrom: lead };
 }
 
 export function newBufferState(): BufferState {

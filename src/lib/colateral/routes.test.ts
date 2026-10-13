@@ -90,4 +90,21 @@ describe("the card's route list against the app's sidebar", () => {
       expect(main.has(route.path)).toBe(false);
     }
   });
+
+  it("does not list redirect stubs as pages", () => {
+    // A route whose page is only `redirect(...)` is not a destination; listing
+    // it tells an agent the app has a page it does not.
+    const stubs = allRoutes()
+      .filter((route) => route.path !== "/")
+      .filter((route) => {
+        const dir = route.path.replace(/^\//, "");
+        const source = readFileSync(path.resolve(__dirname, "../../app", dir, "page.tsx"), "utf8");
+        return /\bredirect\(/.test(source);
+      })
+      .map((route) => route.path);
+    expect(stubs).toEqual([]);
+    for (const retired of ["/youtube", "/creator", "/notes", "/thumbnails", "/insights", "/goals", "/holdings", "/watchlist"]) {
+      expect(isKnownRoute(retired)).toBe(false);
+    }
+  });
 });

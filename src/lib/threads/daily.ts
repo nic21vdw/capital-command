@@ -2,6 +2,7 @@ import { localCalendarParts, zonedToUtc } from "@/lib/publisher/time";
 import { envAccessTokens, threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
 import { endOfLocalDay, planBatch } from "@/lib/threads/plan";
 import { autopilotItemsForDate, isAutopilotItem, mutateQueue, pruneOld, readQueue } from "@/lib/threads/queue";
+import { hasStarted } from "@/lib/threads/rewrite";
 import { runDue } from "@/lib/threads/runner";
 import { readThreadsState, recordThreadsState } from "@/lib/threads/state";
 import { refreshThreadsTokens, type TokenRefreshOutcome } from "@/lib/threads/tokens";
@@ -33,6 +34,14 @@ export async function planTodaysBatch(
      */
     startNow?: boolean;
     /**
+     * Swap what is still unsent for a plan from today's CURRENT pack, without
+     * generating one: pending rows and skipped ones (out of the running, nothing
+     * sent) are cleared and laid out again at the pack's own times. This is what
+     * follows a pack rewrite, so the queue and the pack say the same thing. Rows
+     * that have started, and hand-added posts, are never touched.
+     */
+    replacePending?: boolean;
+    /**
      * Which day to plan. Defaults to today; the tick passes tomorrow in the
      * evening so a round-the-clock day exists before its first slot arrives.
      */
@@ -47,7 +56,7 @@ export async function planTodaysBatch(
   const now = options.now ?? new Date();
   const log = options.log ?? ((line: string) => console.log(line));
   const date = options.date ?? localCalendarParts(now, config.timezone).dateKey;
-  const replace = Boolean(options.force || options.startNow);
+  const replace = Boolean(options.force || options.startNow || options.replacePending);
 
   if (await isAutomationPaused("threads")) {
     return { date, created: 0, droppedPastSlots: 0, skipped: "Threads automation is paused in Automations." };
@@ -65,8 +74,10 @@ export async function planTodaysBatch(
     const protectedSlots = new Set(autopilotItemsForDate(kept, date)
       .filter((item) => item.status === "published" || item.postId || item.containerId || item.claimedAt)
       .map((item) => item.slot));
+    const clearable = (item: (typeof kept)[number]) =>
+      item.status === "pending" || (Boolean(options.replacePending) && item.status === "skipped" && !hasStarted(item));
     const cleared = kept.filter(
-      (item) => item.batchDate !== date || item.status !== "pending" || !isAutopilotItem(item) || protectedSlots.has(item.slot)
+      (item) => item.batchDate !== date || !clearable(item) || !isAutopilotItem(item) || protectedSlots.has(item.slot)
     );
     return { items: cleared, result: autopilotItemsForDate(cleared, date) };
   });

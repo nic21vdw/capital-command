@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { updateYoutubeVideoTitle } from "@/lib/publisher/adapters/youtube";
+import { holdYoutubeVideoPrivate, updateYoutubeVideoTitle } from "@/lib/publisher/adapters/youtube";
 import { publisherConfig } from "@/lib/publisher/config";
 import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabled";
 import { publishQueue } from "@/lib/publisher/queue";
+import { UPLOADING_NOW_MESSAGE, YOUTUBE_MAY_EXIST_MESSAGE, removalImpact } from "@/lib/publisher/boardActions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,14 +68,73 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 }
 
-/** DELETE /api/publish/:id — drop a scheduled post from the queue. */
-export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+/**
+ * DELETE /api/publish/:id — drop a scheduled post from the queue, every
+ * platform on it.
+ *
+ * The queue forgetting a post does not stop a platform that already holds it:
+ *  - YouTube: a video uploaded with a go-live time would still publish. Remove
+ *    clears that time first (the existing hold-private write), so the video
+ *    stays private on the channel - reversible in Studio, never deleted. If
+ *    that write fails the post is NOT removed (it would still go live), and
+ *    `?anyway=1` removes it regardless.
+ *  - Facebook: a Reel or picture post it holds cannot be cancelled from here.
+ *    The response flags it so the board can say so and link Meta Business Suite.
+ *  - An upload in flight: a leg with a fresh claim is being sent by a runner
+ *    right now, and removing the item under it would orphan whatever it
+ *    creates. 409 `uploading`; try again in a minute.
+ *  - A YouTube upload session with no video id: the bytes may have landed, so a
+ *    video may exist that the queue cannot find to hold private. 409
+ *    `youtube-may-exist`; check YouTube Studio.
+ *    `?anyway=1` skips both refusals.
+ */
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const config = publisherConfig();
   if (!config.enabled) {
     return NextResponse.json({ error: PUBLISHING_OFF_MESSAGE }, { status: 400 });
   }
   const { id } = await params;
-  const removed = await publishQueue(config).remove(id, "api-publish-delete");
+  const queue = publishQueue(config);
+  const item = await queue.get(id);
+  if (!item) return NextResponse.json({ error: "No such scheduled post." }, { status: 404 });
+
+  const anyway = new URL(request.url).searchParams.get("anyway") === "1";
+  const impact = removalImpact(item, { claimTimeoutMinutes: config.claimTimeoutMinutes });
+  if (!anyway && impact.uploading) {
+    return NextResponse.json({ error: UPLOADING_NOW_MESSAGE, code: "uploading" }, { status: 409 });
+  }
+  if (!anyway && impact.youtubeMayExist) {
+    return NextResponse.json({ error: YOUTUBE_MAY_EXIST_MESSAGE, code: "youtube-may-exist" }, { status: 409 });
+  }
+  let youtube: "none" | "held" | "already-private" | "already-public" | "missing" | "unchecked" = "none";
+  let youtubeError: string | undefined;
+  if (impact.youtube) {
+    try {
+      youtube = await holdYoutubeVideoPrivate(impact.youtube.postId, item.accountId);
+    } catch (error) {
+      youtubeError = error instanceof Error ? error.message : String(error);
+      if (!anyway) {
+        return NextResponse.json(
+          {
+            error: `Not removed: YouTube already has this video and it could not be kept private (${youtubeError}). It would still go live at its slot.`,
+            code: "youtube-hold-failed",
+            youtubeVideoId: impact.youtube.postId
+          },
+          { status: 502 }
+        );
+      }
+      youtube = "unchecked";
+    }
+  }
+
+  const removed = await queue.remove(id, "api-publish-delete");
   if (!removed) return NextResponse.json({ error: "No such scheduled post." }, { status: 404 });
-  return NextResponse.json({ removed: true });
+  return NextResponse.json({
+    removed: true,
+    youtube,
+    youtubeVideoId: impact.youtube?.postId,
+    youtubeError,
+    youtubeMayExist: impact.youtubeMayExist || undefined,
+    facebookPostId: impact.facebook?.postId
+  });
 }

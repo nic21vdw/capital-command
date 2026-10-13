@@ -300,8 +300,10 @@ running must go through the app's own HTTP API, in-process:
 
 - `POST /api/publish` with an explicit `publishAt` books a video at a chosen
   slot, which is how to place something outside the earliest-free-slot order
-  `planRunOutputs` deals in. Carousels have no HTTP route — only the pipeline's
-  booking sheet books a deck.
+  `planRunOutputs` deals in. A carousel books through
+  `POST /api/studio/carousels/:id/book` (a one-off to Instagram/Facebook, via
+  `enqueueImagePost`) or the pipeline's booking sheet. TikTok, YouTube and
+  repeating carousel schedules are only reminders on `carousel.schedules`.
 - `PATCH /api/publish/:id` renames, `DELETE /api/publish/:id` removes.
 
 If a file-level edit is unavoidable, stop the server first or restart it after
@@ -415,6 +417,15 @@ both. Two accounts posting the same wording would read as mirrored spam.
   positioning brief supplies subject matter only, and its wording is the jargon
   to avoid. Prompt and lengths in `src/lib/x-posts/generator.ts`; the fallback
   `library.ts` and its test hold the same shape.
+- REWRITING TODAY'S PACK (`rewrite.ts`, `POST /api/x-posts/generate` with `force`)
+  MUST KEEP THE QUEUE AND THE PACK THE SAME. The queue holds its own copy of every
+  post, so a rewrite that only replaced the pack put one set on screen and sent
+  another. `rewriteDecision` is the one answer for the button, its confirmation
+  and the route: once any autopilot row for the day has started (published,
+  `postId`, `containerId` or `claimedAt`) or failed it is refused (409), and
+  otherwise `planTodaysBatch({ replacePending })` swaps the waiting and skipped
+  rows for the new pack's. `keepWritten` stops a rewrite that could only reach the
+  idea library from replacing a model-written pack.
 - See `src/lib/threads/README.md`.
 
 ## Platform health (`src/lib/platform-health`)

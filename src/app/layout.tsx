@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { Toaster } from "sonner";
 import { PlatformHealthBanner } from "@/components/layout/platform-health-banner";
+import { AppToaster } from "@/components/providers/app-toaster";
 import { AppProvider } from "@/components/providers/app-provider";
 import { ColateralBridgeProvider } from "@/components/providers/colateral-bridge-provider";
 import { ThemePresetProvider, ThemePresetScript } from "@/components/providers/theme-preset-provider";
@@ -37,7 +37,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             <AppProvider>
               <PlatformHealthBanner />
               {children}
-              <Toaster richColors position="top-right" />
+              {/* Bottom right, clear of the voice bar: at the top right a toast sat on the quota meters. */}
+              <AppToaster />
             </AppProvider>
           </ColateralBridgeProvider>
         </ThemePresetProvider>

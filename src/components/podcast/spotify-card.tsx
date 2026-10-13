@@ -1,24 +1,42 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { Check, ExternalLink, Link2, Loader2, RefreshCw, Search, Unlink } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { OAuthLandingBanner, useOAuthLanding } from "@/components/layout/oauth-landing";
+import { clearConnectFailure, rememberConnectFailure } from "@/lib/publisher/connectErrors";
 import type { SpotifyShow } from "@/lib/spotify/api";
 import type { SpotifyStatus } from "@/lib/spotify/status";
 
-export function SpotifyCard({
-  showTitle,
-  episodeCount,
-  onStatus
-}: {
+type SpotifyCardProps = {
   showTitle: string;
   episodeCount: number;
   onStatus: (status: SpotifyStatus) => void;
-}) {
+};
+
+export function SpotifyCard(props: SpotifyCardProps) {
+  // The sign-in result: banner plus a toast raised after mount, params stripped.
+  const { landing, dismiss } = useOAuthLanding({ defaultPlatform: "spotify" });
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("connected") === "spotify") clearConnectFailure("spotify");
+    const error = params.get("connect_error");
+    if (error) rememberConnectFailure("spotify", error);
+  }, []);
+  return (
+    <>
+      <OAuthLandingBanner landing={landing} onDismiss={dismiss} />
+      <SpotifyCardBody {...props} />
+    </>
+  );
+}
+
+function SpotifyCardBody({ showTitle, episodeCount, onStatus }: SpotifyCardProps) {
   const [status, setStatus] = useState<SpotifyStatus | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -38,16 +56,6 @@ export function SpotifyCard({
       .then(apply)
       .catch(() => undefined);
   }, [apply]);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("connected") === "spotify") toast.success("Spotify connected");
-    const error = params.get("connect_error");
-    if (error) toast.error(error);
-    if (params.has("connected") || params.has("connect_error")) {
-      window.history.replaceState({}, "", window.location.pathname);
-    }
-  }, []);
 
   async function send(action: string, body: Record<string, unknown> = {}) {
     setBusy(action);
@@ -91,8 +99,10 @@ export function SpotifyCard({
       <Card className="mb-5">
         <h2 className="text-sm font-semibold text-white">Spotify</h2>
         <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-          Put SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in .env (developer.spotify.com/dashboard → your app) and this
-          page can tell you which episodes Spotify has actually pulled in.
+          Add your Spotify client ID and secret in{" "}
+          <Link href="/settings#accounts" className="text-[var(--accent)] underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center">Settings &gt; Accounts</Link>{" "}
+          (developer.spotify.com/dashboard → your app) and this page can tell you which episodes Spotify has actually
+          pulled in.
         </p>
       </Card>
     );

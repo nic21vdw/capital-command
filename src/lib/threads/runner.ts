@@ -505,6 +505,7 @@ async function runDueInternal(
           break;
         }
         item.attempts += 1;
+        item.lastFailedAt = now.toISOString();
         item.error = error instanceof Error ? error.message : String(error);
         if (!isTransient(error) || item.attempts >= config.maxAttempts) {
           item.status = "failed";

@@ -69,6 +69,8 @@ export type ThreadsQueueItem = {
   /** Set when the link reply was given up on, so it is never tried again. */
   plugDropped?: boolean;
   attempts: number;
+  /** When this post last failed (ISO); alert ids use it because a retry resets `attempts`. */
+  lastFailedAt?: string;
   /** Backoff gate — the runner ignores this item until this instant. */
   nextAttemptAt?: string;
   /** Soft lease so two overlapping ticks don't both post one item. */

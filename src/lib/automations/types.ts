@@ -22,6 +22,10 @@ export type AutomationHistory = {
   pages: number;
   counts: { delivered: number; retrying: number; failed: number; workerIssues: number; scheduled: number };
   warnings: string[];
+  /** The publish zone the page should speak in (the API adds it; not part of the journal read). */
+  timezone?: string;
+  /** Present when the caller asked for a time zone: delivery outcomes since local midnight. */
+  today?: { delivered: number; failed: number };
 };
 
 export type AutomationId = (typeof AUTOMATION_IDS)[number];
@@ -63,10 +67,51 @@ export type AutomationCard = {
   taskLastResult?: number | null;
   counts: { label: string; value: number }[];
   issues: string[];
+  /** Exact command that installs this automation's Windows task, when it has one. */
+  registerCommand?: string;
+  /** Deep link to the item that most needs a look (failed first, then next due), when there is one. */
+  itemHref?: string;
+};
+
+/** One line of the Cadence block: a value, and the .env name that sets it. `editable` rows can be changed from the card. */
+export type CadenceRow = { label: string; value: string; env: string; note?: string; editable?: boolean };
+
+/**
+ * A post a platform already holds. Pausing the publisher does not stop these:
+ * YouTube, Facebook and Buffer publish them at their slot by themselves.
+ */
+export type HeldPost = {
+  id: string;
+  title: string;
+  platform: "YouTube" | "Facebook" | "Buffer";
+  status: "uploaded" | "scheduled";
+  goesLiveAt: string;
+  /**
+   * Set when the slot has passed and the platform should have published it
+   * already, so "goes live <time>" would be false. `hint` is the line that says
+   * what happened ("Its slot passed - YouTube should have published it by now."); `linkLabel` names the link.
+   */
+  shouldBeLive?: { hint: string; linkLabel: string; platform: "YouTube" | "Facebook" | "Buffer" };
+  /** The item in the Uploading Center. */
+  href: string;
+  /** Where to cancel it on the platform, when a link is known. */
+  externalUrl?: string;
+  externalLabel?: string;
 };
 
 export type AutomationOverview = {
   checkedAt: string;
   cards: AutomationCard[];
   autoScheduleOvernight: boolean;
+  cadence: CadenceRow[];
+  /** The raw values behind the editable cadence rows, for the Edit form. */
+  cadenceValues: { shortsPerDay: number; threadsPostsPerDay: number; slotTimes: string[]; weekendSlotTimes: string[] };
+  /** Still to go live (slot ahead): soonest first, capped; `heldTotal` is the full count. */
+  held: HeldPost[];
+  heldTotal: number;
+  /** Held posts whose slot passed (they should be live): soonest first, capped; the full count follows. */
+  shouldBeLive: HeldPost[];
+  shouldBeLiveTotal: number;
+  /** Delivery outcomes recorded since local midnight. */
+  today: { delivered: number; failed: number };
 };

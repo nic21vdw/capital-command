@@ -16,6 +16,7 @@ import {
   Loader2,
   Music2,
   Play,
+  RotateCcw,
   Youtube,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -29,11 +30,24 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
+import { OAuthLandingBanner, useOAuthLanding } from "@/components/layout/oauth-landing";
 import { WorkflowLoadNotice } from "@/components/marketing/workflow-load-notice";
 import { Tabs } from "@/components/ui/tabs";
 import { AccountSwitcher } from "@/components/uploading-center/account-switcher";
 import { ClipQueue } from "@/components/uploading-center/clip-queue";
-import { clipsNeedingCaption, nameClips, planAutoAssign } from "@/components/uploading-center/bulk";
+import { NO_AI_CAPTION_SUMMARY_NOTE, zoneTimeLabel } from "@/components/uploading-center/schedule-summary";
+import { clipsNeedingCaption, nameClips, planAutoAssign, type ShortsCap } from "@/components/uploading-center/bulk";
+import { createDraftBook, type DraftMap } from "@/components/uploading-center/draft-book";
+import {
+  collectFailedLegs,
+  failureCounts,
+  planConnectionRetry,
+  retryConnectionHelp,
+  retryConnectionLabel,
+  tabLabelWithFailures,
+  type ConnectionRetryPlan,
+  type FailedLeg,
+} from "@/components/uploading-center/failures";
 import {
   DEFAULT_RUN_DEFAULTS,
   draftWithDefaults,
@@ -50,10 +64,16 @@ import { ScheduleBoard } from "@/components/uploading-center/schedule-board";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import {
   DEFAULT_SLOT_OFFSET_DAYS,
+  NO_AI_CAPTION_NOTICE,
+  NO_AI_CAPTION_NOTICE_PLURAL,
   PLATFORM_LABELS,
   PLATFORM_TARGET_LABELS,
+  REARM_MAX_SLOT_AGE_HOURS,
   SLOT_WINDOW_DAYS,
   copyPlatformFor,
+  copyTargetLabel,
+  platformTargetHints,
+  platformTargetLabels,
   studioContentUrl,
   studioVideoUrl,
   targetPlatforms,
@@ -63,8 +83,14 @@ import {
   type ReadyClip,
   type UploadSuccess,
 } from "@/components/uploading-center/use-uploading-center";
+import { noAccountConnected } from "@/lib/publisher/boardActions";
+import { ACCOUNTS_SETTINGS_HREF } from "@/lib/publisher/failure";
 import { buildAgenda } from "@/lib/publisher/agenda";
-import { dateTimeFormat } from "@/lib/publisher/intl";
+import { formatClockTime, formatSlotDateTime } from "@/lib/timeFormat";
+import { publisherBannerLine } from "@/lib/publisher/publishOverview";
+import { EARLIEST_PUBLISH_DAY_OFFSET, addDaysToDateKey } from "@/lib/publisher/schedule";
+import { clearConnectFailure, rememberConnectFailure } from "@/lib/publisher/connectErrors";
+import { shortsByDay } from "@/lib/publisher/shortsCap";
 import { slotOffsetForDateKey } from "@/lib/publisher/slotWindow";
 import {
   DEFAULT_SLOT_TIMES,
@@ -72,7 +98,7 @@ import {
   type ScheduleSlot
 } from "@/lib/publisher/slots";
 import { localCalendarParts } from "@/lib/publisher/time";
-import type { PlatformId, QueueItem } from "@/lib/publisher/types";
+import { ALL_PLATFORMS, type PlatformId, type QueueItem } from "@/lib/publisher/types";
 
 const PLATFORM_TABS: Array<{ id: PlatformId; icon: typeof Youtube }> = [
   { id: "youtube", icon: Youtube },
@@ -96,6 +122,7 @@ export function UploadingCenterPage() {
     channelError,
     channelRefreshing,
     overview,
+    queueItems,
     slots,
     slotOffsetDays,
     setSlotOffsetDays,
@@ -103,6 +130,7 @@ export function UploadingCenterPage() {
     channelVideos,
     channelVideosBySlot,
     itemsByPlatform,
+    accounts,
     activeAccountIds,
     accountsFor,
     activeAccountFor,
@@ -126,11 +154,17 @@ export function UploadingCenterPage() {
     tailorCaptionsForAll,
     captionProgress,
     captionFailures,
+    aiCopyFellBack,
     schedule,
     uploadToSlot,
     autoAssign,
+    bookingSummary,
+    dismissBookingSummary,
     publishNow,
+    retryQueueItem,
+    editQueueCaption,
     remove,
+    rearmConnectionFailures,
     refresh,
     refreshAccounts,
     refreshChannel,
@@ -184,19 +218,19 @@ export function UploadingCenterPage() {
   // itself is persisted to the backend clip on commit (blur/Enter); the caption
   // and target are saved in the browser, because losing an AI-written caption
   // to a reload or a job switch was the whole cost of this screen.
-  const [drafts, setDrafts] = useState<Record<string, ClipDraft>>({});
-  const draftsRef = useRef(drafts);
-  useEffect(() => {
-    draftsRef.current = drafts;
-  }, [drafts]);
+  const [drafts, setDrafts] = useState<DraftMap>({});
+  // Every write goes through the book, which is current the instant it is made;
+  // `drafts` is only what the cards render. A bulk action reads the book right
+  // after its last write, with no render in between (see draft-book.ts).
+  const [draftBook] = useState(() => createDraftBook(setDrafts));
   const draftFor = useCallback(
     (clip: ReadyClip): ClipDraft => drafts[clip.key] ?? draftWithDefaults(clip, runDefaults),
     [drafts, runDefaults],
   );
   const putDraft = useCallback((clip: ReadyClip, draft: ClipDraft) => {
-    setDrafts((current) => ({ ...current, [clip.key]: draft }));
+    draftBook.put(clip.key, draft);
     writeClipDraft(clip.key, draft, clip.headline);
-  }, []);
+  }, [draftBook]);
 
   // Restore saved drafts for whichever run is on screen. Clips with nothing
   // saved are left out of the map on purpose, so they keep following the run
@@ -205,7 +239,7 @@ export function UploadingCenterPage() {
     if (readyClips.length === 0) return;
     queueMicrotask(() => {
       const stored = readClipDrafts();
-      setDrafts((current) => {
+      draftBook.update((current) => {
         let next = current;
         for (const clip of readyClips) {
           if (next[clip.key] || !stored[clip.key]) continue;
@@ -219,7 +253,7 @@ export function UploadingCenterPage() {
         return next;
       });
     });
-  }, [readyClips, runDefaults]);
+  }, [draftBook, readyClips, runDefaults]);
 
   // Changing the run defaults re-aims the cards already on screen, not just the
   // ones drawn next — dropped hashtags leave every title, new ones join it.
@@ -228,16 +262,17 @@ export function UploadingCenterPage() {
       setRunDefaults(next);
       writeRunDefaults(next);
       const updated: Record<string, ClipDraft> = {};
+      const latest = draftBook.read();
       for (const clip of readyClips) {
-        const existing = drafts[clip.key];
+        const existing = latest[clip.key];
         if (!existing) continue;
         const redrafted = redraftWithDefaults(existing, runDefaults, next);
         updated[clip.key] = redrafted;
         writeClipDraft(clip.key, redrafted, clip.headline);
       }
-      setDrafts((current) => ({ ...current, ...updated }));
+      draftBook.update((current) => ({ ...current, ...updated }));
     },
-    [drafts, readyClips, runDefaults],
+    [draftBook, readyClips, runDefaults],
   );
 
   const onDraftChange = useCallback(
@@ -262,45 +297,53 @@ export function UploadingCenterPage() {
       const draft = draftFor(clip);
       const result = await tailorCaption(clip, copyPlatformFor(draft.platform), draft.title);
       if (!result) return;
-      putDraft(clip, { ...(draftsRef.current[clip.key] ?? draft), caption: result.caption });
-      const label = draft.platform === "all" ? "all platforms" : draft.platform;
+      putDraft(clip, { ...(draftBook.read()[clip.key] ?? draft), caption: result.caption });
+      const label = copyTargetLabel(draft.platform);
+      if (result.source === "fallback") {
+        // No model answered; the caption is the clip title. Never call that "tailored".
+        toast.warning(NO_AI_CAPTION_NOTICE, { id: "caption-fallback" });
+        return;
+      }
       if (result.bestTime) {
-        toast.success(`Tailored for ${label}. Best time to post: ~${result.bestTime}.`);
+        toast.success(
+          `Tailored for ${label}. Best time to post${draft.platform === "all" ? " on TikTok" : ""}: ~${formatClockTime(result.bestTime)}.`
+        );
       } else {
         toast.success(`Caption tailored for ${label}.`);
       }
     },
-    [draftFor, putDraft, tailorCaption],
+    [draftBook, draftFor, putDraft, tailorCaption],
   );
 
-  // Surface the OAuth redirect result exactly once.
+  // Surface the OAuth redirect result: an inline banner plus a toast raised
+  // after mount (the toaster is not listening yet while this page's first
+  // effects run), then the params leave the address. The effect below keeps
+  // only what the landing changes in the page itself.
   const searchParams = useSearchParams();
   const router = useRouter();
-  const oauthToastShown = useRef(false);
+  const { landing: oauthLanding, dismiss: dismissOauthLanding } = useOAuthLanding({
+    action: { label: "Open Settings", href: "/settings#accounts" },
+  });
+  const oauthHandled = useRef(false);
   useEffect(() => {
-    if (oauthToastShown.current) return;
+    if (oauthHandled.current) return;
     const connected = searchParams.get("connected");
     const connectError = searchParams.get("connect_error");
+    if (connected === "tiktok" || connected === "youtube") clearConnectFailure(connected);
     if (connected === "tiktok") {
-      oauthToastShown.current = true;
-      toast.success(
-        "TikTok connected — scheduled posts will publish automatically.",
-      );
+      oauthHandled.current = true;
     } else if (connected === "youtube") {
-      oauthToastShown.current = true;
+      oauthHandled.current = true;
       // A non-primary connection carries its account id — switch the YouTube
       // tab to that account so the fresh connection is what's on screen.
       const accountParam = searchParams.get("account");
       if (accountParam) setActiveAccount("youtube", accountParam);
-      const recovered = Number(searchParams.get("recovered") ?? 0);
-      toast.success(
-        recovered > 0
-          ? `YouTube reconnected — ${recovered} blocked upload${recovered === 1 ? "" : "s"} retried automatically.`
-          : "YouTube connected — scheduled posts will upload automatically.",
-      );
     } else if (connectError) {
-      oauthToastShown.current = true;
-      toast.error(`Connect failed: ${connectError}`);
+      oauthHandled.current = true;
+      // The same message waits in the platform's row in Settings > Accounts
+      // after the banner and toast are gone.
+      const platform = searchParams.get("connect");
+      if (platform) rememberConnectFailure(platform, connectError);
     }
   }, [searchParams, setActiveAccount]);
 
@@ -326,6 +369,44 @@ export function UploadingCenterPage() {
     [isSlotTaken],
   );
 
+  // The daily short-form cap the server enforces, as the screen needs it: what
+  // each local day already holds (every platform and account; the cap counts
+  // distinct videos, so one clip on three platforms is one short), the days that
+  // are full, and a check the pickers share.
+  const publishingOn = overview?.enabled !== false;
+  const shortsPerDay = overview?.shortsPerDay;
+  const timezone = overview?.timezone ?? "UTC";
+  const shortsBooked = useMemo(() => shortsByDay(queueItems, timezone), [queueItems, timezone]);
+  const shortsCap = useMemo<ShortsCap | undefined>(
+    () => (shortsPerDay ? { limit: shortsPerDay, booked: shortsBooked } : undefined),
+    [shortsBooked, shortsPerDay],
+  );
+  const shortsFullDays = useMemo(() => {
+    const full = new Set<string>();
+    if (shortsPerDay) for (const [day, count] of shortsBooked) if (count >= shortsPerDay) full.add(day);
+    return full;
+  }, [shortsBooked, shortsPerDay]);
+  const slotDayKey = useMemo(() => new Map(slots.map((slot) => [slot.utc, slot.dateKey])), [slots]);
+  // Tomorrow, in the publish timezone: the earliest day anything books onto.
+  const tomorrowKey = useMemo(() => {
+    const today = slots.find((slot) => slot.today)?.dateKey;
+    return today ? addDaysToDateKey(today, EARLIEST_PUBLISH_DAY_OFFSET) : undefined;
+  }, [slots]);
+  // For the cards' slot pickers: a slot is unavailable when it is taken, or when
+  // its day is full: a new clip is one short however many platforms it targets.
+  const isSlotUnavailable = useCallback(
+    (target: PlatformTarget, slotUtc: string) => {
+      if (isTargetSlotTaken(target, slotUtc)) return true;
+      if (!shortsCap) return false;
+      const day = slotDayKey.get(slotUtc);
+      if (!day) return false;
+      return (shortsCap.booked.get(day) ?? 0) >= shortsCap.limit;
+    },
+    [isTargetSlotTaken, shortsCap, slotDayKey],
+  );
+  const targetLabels = useMemo(() => platformTargetLabels(overview?.mirror), [overview?.mirror]);
+  const targetHints = useMemo(() => platformTargetHints(overview?.mirror), [overview?.mirror]);
+
   // Placement mode: the editor's Schedule Short button lands here with
   // ?scheduleJob=…&scheduleClip=…; that clip is pre-selected and every open
   // slot becomes a one-click target (dragging still works too).
@@ -341,6 +422,11 @@ export function UploadingCenterPage() {
   const dayParam = searchParams.get("day");
   const jobParamConsumed = useRef(false);
   const focusKeyRef = useRef<string | null>(null);
+  // Days before today are folded away on load so the page opens at its top.
+  const [showEarlierDays, setShowEarlierDays] = useState(false);
+  // Bumped to run the "scroll to the post" effect again for the same ?item=,
+  // which is what pressing a failure's Show button twice needs.
+  const [focusNonce, setFocusNonce] = useState(0);
   useEffect(() => {
     if (itemParam || dayParam) return;
     if (!jobParam || jobParamConsumed.current) return;
@@ -351,6 +437,57 @@ export function UploadingCenterPage() {
     const next = params.toString();
     router.replace(next ? `/uploading-center?${next}` : "/uploading-center");
   }, [dayParam, itemParam, jobParam, router, searchParams, setActiveJobId]);
+
+  // Something asked to be shown (?item=, ?day=) on a day before today: the
+  // folded "earlier days" must be open for it to be on the page at all. Derived
+  // at render, not set from the effect below, so it needs no extra pass.
+  const { focusIsEarlier, focusDateKey } = useMemo(() => {
+    const timeZone = overview?.timezone ?? "America/Toronto";
+    const queued = itemParam ? [...itemsByPlatform.values()].flat().find((entry) => entry.id === itemParam) : undefined;
+    const dateKey = queued ? localCalendarParts(queued.publishAt, timeZone).dateKey : dayParam;
+    return {
+      focusIsEarlier: Boolean(dateKey && dateKey < localCalendarParts(new Date(), timeZone).dateKey),
+      focusDateKey: dateKey ?? null,
+    };
+  }, [dayParam, itemParam, itemsByPlatform, overview?.timezone]);
+
+  // The scroll above lands once, but the page keeps reflowing after it: the
+  // active run switches (the left column changes height) and thumbnails load.
+  // On a phone the board sits under that column, so a post found at one height
+  // ended up screens away from where the page settled. Keep the target in view
+  // while the layout moves, for a moment, and stop the instant a person scrolls
+  // or touches the page. Held in a ref, not the effect's cleanup: that effect
+  // re-runs whenever the queue refreshes, which must not cancel the watch.
+  const settleRef = useRef<(() => void) | null>(null);
+  const keepInView = useCallback((targetId: string) => {
+    settleRef.current?.();
+    if (typeof ResizeObserver === "undefined") return;
+    let userMoved = false;
+    const moved = () => {
+      userMoved = true;
+      stop();
+    };
+    const events = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    const recentre = () => {
+      if (userMoved) return;
+      const target = Array.from(document.querySelectorAll<HTMLElement>(`[id="${targetId}"]`)).find(
+        (candidate) => candidate.offsetParent !== null,
+      );
+      target?.scrollIntoView({ behavior: "auto", block: "center" });
+    };
+    const observer = new ResizeObserver(recentre);
+    observer.observe(document.body);
+    const timer = setTimeout(() => stop(), 1500);
+    function stop() {
+      observer.disconnect();
+      clearTimeout(timer);
+      for (const name of events) window.removeEventListener(name, moved);
+      if (settleRef.current === stop) settleRef.current = null;
+    }
+    for (const name of events) window.addEventListener(name, moved, { passive: true });
+    settleRef.current = stop;
+  }, []);
+  useEffect(() => () => settleRef.current?.(), []);
 
   useEffect(() => {
     if (!loaded) return;
@@ -372,23 +509,67 @@ export function UploadingCenterPage() {
       setSlotOffsetDays(offset);
       return;
     }
-    // No wait for the window to arrive: the grid is built from the offset, so
-    // by the time this runs again the day being scrolled to is already drawn.
+    // (A day before today is folded behind "Show earlier days"; `focusIsEarlier`
+    // above opens it while something asks to be shown there.)
+    // The board is drawn by the tab that is showing, a frame or two after the
+    // tab/account switch and the window change land, so look for the post for
+    // a few frames rather than once. A post on several platforms is drawn once
+    // per tab and only one of those tabs is showing - scroll to that one.
+    // INSTANT, not smooth: a smooth scroll is cancelled by the layout shifts
+    // that follow (images, the board re-rendering) and ends nowhere near.
     const targetId = itemParam ? `queue-item-${itemParam}` : `agenda-day-${dateKey}`;
-    const target = document.getElementById(targetId);
-    if (!target) return;
-    focusKeyRef.current = focusKey;
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    let frame = 0;
+    let tries = 0;
+    const attempt = () => {
+      const candidates = Array.from(document.querySelectorAll<HTMLElement>(`[id="${targetId}"]`));
+      const target = candidates.find((candidate) => candidate.offsetParent !== null);
+      if (target) {
+        focusKeyRef.current = focusKey;
+        target.scrollIntoView({ behavior: "auto", block: "center" });
+        keepInView(targetId);
+      } else if ((tries += 1) < 40) {
+        frame = requestAnimationFrame(attempt);
+      }
+    };
+    attempt();
+    return () => cancelAnimationFrame(frame);
   }, [
     dayParam,
+    focusNonce,
     itemParam,
     itemsByPlatform,
     loaded,
     overview?.timezone,
+    keepInView,
     setActiveJobId,
     setSlotOffsetDays,
     slotOffsetDays
   ]);
+
+  // The board opens ON today: the days before it sit behind "Show earlier
+  // days" (see earlier-days.ts) instead of the page being scrolled down to
+  // today, which left the Failed strip, the platform tabs and the bulk button
+  // above the fold.
+
+  // The Failed strip's Show button: switch to the failure's platform tab and
+  // account, then bring the post into view through the ?item= route above.
+  const showQueueItem = useCallback(
+    (item: QueueItem, platform: PlatformId, accountId: string) => {
+      setActiveAccount(platform, accountId);
+      focusKeyRef.current = null;
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("platform", platform);
+      params.set("item", item.id);
+      params.delete("day");
+      router.replace(`/uploading-center?${params.toString()}`, { scroll: false });
+      setFocusNonce((current) => current + 1);
+    },
+    [router, searchParams, setActiveAccount],
+  );
+  const jumpToFailure = useCallback(
+    (leg: FailedLeg) => showQueueItem(leg.item, leg.platform, leg.accountId),
+    [showQueueItem],
+  );
   useEffect(() => {
     if (
       placementConsumed.current ||
@@ -435,8 +616,16 @@ export function UploadingCenterPage() {
 
   const handleSchedule = useCallback(
     (clip: ReadyClip, override?: Partial<ClipDraft>) =>
-      schedule(clip, { ...draftFor(clip), ...override }),
-    [draftFor, schedule],
+      schedule(
+        clip,
+        { ...draftFor(clip), ...override },
+        {
+          // A caption written for an empty box lands in the box, so the card
+          // shows what was booked instead of staying blank.
+          onCaption: (caption) => putDraft(clip, { ...(draftBook.read()[clip.key] ?? draftFor(clip)), caption }),
+        },
+      ),
+    [draftBook, draftFor, putDraft, schedule],
   );
 
   // "Edit clip" → open this clip in the Clip Editor (the mirror of the editor's
@@ -520,8 +709,8 @@ export function UploadingCenterPage() {
   // Read through the ref, not through `drafts`: the bulk actions below await
   // between clips, and each one has to see the captions the previous ones wrote.
   const latestDraftFor = useCallback(
-    (clip: ReadyClip): ClipDraft => draftsRef.current[clip.key] ?? draftWithDefaults(clip, runDefaults),
-    [runDefaults],
+    (clip: ReadyClip): ClipDraft => draftBook.read()[clip.key] ?? draftWithDefaults(clip, runDefaults),
+    [draftBook, runDefaults],
   );
   const isScheduled = useCallback(
     (clip: ReadyClip) => itemsForClip(clip).length > 0,
@@ -539,14 +728,18 @@ export function UploadingCenterPage() {
   // "AI captions for all": write a caption for every unscheduled clip that
   // hasn't got one, tailored to whatever platform each card targets.
   const fillCaptions = useCallback(
-    async (clips: ReadyClip[]) => {
+    async (clips: ReadyClip[], options?: { deferFallbackNotice?: boolean }) => {
       const targets = clips.map((clip) => {
         const draft = latestDraftFor(clip);
         return { clip, platform: copyPlatformFor(draft.platform), title: draft.title };
       });
-      return tailorCaptionsForAll(targets, (clip, caption) => {
-        putDraft(clip, { ...latestDraftFor(clip), caption });
-      });
+      return tailorCaptionsForAll(
+        targets,
+        (clip, caption) => {
+          putDraft(clip, { ...latestDraftFor(clip), caption });
+        },
+        options,
+      );
     },
     [latestDraftFor, putDraft, tailorCaptionsForAll],
   );
@@ -578,21 +771,40 @@ export function UploadingCenterPage() {
   // have been posted by hand — the run's platform and hashtags, an AI caption
   // for anything still blank, then the next open slot for each card's platform.
   const handleAutoAssign = useCallback(async () => {
+    if (!publishingOn) {
+      toast.error("Posting is off, so nothing can be booked. Turn it on in Settings.");
+      return;
+    }
     const missing = clipsNeedingCaption({ clips: readyClips, draftFor: latestDraftFor, isScheduled });
-    const pass = missing.length > 0 ? await fillCaptions(missing) : null;
+    // Booking follows, so the "no AI key" notice waits and is worded for what is true then:
+    // before booking it asks for an edit, after booking it points at each post's Caption button.
+    const pass = missing.length > 0 ? await fillCaptions(missing, { deferFallbackNotice: true }) : null;
+    const usedTitles = (pass?.usedTitle ?? 0) > 0 && (pass?.failed.length ?? 0) === 0;
+    // Nothing booked: the toast is all there is, and it asks for an edit before booking.
+    // Booked: the sentence rides in the booking summary, which stays until dismissed.
+    const sayNoAiKey = () => {
+      if (usedTitles) toast.warning(NO_AI_CAPTION_NOTICE_PLURAL, { id: "caption-fallback" });
+    };
     // A clip whose caption failed is NOT scheduled. Posting it anyway would send
     // fallback copy under a success toast, which is indistinguishable from a
     // clip that was captioned properly — the retry button is the way back.
     const skipKeys = new Set((pass?.failed ?? []).map((failure) => failure.clip.key));
-    const { assignments, unslotted, heldBack } = planAutoAssign({
+    const { assignments, unslotted, capBlocked, heldBack } = planAutoAssign({
       clips: readyClips,
       draftFor: latestDraftFor,
       isScheduled,
       slots,
       isTargetSlotTaken,
       skipKeys,
+      shortsCap,
     });
+    // The days in this window that are at the shorts limit, said once, so
+    // "no open slots" never hides that the slots are there but the days are full.
+    const fullDaysNote = shortsCap
+      ? `Every open day in this window already holds ${shortsCap.limit} short${shortsCap.limit === 1 ? "" : "s"} - page the calendar forward to book later.`
+      : "";
     if (assignments.length === 0) {
+      sayNoAiKey();
       if (heldBack.length > 0) {
         toast.error(
           `Nothing scheduled — no AI caption for ${nameClips(heldBack.map((clip) => clip.headline))}. Retry the captions, or write them yourself.`,
@@ -600,25 +812,31 @@ export function UploadingCenterPage() {
         return;
       }
       toast.info(
-        unslotted > 0
-          ? "No open slots left on the schedule."
-          : "Every clip in this run is already scheduled.",
+        capBlocked > 0
+          ? `Nothing scheduled. ${fullDaysNote}`
+          : unslotted > 0
+            ? "No open slots left on the schedule."
+            : "Every clip in this run is already scheduled.",
       );
       return;
     }
     if (unslotted > 0) {
       toast.info(
-        `${unslotted} clip${unslotted === 1 ? "" : "s"} left unassigned — the schedule ran out of open slots.`,
+        capBlocked > 0
+          ? `${unslotted} clip${unslotted === 1 ? "" : "s"} left unassigned. ${fullDaysNote}`
+          : `${unslotted} clip${unslotted === 1 ? "" : "s"} left unassigned — the schedule ran out of open slots.`,
       );
     }
-    await autoAssign(assignments, heldBack);
+    await autoAssign(assignments, heldBack, usedTitles ? NO_AI_CAPTION_SUMMARY_NOTE : undefined);
   }, [
     autoAssign,
     fillCaptions,
     isScheduled,
     isTargetSlotTaken,
     latestDraftFor,
+    publishingOn,
     readyClips,
+    shortsCap,
     slots,
   ]);
 
@@ -630,17 +848,103 @@ export function UploadingCenterPage() {
   const agendas = useMemo(() => {
     const timeZone = overview?.timezone ?? "UTC";
     return new Map(
-      PLATFORM_TABS.map(({ id }) => [
-        id,
-        buildAgenda({
+      PLATFORM_TABS.map(({ id }) => {
+        const days = buildAgenda({
           slots,
           queueItems: itemsByPlatform.get(id) ?? [],
           channelVideos: id === "youtube" ? channelVideos : [],
           timeZone,
-        }),
-      ]),
+          shortsFullDays,
+        });
+        // With posting off the board is a read-only record: nothing it could
+        // offer as a drop target would be accepted.
+        return [id, publishingOn ? days : days.map((day) => ({ ...day, openSlots: [] }))];
+      }),
     );
-  }, [channelVideos, itemsByPlatform, overview?.timezone, slots]);
+  }, [channelVideos, itemsByPlatform, overview?.timezone, publishingOn, shortsFullDays, slots]);
+
+  // The publisher's own state (paused, runner installed, last run), recomputed
+  // each time the overview is read so "ran 12 min ago" tracks the 60s poll.
+  const publisherLine = useMemo(
+    () => publisherBannerLine(overview?.automation, new Date()),
+    [overview],
+  );
+
+  // Failures across every platform tab and account, so the strip at the top can
+  // list them all and each tab can say how many it holds.
+  const failedLegs = useMemo(() => collectFailedLegs(queueItems), [queueItems]);
+  const failedByPlatform = useMemo(() => failureCounts(failedLegs), [failedLegs]);
+  // What "retry the connection failures" can really do: only accounts that are
+  // connected NOW, so a platform still waiting on its credentials is named, not retried.
+  const retryPlan = useMemo(
+    () =>
+      planConnectionRetry(failedLegs, {
+        now: new Date(),
+        maxSlotAgeHours: REARM_MAX_SLOT_AGE_HOURS,
+        isConnected: (platform, accountId) =>
+          accounts.some((account) => account.platform === platform && account.id === accountId && account.connected),
+      }),
+    [accounts, failedLegs],
+  );
+  // Whether the account a post uses on a platform has a connection. The board's
+  // cards read it for every leg, not just the tab's active account. A post's
+  // accountId names ONE account; on a platform it does not belong to, the
+  // platform's primary account is the one that posts. Until the account list
+  // has loaded nothing is known, so nothing is claimed unconnected.
+  const isAccountConnected = useCallback(
+    (platform: PlatformId, accountId: string) => {
+      if (accounts.length === 0) return true;
+      const own =
+        accounts.find((account) => account.platform === platform && account.id === accountId) ??
+        accounts.find((account) => account.platform === platform && account.primary);
+      return own?.connected ?? false;
+    },
+    [accounts],
+  );
+  // The platform tab on screen, read the way the tab strip reads it (?platform=).
+  const platformParam = searchParams.get("platform");
+  const activePlatform: PlatformId =
+    PLATFORM_TABS.find(({ id }) => id === platformParam)?.id ?? PLATFORM_TABS[0]!.id;
+
+  // A booked clip's "Show on the board": the tab the board is already on when
+  // the post has a leg there, otherwise the first platform it is booked on.
+  const showBookedItem = useCallback(
+    (item: QueueItem) => {
+      const legs = ALL_PLATFORMS.filter((platform) => item.platforms[platform]);
+      const platform = legs.includes(activePlatform) ? activePlatform : (legs[0] ?? activePlatform);
+      // The post's accountId names ONE account; on a platform it does not
+      // belong to, that platform's primary account is the one that posts.
+      const own = accounts.some((account) => account.platform === platform && account.id === item.accountId);
+      showQueueItem(item, platform, own && item.accountId ? item.accountId : `${platform}-primary`);
+    },
+    [accounts, activePlatform, showQueueItem],
+  );
+
+  // The posts the last bulk booking made that are still on the schedule, and the
+  // few seconds they are ringed for after "View N bookings" brings them into view.
+  const bookedItems = useMemo(() => {
+    const ids = new Set(bookingSummary?.itemIds ?? []);
+    return queueItems.filter((item) => ids.has(item.id));
+  }, [bookingSummary, queueItems]);
+  const [flashedItemIds, setFlashedItemIds] = useState<string[]>([]);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+    },
+    [],
+  );
+  const viewBookings = useCallback(
+    (items: QueueItem[]) => {
+      const first = [...items].sort((a, b) => a.publishAt.localeCompare(b.publishAt))[0];
+      if (!first) return;
+      showBookedItem(first);
+      setFlashedItemIds(items.map((item) => item.id));
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+      flashTimer.current = setTimeout(() => setFlashedItemIds([]), 6000);
+    },
+    [showBookedItem],
+  );
 
   const tabs = PLATFORM_TABS.map(({ id, icon }) => {
     const activeAccount = activeAccountFor(id);
@@ -650,9 +954,9 @@ export function UploadingCenterPage() {
     const days = agendas.get(id) ?? [];
     return {
       id,
-      label: PLATFORM_LABELS[id],
+      label: tabLabelWithFailures(PLATFORM_LABELS[id], failedByPlatform[id]),
       icon,
-      content: (
+      content: (boardActive: boolean) => (
         <div className="space-y-4">
           <AccountSwitcher
             platform={id}
@@ -698,20 +1002,18 @@ export function UploadingCenterPage() {
           ) : null}
           {id !== "youtube" && id !== "tiktok" && !configured ? (
             <div className="tone-warning tone-edge tone-soft flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
-              <p className="tone-text flex items-center gap-2 text-xs">
-                <AlertTriangle className="h-4 w-4 shrink-0" />
-                {activeAccount?.primary
-                  ? <>{PLATFORM_LABELS[id]} needs account credentials before automatic posting. Assignments stay as <StatusChip status="manual" /> reminders meanwhile.</>
-                  : <>Extra {PLATFORM_LABELS[id]} accounts use <StatusChip status="manual" /> reminders for now.</>}
+              <p className="tone-text flex items-start gap-2 text-xs">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <ReminderSentence platform={id} extraAccount={!activeAccount?.primary} />
               </p>
               {activeAccount?.primary ? <SettingsConnectionLink /> : null}
             </div>
           ) : null}
           {id === "tiktok" && configured ? (
             <p className="tone-success tone-edge tone-soft tone-text rounded-lg border px-3 py-2 text-xs">
-              Posts publish at their slot time through the Content Posting API.
-              Until TikTok audits the app they land on your profile as private
-              (SELF_ONLY) — flip TIKTOK_AUDITED=true after approval.
+              Until TikTok audits the app, clips land in your TikTok inbox to
+              finish in the app instead of posting. Set TIKTOK_AUDITED=true once
+              approved.
             </p>
           ) : null}
           <SchedulePeriodNav
@@ -719,6 +1021,10 @@ export function UploadingCenterPage() {
             slots={slots}
             onChange={setSlotOffsetDays}
           />
+          {/* Only the tab on screen draws its board. Neighbouring tabs stay mounted
+              so a switch is instant, but a hidden board is a second "Show earlier
+              days" button, a second copy of every post id, in the page. */}
+          {boardActive ? (
           <ScheduleBoard
             platform={id}
             days={days}
@@ -732,12 +1038,24 @@ export function UploadingCenterPage() {
                 ? (slotUtc) => handleSelectSlot(id, slotUtc)
                 : undefined
             }
-            onPublishNow={(item) => void publishNow(item)}
+            onPublishNow={(item, platforms) => void publishNow(item, platforms)}
+            onRetry={(item, retryPlatform) => void retryQueueItem(item, retryPlatform)}
+            onEditCaption={(item, caption) => void editQueueCaption(item, caption)}
             onRemove={(item) => void remove(item)}
             onRename={(item, title) => void renameQueueItem(item, title)}
+            youtubeQuotaFull={Boolean(overview && overview.quota.uploadsUsed >= overview.quota.budgetUploads)}
+            isConnected={isAccountConnected}
             busy={busy}
             highlightedItemId={itemParam}
+            highlightedItemIds={flashedItemIds}
+            shortsPerDay={shortsPerDay}
+            readOnly={!publishingOn}
+            collapseEarlier={!showEarlierDays && !focusIsEarlier}
+            focusDateKey={focusDateKey}
+            onShowEarlier={() => setShowEarlierDays(true)}
+            timeZone={overview?.timezone}
           />
+          ) : null}
           {id === "youtube" && (channelError || channel?.error) ? (
             <WorkflowLoadNotice title="The YouTube schedule could not be refreshed" message={channelError ?? channel?.error ?? "Try again."} retained={Boolean(channel?.fetchedAt)} retrying={channelRefreshing} onRetry={() => void refreshChannel({ force: true })} />
           ) : null}
@@ -794,7 +1112,7 @@ export function UploadingCenterPage() {
         label: "Schedule at next free slots",
         group: "Queue",
         destructive: true,
-        disabled: !loaded || bulkBusy || unscheduledCount === 0,
+        disabled: !loaded || bulkBusy || unscheduledCount === 0 || !publishingOn,
       },
       {
         id: "captionsForAll",
@@ -825,6 +1143,8 @@ export function UploadingCenterPage() {
         value: overview ? `${overview.quota.uploadsUsed}/${overview.quota.budgetUploads} uploads` : "—",
       },
       { label: "Publishing", value: overview ? (overview.enabled ? "On" : "Off") : "—" },
+      { label: "Shorts a day", value: shortsPerDay ? String(shortsPerDay) : "—" },
+      { label: "Failed posts", value: String(failedLegs.length) },
     ],
     setField: (id, value) => {
       if (id === "runPlatform") {
@@ -859,7 +1179,7 @@ export function UploadingCenterPage() {
         return true;
       }
       if (id === "autoAssign") {
-        if (!loaded || bulkBusy || unscheduledCount === 0) return false;
+        if (!loaded || bulkBusy || unscheduledCount === 0 || !publishingOn) return false;
         void handleAutoAssign();
         return true;
       }
@@ -886,6 +1206,7 @@ export function UploadingCenterPage() {
     // The header is a frozen pane and everything under it scrolls: the calendar
     // runs to months of days, and losing the channel and the quota meter on the
     // way down is how you end up scrolling back to check which one you are on.
+    // Phones scroll the whole page instead (see `.app-frame` in globals.css).
     <div className="app-frame-pane">
       <PageHeader
         eyebrow="Step 3 · Schedule"
@@ -893,6 +1214,7 @@ export function UploadingCenterPage() {
         description="Book your finished clips onto the posting schedule — one button fills the next free slots, or drag a clip onto any slot yourself."
         actions={overview ? <div className="w-full max-w-sm"><QuotaMeter quota={overview.quota} /></div> : undefined}
       />
+      <OAuthLandingBanner landing={oauthLanding} onDismiss={dismissOauthLanding} />
       {loadError ? <div className="mb-4"><WorkflowLoadNotice title="Your clips and posting schedule could not be refreshed" message={loadError} retained={loaded} retrying={refreshing} onRetry={() => void refresh()} /></div> : null}
       {accountsError ? <div className="mb-4"><WorkflowLoadNotice title="Your social accounts could not be refreshed" message={accountsError} retained={loaded} retrying={accountsRefreshing} onRetry={() => void refreshAccounts()} /></div> : null}
 
@@ -921,20 +1243,31 @@ export function UploadingCenterPage() {
             <Loader2 className="h-5 w-5 animate-spin text-[var(--muted-foreground)]" />
             <span className="text-sm text-[var(--muted-foreground)]">Loading your clips, accounts and schedule…</span>
           </Card>
-        ) : overview && !overview.enabled ? (
-          <Card className="tone-warning tone-edge space-y-2">
-            <p className="tone-warning tone-text flex items-center gap-2 text-sm font-medium">
-              <AlertTriangle className="h-4 w-4" /> Publishing is switched off
-            </p>
-            <p className="text-sm text-[var(--muted-foreground)]">
-              Nothing is scheduled or posted until you turn it back on.{" "}
-              <Link href="/settings" className="underline">
-                Open Settings
-              </Link>
-            </p>
-          </Card>
         ) : (
           <>
+            {/* On a phone the board sits under the whole clip queue, screens down. */}
+            <button
+              type="button"
+              onClick={() => document.getElementById("schedule-board")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              className="mb-3 inline-flex min-h-10 items-center gap-1.5 text-sm font-medium text-[var(--accent)] underline-offset-2 hover:underline xl:hidden"
+            >
+              <CalendarClock className="h-4 w-4" aria-hidden /> Jump to schedule
+            </button>
+            {!publishingOn ? <PostingOffBanner /> : null}
+            {publisherLine ? <PublisherStatusLine line={publisherLine} /> : null}
+            {failedLegs.length > 0 ? (
+              <FailedStrip
+                legs={failedLegs}
+                counts={failedByPlatform}
+                timezone={timezone}
+                plan={retryPlan}
+                postingOn={publishingOn}
+                activePlatform={activePlatform}
+                retrying={busy === "rearm"}
+                onShow={jumpToFailure}
+                onRetryConnection={() => void rearmConnectionFailures(retryPlan.targets)}
+              />
+            ) : null}
             <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(22rem,1fr)_minmax(0,2.3fr)]">
               <ClipQueue
                 jobs={jobsWithClips}
@@ -954,6 +1287,10 @@ export function UploadingCenterPage() {
                 onEditClip={editClip}
                 onTailorCaption={(clip) => void onTailorCaption(clip)}
                 onAutoAssign={() => void handleAutoAssign()}
+                bookingSummary={bookingSummary}
+                bookedItems={bookedItems}
+                onViewBookings={viewBookings}
+                onDismissBookingSummary={dismissBookingSummary}
                 runDefaults={runDefaults}
                 onRunDefaultsChange={onRunDefaultsChange}
                 onCaptionsForAll={handleCaptionsForAll}
@@ -962,15 +1299,58 @@ export function UploadingCenterPage() {
                 captionFailures={captionFailures}
                 failedCaptionCount={failedCaptionClips.length}
                 onRetryCaptions={handleRetryCaptions}
+                targetLabels={targetLabels}
+                targetHints={targetHints}
+                shortsCap={shortsCap}
+                tomorrowKey={tomorrowKey}
+                isSlotUnavailable={isSlotUnavailable}
+                readOnlyReason={publishingOn ? undefined : "Posting is off - turn it on in Settings to book clips."}
+                timeZone={timezone}
+                aiCopyAvailable={aiCopyFellBack ? false : overview?.aiCopyAvailable}
+                onShowOnBoard={showBookedItem}
+                isConnected={isAccountConnected}
               />
-              <div className="min-w-0">
+              <div id="schedule-board" className="min-w-0 scroll-mt-4">
+                {/* Said once above the board, not only on the empty day it used
+                    to appear on: this is why no slot is ever offered for today. */}
+                <p className="mb-3 text-xs text-[var(--muted-foreground)]">
+                  Bookings start tomorrow so a batch never trips YouTube&apos;s daily limit.{" "}
+                  {noAccountConnected(accounts) ? (
+                    <>
+                      <Link href={ACCOUNTS_SETTINGS_HREF} className="text-[var(--accent)]! underline! underline-offset-2">
+                        Connect an account in Settings
+                      </Link>{" "}
+                      to enable Publish now.
+                    </>
+                  ) : (
+                    "Use Publish now on a post to send it today."
+                  )}
+                </p>
                 <Tabs tabs={tabs} paramKey="platform" />
                 {overview ? (
                   <p className="mt-3 text-xs text-[var(--muted-foreground)]">
                     Every scheduled post and channel video shows on its day above.
                     Suggested slots: weekdays {listTimes(overview.slotTimes ?? DEFAULT_SLOT_TIMES)}; weekends{" "}
-                    {listTimes(overview.weekendSlotTimes ?? DEFAULT_WEEKEND_SLOT_TIMES)} ({overview.timezone});
-                    stored in UTC.
+                    {listTimes(overview.weekendSlotTimes ?? DEFAULT_WEEKEND_SLOT_TIMES)}. Times shown in{" "}
+                    {zoneTimeLabel(overview.timezone)}.
+                    {shortsPerDay ? (
+                      <>
+                        {" "}
+                        Up to {shortsPerDay} short{shortsPerDay === 1 ? "" : "s"} a day - change this on{" "}
+                        <Link href="/automations#cadence" className="text-[var(--accent)]! underline! underline-offset-2">
+                          Automations
+                        </Link>
+                        .
+                      </>
+                    ) : (
+                      <>
+                        {" "}
+                        <Link href="/automations#cadence" className="text-[var(--accent)]! underline! underline-offset-2">
+                          Change the cadence
+                        </Link>
+                        .
+                      </>
+                    )}
                   </p>
                 ) : null}
               </div>
@@ -994,7 +1374,8 @@ export function UploadingCenterPage() {
  * finished uploading to YouTube: a link straight to the video and a big
  * button into the channel's Content page in YouTube Studio.
  */
-function listTimes(times: string[]): string {
+function listTimes(slotTimes: string[]): string {
+  const times = slotTimes.map(formatClockTime);
   if (times.length < 2) return times.join("");
   return `${times.slice(0, -1).join(", ")} and ${times[times.length - 1]}`;
 }
@@ -1012,14 +1393,7 @@ function UploadSuccessDialog({
 }) {
   if (!success) return null;
   const scheduled = success.status === "scheduled";
-  const goLive = dateTimeFormat("en-US", {
-    ...(timezone ? { timeZone: timezone } : {}),
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(success.publishAt));
+  const goLive = formatSlotDateTime(success.publishAt, timezone, { weekday: true });
   return (
     <Modal
       open
@@ -1153,9 +1527,25 @@ function tiktokConnectUrl(accountId?: string) {
 
 function SettingsConnectionLink() {
   return (
-    <Link href="/settings#accounts" className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[var(--border)] bg-white/5 px-3 text-xs font-medium text-white hover:bg-white/10">
+    <Link href="/settings#accounts" className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[var(--border)] bg-white/5 px-3 text-xs font-medium max-sm:h-10 text-white hover:bg-white/10">
       Account settings
     </Link>
+  );
+}
+
+/**
+ * The one sentence every "not connected" banner says. It is ONE element: a text
+ * node and an inline chip placed straight into a `flex` paragraph become three
+ * columns, which is how the Instagram banner broke into "...stay as | chip |
+ * reminders meanwhile". The icon stays its own flex child beside this span.
+ */
+function ReminderSentence({ platform, extraAccount }: { platform: PlatformId; extraAccount?: boolean }) {
+  return (
+    <span className="min-w-0">
+      Bookings for {extraAccount ? `this ${PLATFORM_LABELS[platform]} account` : PLATFORM_LABELS[platform]} are saved as
+      reminders until it&apos;s connected - each shows{" "}
+      <StatusChip status="manual" platform={platform} connected={false} className="align-middle" />.
+    </span>
   );
 }
 
@@ -1168,11 +1558,9 @@ function ConnectTiktokNotice({
 }) {
   return (
     <div className="tone-warning tone-edge tone-soft flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
-      <p className="tone-warning tone-text flex items-center gap-2 text-xs">
-        <AlertTriangle className="h-4 w-4 shrink-0" />
-        {primary
-          ? "TikTok needs setup in Settings. Assignments stay as manual reminders until the account is connected."
-          : "This TikTok account needs its own sign-in. Assignments stay as manual reminders until then."}
+      <p className="tone-warning tone-text flex items-start gap-2 text-xs">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <ReminderSentence platform="tiktok" extraAccount={!primary} />
       </p>
       {primary ? <SettingsConnectionLink /> : (
         <Button variant="secondary" className="h-8 px-3 text-xs" onClick={() => (window.location.href = tiktokConnectUrl(accountId))}>
@@ -1205,11 +1593,9 @@ function ReconnectYoutubeNotice({ accountId }: { accountId?: string }) {
 function ConnectYoutubeNotice({ accountId, primary }: { accountId?: string; primary?: boolean }) {
   return (
     <div className="tone-warning tone-edge tone-soft flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
-      <p className="tone-warning tone-text flex items-center gap-2 text-xs">
-        <AlertTriangle className="h-4 w-4 shrink-0" />
-        {primary
-          ? "YouTube needs setup in Settings. Assignments stay as manual reminders until the account is connected."
-          : "This YouTube account needs its own sign-in. Assignments stay as manual reminders until then."}
+      <p className="tone-warning tone-text flex items-start gap-2 text-xs">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <ReminderSentence platform="youtube" extraAccount={!primary} />
       </p>
       {primary ? <SettingsConnectionLink /> : (
         <Button variant="secondary" className="h-8 px-3 text-xs" onClick={() => (window.location.href = connectUrl(accountId))}>
@@ -1219,3 +1605,174 @@ function ConnectYoutubeNotice({ accountId, primary }: { accountId?: string; prim
     </div>
   );
 }
+
+/**
+ * Posting is switched off. The schedule, the accounts and the Connect buttons
+ * stay on screen (the OAuth callbacks land here, and a second account can only
+ * be added here); what stops is booking. YouTube and Facebook keep publishing
+ * what they were already handed, which is the part that surprises.
+ */
+function PostingOffBanner() {
+  return (
+    <div
+      role="status"
+      className="tone-warning tone-edge tone-soft mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2.5"
+    >
+      <p className="tone-warning tone-text flex min-w-0 flex-1 items-start gap-2 text-sm">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>
+          Posting is off: nothing new can be booked and nothing goes out from here. Posts YouTube or Facebook already
+          hold still go live.
+        </span>
+      </p>
+      <Link
+        href="/settings#publishing"
+        className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[var(--border)] bg-white/5 px-3 text-xs font-medium max-sm:h-10 text-white hover:bg-white/10"
+      >
+        Turn posting on in Settings
+      </Link>
+    </div>
+  );
+}
+
+/** The one line about the publisher: a warning when it needs attention, muted when it is fine. */
+function PublisherStatusLine({ line }: { line: NonNullable<ReturnType<typeof publisherBannerLine>> }) {
+  const link = line.href ? (
+    <Link href={line.href} className="ml-1.5 underline underline-offset-2">
+      {line.linkLabel ?? "Open"}
+    </Link>
+  ) : null;
+  if (line.tone === "muted") {
+    return (
+      <p className="mb-3 text-xs text-[var(--muted-foreground)]">
+        {line.text}
+        {link}
+      </p>
+    );
+  }
+  return (
+    <div role="status" className="tone-warning tone-edge tone-soft mb-4 rounded-lg border px-3 py-2">
+      <p className="tone-warning tone-text flex items-start gap-2 text-xs">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>
+          {line.text}
+          {link}
+        </span>
+      </p>
+    </div>
+  );
+}
+
+const FAILED_STRIP_ROWS = 4;
+
+/**
+ * Every failed post on every platform tab and account, in one place with a way
+ * to each, and one button for the failures a reconnect fixes. Failures used to
+ * be found by clicking through four tabs and a two-week window.
+ */
+function FailedStrip({
+  legs,
+  counts,
+  timezone,
+  plan,
+  postingOn,
+  activePlatform,
+  retrying,
+  onShow,
+  onRetryConnection,
+}: {
+  legs: FailedLeg[];
+  counts: Record<PlatformId, number>;
+  timezone: string;
+  /** What the bulk retry can do right now, per connected account. */
+  plan: ConnectionRetryPlan;
+  postingOn: boolean;
+  /** The platform tab on screen: a failure on another one switches tabs. */
+  activePlatform: PlatformId;
+  retrying: boolean;
+  onShow: (leg: FailedLeg) => void;
+  onRetryConnection: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded ? legs : legs.slice(0, FAILED_STRIP_ROWS);
+  const byPlatform = PLATFORM_TABS.filter(({ id }) => counts[id] > 0)
+    .map(({ id }) => `${PLATFORM_LABELS[id]} ${counts[id]}`)
+    .join(" · ");
+  const hasConnectionFailures = plan.count > 0 || plan.needConnection.length > 0 || plan.tooOld > 0;
+  const canRetry = postingOn && plan.count > 0;
+  const help = retryConnectionHelp(plan);
+  const when = (leg: FailedLeg) => formatSlotDateTime(leg.item.publishAt, timezone, { weekday: true });
+  return (
+    <section
+      aria-label="Failed posts"
+      className="tone-danger tone-edge tone-soft mb-4 space-y-2 rounded-lg border px-3 py-2.5"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="tone-danger tone-text flex items-center gap-2 text-sm font-semibold">
+          <AlertTriangle className="h-4 w-4 shrink-0" /> Failed ({legs.length})
+        </h2>
+        <span className="text-[11px] text-[var(--muted-foreground)]">{byPlatform}</span>
+        <span className="flex-1" />
+        {hasConnectionFailures ? (
+          <Button
+            variant="secondary"
+            className="h-8 px-3 text-xs"
+            onClick={onRetryConnection}
+            disabled={retrying || !canRetry}
+            title={
+              canRetry
+                ? "Puts these posts back in the queue for the accounts that are connected now. Posts more than a day past their slot stay failed, to retry one by one."
+                : (help ?? undefined)
+            }
+          >
+            {retrying ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            {retryConnectionLabel(plan.count)}
+          </Button>
+        ) : null}
+      </div>
+      {help ? (
+        <p className="flex flex-wrap items-center gap-x-2 text-[11px] text-[var(--muted-foreground)]">
+          <span>{help}</span>
+          {plan.needConnection.length > 0 ? (
+            <Link href="/settings#accounts" className="font-medium text-[var(--accent)] underline-offset-2 hover:underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center">
+              Open Settings &rarr; Accounts
+            </Link>
+          ) : null}
+        </p>
+      ) : null}
+      <ul className="space-y-1">
+        {shown.map((leg) => (
+          <li key={`${leg.item.id}:${leg.platform}`} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
+            <span className="shrink-0 font-medium text-white">{PLATFORM_LABELS[leg.platform]}</span>
+            <span className="min-w-0 max-w-[16rem] truncate text-white" title={leg.item.title}>
+              {leg.item.title}
+            </span>
+            <span className="shrink-0 text-[var(--muted-foreground)]">{when(leg)}</span>
+            <span className="min-w-0 flex-1 basis-60 text-[var(--muted-foreground)]">{leg.headline}</span>
+            <button
+              type="button"
+              onClick={() => onShow(leg)}
+              className="shrink-0 font-medium text-[var(--accent)] underline-offset-2 hover:underline max-sm:min-h-10"
+            >
+              {leg.platform === activePlatform ? "Show on the board" : `Show on the ${PLATFORM_LABELS[leg.platform]} tab`}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {legs.length > FAILED_STRIP_ROWS ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((open) => !open)}
+          className="text-[11px] font-medium text-[var(--muted-foreground)] underline-offset-2 hover:text-white hover:underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center"
+        >
+          {expanded ? "Show fewer" : `Show all ${legs.length}`}
+        </button>
+      ) : null}
+    </section>
+  );
+}
+

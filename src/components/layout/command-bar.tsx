@@ -87,6 +87,7 @@ export function CommandBar() {
   const transcriptId = useId();
 
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const rowRef = useRef<HTMLDivElement | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const historyRef = useRef<TranscriptMessage[]>(restored.history);
@@ -135,6 +136,29 @@ export function CommandBar() {
     );
     return () => window.clearTimeout(timer);
   }, [grant.armed, grant.expiresAt]);
+
+  // Publish how much of the viewport the bar covers so the page can pad its
+  // scroll area by exactly that much (--command-bar-h, read in globals.css and
+  // by the toast region). The transcript floats above the row and is left out
+  // on purpose: it is an overlay he opened, not part of the bar's footprint.
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    const root = document.documentElement;
+    const publish = () => {
+      const covered = Math.ceil(window.innerHeight - row.getBoundingClientRect().top);
+      if (covered > 0) root.style.setProperty("--command-bar-h", `${covered}px`);
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(row);
+    window.addEventListener("resize", publish);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", publish);
+      root.style.removeProperty("--command-bar-h");
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -382,6 +406,7 @@ export function CommandBar() {
         ) : null}
 
         <div
+          ref={rowRef}
           className={cn(
             "glass-popover flex items-center gap-1.5 rounded-2xl border px-2 py-2 transition sm:gap-2 sm:px-3",
             listening && "border-red-400/60"
@@ -416,7 +441,7 @@ export function CommandBar() {
                   ? "Working — type to queue the next one"
                   : "Tell it what to do — show me the carousels"
             }
-            className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-[var(--muted-foreground)]"
+            className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none max-sm:min-h-10 placeholder:text-[var(--muted-foreground)]"
           />
 
           <button
@@ -425,7 +450,7 @@ export function CommandBar() {
             disabled={arming}
             title={shield.title}
             className={cn(
-              "flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition",
+              "flex shrink-0 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition max-sm:min-h-10 max-sm:min-w-10",
               shield.tone === "armed" && "border-amber-400/40 bg-amber-400/10 text-amber-200",
               shield.tone === "expired" && "border-red-400/50 bg-red-400/10 text-red-200 hover:bg-red-400/20",
               shield.tone === "read-only" && "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
@@ -461,7 +486,7 @@ export function CommandBar() {
             aria-label={listening ? "Stop listening" : "Speak a command"}
             aria-pressed={listening}
             className={cn(
-              "flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition",
+              "flex shrink-0 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition max-sm:min-h-10 max-sm:min-w-10",
               listening
                 ? "border-red-400/60 bg-red-400/15 text-red-200"
                 : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
@@ -477,7 +502,7 @@ export function CommandBar() {
               onClick={stop}
               title="Stop"
               aria-label="Stop command and clear queued commands"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-red-400/40 bg-red-400/10 text-red-200 transition hover:bg-red-400/20"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg max-sm:h-10 max-sm:w-10 border border-red-400/40 bg-red-400/10 text-red-200 transition hover:bg-red-400/20"
             >
               <Square className="h-3.5 w-3.5 fill-current" />
             </button>
@@ -487,7 +512,7 @@ export function CommandBar() {
               onClick={() => submit(value)}
               disabled={!value.trim()}
               aria-label="Send command"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--accent)] text-[var(--accent-contrast)] transition disabled:opacity-40"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg max-sm:h-10 max-sm:w-10 bg-[var(--accent)] text-[var(--accent-contrast)] transition disabled:opacity-40"
             >
               <SendHorizonal className="h-4 w-4" />
             </button>

@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, LayoutList, Loader2, Repeat, Sparkles } from "lucide-react";
-import { Badge, type BadgeTone } from "@/components/ui/badge";
+import { AlertTriangle, ArrowUpRight, Bell, CalendarDays, ChevronLeft, ChevronRight, LayoutList, Clock, Loader2, Lock, Repeat, Sparkles } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
@@ -13,13 +13,23 @@ import {
   CALENDAR_SOURCES,
   CALENDAR_SOURCE_BY_ID,
   eventHref,
+  isAwaitingConnectionEventStatus,
+  isFailedEventStatus,
+  isLateEventStatus,
+  isNeedsConnectionEventStatus,
+  isShouldBeLiveEventStatus,
+  isReminderEventStatus,
   type CalendarSource,
   type CalendarSourceId,
   type MasterCalendarEvent,
   type MasterCalendarResponse
 } from "@/lib/master-calendar/types";
+import { summarizeEventStatus } from "@/lib/master-calendar/legSummary";
+import { formatClockTime } from "@/lib/timeFormat";
+import { SCHEDULED_WORD, statusTone } from "@/lib/statusTone";
 import type { CalendarPlan } from "@/lib/master-calendar/planner";
 import { sourceHrefForDay } from "@/lib/master-calendar/aggregate";
+import { defaultCalendarView, viewportIsNarrow } from "@/lib/master-calendar/default-view";
 import { formatDayKey, localTodayKey, shiftDayKey, weekdayOfDayKey } from "@/lib/master-calendar/day-keys";
 import { SourceIcon } from "@/components/master-calendar/source-icon";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
@@ -49,31 +59,81 @@ type ViewMode = "day" | "week" | "month";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-/** Sunday of the week containing `key`. */
+/**
+ * The week view is a rolling seven days that STARTS at the chosen day. A
+ * Sunday-to-Saturday week opened on a Saturday showed one live day and six
+ * that were over, so the schedule - the point of the screen - was off to the
+ * right. Today opens as the first column; arrows move a whole week at a time.
+ */
+function weekWindowStart(anchor: string): string {
+  return anchor;
+}
+
+/** Sunday of the week containing `key` (the month grid's rows). */
 function startOfWeek(key: string): string {
   return shiftDayKey(key, -weekdayOfDayKey(key));
 }
 
-function statusTone(status: string): BadgeTone {
-  if (status === "published" || status === "posted") return "success";
-  if (status === "failed") return "danger";
-  if (status === "scheduled") return "info";
-  return "neutral";
+const HELD_NOTE = "Stays private - publish by hand after review";
+
+/** The slot as a tooltip writes it: "Oct 14, 15:00" (the month view's day is not on screen). */
+function slotLabel(event: MasterCalendarEvent): string {
+  return `${formatDayKey(event.dateKey, { month: "short", day: "numeric" })}${event.time ? `, ${formatClockTime(event.time)}` : ""}`;
+}
+
+/**
+ * Why a post past its slot, or waiting on a connection, is flagged, in the
+ * Uploading Center's words. A post whose platforms differ says so platform by
+ * platform instead of putting one chip's wording over all of them.
+ */
+function lateNote(event: MasterCalendarEvent): string {
+  const summary = summarizeEventStatus(event, { when: slotLabel(event) });
+  if (summary.mixed) return summary.headline;
+  if (isAwaitingConnectionEventStatus(event.status)) {
+    return `${summary.label} - connect it in Settings > Accounts before ${slotLabel(event)} to post automatically, or post it by hand`;
+  }
+  if (isNeedsConnectionEventStatus(event.status)) return `${summary.label} - its slot passed and nothing could be sent; connect it in Settings > Accounts`;
+  if (!isShouldBeLiveEventStatus(event.status)) return "Overdue - its slot passed and the publisher has not sent it; check Automations";
+  const platforms = (event.legs ?? []).filter((leg) => leg.late === "should-be-live").map((leg) => leg.platform);
+  return `Should be live - its slot passed; check ${platforms.join(" / ") || "the platform"}`;
+}
+
+/** What a tooltip adds about an event beyond its title: a lost leg, a hold. */
+function eventNote(event: MasterCalendarEvent): string {
+  const notes: string[] = [];
+  if (isReminderEventStatus(event.status)) notes.push("Reminder - post it by hand, the app does not publish this");
+  if (event.failedPlatforms?.length) notes.push(`${event.status} on ${event.failedPlatforms.join(", ")}`);
+  if (isLateEventStatus(event.status) || isAwaitingConnectionEventStatus(event.status)) notes.push(lateNote(event));
+  if (event.heldForReview) notes.push(HELD_NOTE);
+  return notes.length ? ` (${notes.join("; ")})` : "";
 }
 
 /** A single event as a compact clickable row (month/week cells). */
 function EventChip({ event }: { event: MasterCalendarEvent }) {
   const source = CALENDAR_SOURCE_BY_ID[event.source];
+  const reminder = isReminderEventStatus(event.status);
   return (
     <Link
       href={eventHref(event)}
-      title={`${event.time ? `${event.time} · ` : ""}${event.title} — open ${source.hrefLabel}`}
-      className="flex items-center gap-1.5 rounded-md border-l-2 bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:translate-x-0.5 hover:bg-white/10"
-      style={{ borderLeftColor: source.color }}
+      title={`${event.time ? `${formatClockTime(event.time)} · ` : ""}${event.title}${eventNote(event)} — open ${source.hrefLabel}`}
+      className={cn(
+        "flex items-start gap-1.5 rounded-md px-1.5 py-1 text-[11px] leading-tight transition hover:translate-x-0.5 hover:bg-white/10 max-sm:min-h-10",
+        reminder ? "border border-dashed border-[var(--border-strong)] bg-transparent opacity-80" : "border-l-2 bg-white/5"
+      )}
+      style={reminder ? undefined : { borderLeftColor: source.color }}
     >
-      <SourceIcon source={event.source} className="h-3 w-3" />
-      {event.time ? <span className="shrink-0 font-semibold text-[var(--muted-foreground)]">{event.time}</span> : null}
-      <span className="min-w-0 truncate text-white">{event.title}</span>
+      <span className="flex h-[1.1em] shrink-0 items-center">
+        {reminder ? <Bell className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" aria-label="Reminder" /> : <SourceIcon source={event.source} className="h-3 w-3" />}
+      </span>
+      {/* The time sits on its own line so the title keeps the width; beside it, a week-view chip was left with one letter. */}
+      <span className="min-w-0 flex-1">
+        {event.time ? <span className="block whitespace-nowrap text-[10px] font-semibold text-[var(--muted-foreground)]">{formatClockTime(event.time)}</span> : null}
+        <span className={cn("line-clamp-2 break-words", reminder ? "text-[var(--muted-foreground)]" : "text-white")}>{event.title}</span>
+      </span>
+      {isFailedEventStatus(event.status) ? <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-red-300" aria-label={event.status} /> : null}
+      {isLateEventStatus(event.status) ? <Clock className="h-2.5 w-2.5 shrink-0 text-amber-300" aria-label={lateNote(event)} /> : null}
+      {isAwaitingConnectionEventStatus(event.status) ? <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-amber-300" aria-label={lateNote(event)} /> : null}
+      {event.heldForReview ? <Lock className="h-2.5 w-2.5 shrink-0 text-amber-300" aria-label={HELD_NOTE} /> : null}
       {event.recurring ? <Repeat className="h-2.5 w-2.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
     </Link>
   );
@@ -97,7 +157,7 @@ function SourceGroupChip({ source, events }: { source: CalendarSource; events: M
         <Link
           href={sourceHrefForDay(source.id, events[0].dateKey)}
           title={`Open ${source.hrefLabel}`}
-          className="flex min-w-0 flex-1 items-center gap-1.5 px-1.5 py-1 transition hover:bg-white/10"
+          className="flex min-w-0 flex-1 items-center gap-1.5 px-1.5 py-1 transition hover:bg-white/10 max-sm:min-h-10"
         >
           <SourceIcon source={source.id} className="h-3 w-3" />
           <span className="shrink-0 font-semibold text-white">{events.length}</span>
@@ -109,7 +169,7 @@ function SourceGroupChip({ source, events }: { source: CalendarSource; events: M
           aria-expanded={open}
           aria-label={open ? `Collapse ${source.shortLabel}` : `Show ${events.length} ${source.shortLabel}`}
           title={open ? `Collapse ${source.shortLabel}` : `Show ${events.length} ${source.shortLabel}`}
-          className="shrink-0 px-1 py-1 text-[var(--muted-foreground)] transition hover:text-white"
+          className="shrink-0 px-1 py-1 text-[var(--muted-foreground)] transition hover:text-white max-sm:flex max-sm:min-h-10 max-sm:min-w-10 max-sm:items-center max-sm:justify-center"
         >
           <ChevronRight className={cn("h-3 w-3 transition", open && "rotate-90")} />
         </button>
@@ -128,24 +188,41 @@ function SourceGroupChip({ source, events }: { source: CalendarSource; events: M
 /** A single event as a full row with platforms + status (day view). */
 function EventCard({ event }: { event: MasterCalendarEvent }) {
   const source = CALENDAR_SOURCE_BY_ID[event.source];
+  const reminder = isReminderEventStatus(event.status);
+  const summary = summarizeEventStatus(event, { when: slotLabel(event) });
+  const statusLine = summary.mixed
+    ? summary.headline
+    : isAwaitingConnectionEventStatus(event.status)
+      ? summary.lines.find((line) => line.kind === "needsConnection")?.text
+      : undefined;
   return (
     <Link
       href={eventHref(event)}
-      className="group flex items-center gap-3 rounded-lg border border-[var(--border)] border-l-2 bg-white/5 px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:bg-white/10"
-      style={{ borderLeftColor: source.color }}
+      className={cn(
+        "group flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:bg-white/10",
+        reminder ? "border-dashed border-[var(--border-strong)] bg-transparent opacity-85" : "border-[var(--border)] border-l-2 bg-white/5"
+      )}
+      style={reminder ? undefined : { borderLeftColor: source.color }}
     >
-      <span className="w-12 shrink-0 text-sm font-semibold text-[var(--accent)]">{event.time ?? "—"}</span>
+      <span className="w-[4.5rem] shrink-0 whitespace-nowrap text-sm font-semibold text-[var(--foreground)]">{event.time ? formatClockTime(event.time) : "—"}</span>
       <SourceIcon source={event.source} className="h-4 w-4" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium text-white">{event.title}</span>
         <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]">
           {source.shortLabel}
           {event.platforms.length > 0 ? ` · ${event.platforms.join(", ")}` : ""}
+          {reminder ? " · post it by hand" : ""}
         </span>
+        {event.failedPlatforms?.length ? (
+          <span className="mt-0.5 block text-xs text-red-300">Failed on {event.failedPlatforms.join(", ")}</span>
+        ) : null}
+        {event.heldForReview ? <span className="mt-0.5 block text-xs text-amber-300">{HELD_NOTE}</span> : null}
       </span>
       {event.recurring ? <Repeat className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
-      <Badge tone={statusTone(event.status)} className="shrink-0 capitalize">{event.status}</Badge>
+      <Badge tone={statusTone(event.status)} className={cn("shrink-0", summary.label === event.status && "capitalize", reminder && "border-dashed")}>{summary.label}</Badge>
       <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition group-hover:opacity-100" />
+      {/* Its own full-width line: squeezed between the time and the chip it wrapped to four words a line at phone width. */}
+      {statusLine ? <span className="basis-full text-xs text-amber-300">{statusLine}</span> : null}
     </Link>
   );
 }
@@ -179,7 +256,7 @@ function SourceGroupCard({ source, events }: { source: CalendarSource; events: M
           aria-expanded={open}
           aria-label={open ? `Collapse ${source.label}` : `Show all ${events.length} ${source.label}`}
           title={open ? `Collapse ${source.label}` : `Show all ${events.length}`}
-          className="shrink-0 px-3 py-2.5 text-[var(--muted-foreground)] transition hover:text-white"
+          className="shrink-0 px-3 py-2.5 text-[var(--muted-foreground)] transition hover:text-white max-sm:min-h-10"
         >
           <ChevronRight className={cn("h-4 w-4 transition", open && "rotate-90")} />
         </button>
@@ -195,16 +272,59 @@ function SourceGroupCard({ source, events }: { source: CalendarSource; events: M
   );
 }
 
+/**
+ * "Today" is the publish time zone's today, which only the server knows (the
+ * calendar API answers with it); a browser in UTC is a day ahead of Toronto for
+ * hours every evening. The first read is the week view's own window (no `start`
+ * means today, 7 days), so it decides the day AND is the first screenful of
+ * events. The browser's clock is only the last resort when that read fails.
+ */
 export function MasterCalendarPage() {
-  const todayKey = useMemo(() => localTodayKey(), []);
-  const [view, setView] = useState<ViewMode>("week");
+  const [seed, setSeed] = useState<{ today: string; response: MasterCalendarResponse | null } | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadWorkflowJson<MasterCalendarResponse>("/api/master-calendar?days=7", "events", controller.signal)
+      .then((json) => {
+        if (!controller.signal.aborted) setSeed({ today: json.today ?? json.start, response: json });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setSeed({ today: localTodayKey(), response: null });
+      });
+    return () => controller.abort();
+  }, []);
+
+  if (!seed) {
+    return (
+      <div aria-busy="true">
+        <PageHeader
+          eyebrow="Step 4 · Calendar"
+          title="Master Calendar"
+          description="Every distribution calendar in one place: scheduled shorts uploads, carousel schedules, Threads packs, FB/IG thread posts and dated long-form content — what goes out where, and when."
+        />
+        <Card className="h-[58px] animate-pulse bg-white/[0.03]" />
+      </div>
+    );
+  }
+  return <MasterCalendarBody todayKey={seed.today} seed={seed.response} />;
+}
+
+function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: MasterCalendarResponse | null }) {
+  // A phone opens on the day (a week is seven columns of sideways scrolling
+  // there). Reading the viewport in the initializer is hydration-safe because
+  // this body only mounts after the seed fetch in `MasterCalendarPage`, so it is
+  // never part of the server HTML. Whatever the person picks afterwards sticks:
+  // nothing re-derives the view from the width.
+  const [view, setView] = useState<ViewMode>(() => defaultCalendarView(viewportIsNarrow()));
   const [anchor, setAnchor] = useState(todayKey);
   const [hidden, setHidden] = useState<Set<CalendarSourceId>>(new Set());
-  const [response, setResponse] = useState<MasterCalendarResponse | null>(null);
+  const [response, setResponse] = useState<MasterCalendarResponse | null>(seed);
   // The range the latest settled fetch was for; while it trails the visible
   // range the calendar is loading (previous events stay up to avoid flicker).
-  const [fetchedRange, setFetchedRange] = useState<string | null>(null);
-  const [responseRange, setResponseRange] = useState<string | null>(null);
+  // The week that opened the page arrived with the seed.
+  const seedRange = seed ? `${seed.start}:${seed.days}` : null;
+  const [fetchedRange, setFetchedRange] = useState<string | null>(seedRange ? `${seedRange}:0` : null);
+  const [responseRange, setResponseRange] = useState<string | null>(seedRange);
+  const seededRequest = useRef(seedRange ? `${seedRange}:0` : null);
   const [loadFailure, setLoadFailure] = useState<{ range: string; message: string } | null>(null);
   const [reload, setReload] = useState(0);
   // AI planner: gap-fill suggestions for the visible window, fetched on demand.
@@ -217,16 +337,38 @@ export function MasterCalendarPage() {
   // 6-week grid starting on the Sunday before the 1st.
   const range = useMemo(() => {
     if (view === "day") return { start: anchor, days: 1 };
-    if (view === "week") return { start: startOfWeek(anchor), days: 7 };
+    if (view === "week") return { start: weekWindowStart(anchor), days: 7 };
     return { start: startOfWeek(`${anchor.slice(0, 8)}01`), days: 42 };
   }, [view, anchor]);
   const rangeId = `${range.start}:${range.days}`;
+  // What "Plan this ..." plans. A month grid is 42 days and runs into the
+  // neighbouring months, so planning it would fill days that belong to another
+  // month (and the planner caps a request at 31 days); plan the month itself.
+  const planWindow = useMemo(() => {
+    let window = range;
+    if (view === "month") {
+      const [year, month] = anchor.split("-").map(Number);
+      window = { start: `${anchor.slice(0, 8)}01`, days: new Date(Date.UTC(year, month, 0)).getUTCDate() };
+    }
+    // A plan for days that are already over is no use: start from today when
+    // today falls inside the window.
+    const end = shiftDayKey(window.start, window.days);
+    if (todayKey > window.start && todayKey < end) {
+      const elapsed = Math.round((Date.parse(`${todayKey}T00:00:00Z`) - Date.parse(`${window.start}T00:00:00Z`)) / 86_400_000);
+      return { start: todayKey, days: window.days - elapsed };
+    }
+    return window;
+  }, [view, anchor, range, todayKey]);
+  const planId = `${planWindow.start}:${planWindow.days}`;
+  const planLabel = `Plan this ${view}`;
   const requestId = `${rangeId}:${reload}`;
   const loading = fetchedRange !== requestId;
   const calendarAvailable = responseRange === rangeId;
   const loadError = loadFailure?.range === rangeId ? loadFailure.message : null;
 
   useEffect(() => {
+    if (seededRequest.current === requestId) return;
+    seededRequest.current = null;
     const controller = new AbortController();
     void loadWorkflowJson<MasterCalendarResponse>(`/api/master-calendar?start=${range.start}&days=${range.days}`, "events", controller.signal)
       .then((json) => {
@@ -291,17 +433,17 @@ export function MasterCalendarPage() {
     setPlanning(true);
     setPlanError(null);
     try {
-      const json = await loadWorkflowJson<{ plan: CalendarPlan }>(`/api/master-calendar/plan?start=${range.start}&days=${range.days}`);
+      const json = await loadWorkflowJson<{ plan: CalendarPlan }>(`/api/master-calendar/plan?start=${planWindow.start}&days=${planWindow.days}`);
       if (!Array.isArray(json.plan?.suggestions)) throw new Error("The planner returned incomplete suggestions.");
       setPlan(json.plan);
-      setPlanRange(rangeId);
+      setPlanRange(planId);
     } catch (error) {
       setPlanError(workflowLoadMessage(error));
     } finally {
       setPlanning(false);
     }
   };
-  const planIsStale = plan !== null && planRange !== rangeId;
+  const planIsStale = plan !== null && planRange !== planId;
 
   /** The calendar source whose colour/link fits a suggestion's kind. */
   const sourceForKind = (kind: CalendarPlan["suggestions"][number]["kind"]) =>
@@ -310,7 +452,7 @@ export function MasterCalendarPage() {
   const periodLabel = useMemo(() => {
     if (view === "day") return formatDayKey(anchor, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
     if (view === "week") {
-      const start = startOfWeek(anchor);
+      const start = weekWindowStart(anchor);
       const end = shiftDayKey(start, 6);
       return `${formatDayKey(start, { month: "short", day: "numeric" })} – ${formatDayKey(end, { month: "short", day: "numeric", year: "numeric" })}`;
     }
@@ -318,7 +460,7 @@ export function MasterCalendarPage() {
   }, [view, anchor]);
 
   const weekDays = useMemo(() => {
-    const start = startOfWeek(anchor);
+    const start = weekWindowStart(anchor);
     return Array.from({ length: 7 }, (_, i) => shiftDayKey(start, i));
   }, [anchor]);
 
@@ -342,10 +484,21 @@ export function MasterCalendarPage() {
         return 0;
       })[0];
   }, [events, todayKey]);
-  const failedCount = useMemo(() => events.filter((event) => event.status === "failed").length, [events]);
+  const lateCount = useMemo(() => events.filter((event) => isLateEventStatus(event.status)).length, [events]);
+  const lateLabel = useMemo(
+    () => (events.some((event) => isLateEventStatus(event.status) && !isShouldBeLiveEventStatus(event.status)) ? "past slot" : "should be live"),
+    [events]
+  );
+  const failedCount = useMemo(() => events.filter((event) => isFailedEventStatus(event.status)).length, [events]);
+  // Where the failures are fixed: Threads posts retry on their own page, every
+  // other leg on the Uploading Center.
+  const failedHref = useMemo(() => {
+    const failed = events.filter((event) => isFailedEventStatus(event.status));
+    return failed.length > 0 && failed.every((event) => event.source === "x") ? "/x-posts" : "/uploading-center";
+  }, [events]);
   const nextPostReading = nextEvent
     ? `${formatDayKey(nextEvent.dateKey, { weekday: "short", month: "short", day: "numeric" })}${
-        nextEvent.time ? ` ${nextEvent.time}` : ""
+        nextEvent.time ? ` ${formatClockTime(nextEvent.time)}` : ""
       } · ${nextEvent.title} (${CALENDAR_SOURCE_BY_ID[nextEvent.source].shortLabel})`
     : "Nothing upcoming in this view";
 
@@ -369,7 +522,7 @@ export function MasterCalendarPage() {
       { id: "today", label: "Today", group: "View" },
       { id: "prev", label: "Previous period", group: "View" },
       { id: "next", label: "Next period", group: "View" },
-      { id: "plan", label: plan ? "Re-plan" : "Plan my week", group: "Planner", disabled: planning || !calendarAvailable }
+      { id: "plan", label: plan ? "Re-plan" : planLabel, group: "Planner", disabled: planning || !calendarAvailable }
     ],
     readings: [
       { label: "Calendar data", value: loadError ? `Needs retry: ${loadError}` : loading ? "Loading…" : "Loaded" },
@@ -377,7 +530,8 @@ export function MasterCalendarPage() {
       { label: "Scheduled in view", value: String(events.length) },
       { label: "Hidden by filters", value: String(events.length - visibleEvents.length) },
       { label: "Next post", value: nextPostReading },
-      { label: "Failed", value: String(failedCount) }
+      { label: "Failed", value: String(failedCount) },
+      { label: "Past their slot (should be live or overdue)", value: String(lateCount) }
     ],
     setField: (id, value) => {
       if (id === "date") {
@@ -465,7 +619,7 @@ export function MasterCalendarPage() {
                 onClick={() => toggleSource(source.id)}
                 aria-pressed={!isHidden}
                 title={isHidden ? `Show ${source.label}` : `Hide ${source.label}`}
-                className="flex items-center gap-1.5 py-1.5 pl-2.5 pr-1.5 transition hover:bg-white/10"
+                className="flex items-center gap-1.5 py-1.5 pl-2.5 pr-1.5 transition hover:bg-white/10 max-sm:min-h-10"
               >
                 <SourceIcon source={source.id} className="h-3.5 w-3.5" />
                 <span className={cn("font-medium text-white", isHidden && "line-through")}>{source.shortLabel}</span>
@@ -475,7 +629,7 @@ export function MasterCalendarPage() {
                 href={source.href}
                 aria-label={`Open ${source.hrefLabel}`}
                 title={`Open ${source.hrefLabel}`}
-                className="border-l border-[var(--border)] px-1.5 py-1.5 text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+                className="flex items-center justify-center self-stretch border-l border-[var(--border)] px-1.5 py-1.5 text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white max-sm:min-w-10"
               >
                 <ArrowUpRight className="h-3 w-3" />
               </Link>
@@ -490,15 +644,15 @@ export function MasterCalendarPage() {
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-[var(--accent)]" />
             <div>
-              <p className="text-sm font-semibold text-white">Plan this window</p>
+              <p className="text-sm font-semibold text-white">{planLabel[0].toUpperCase() + planLabel.slice(1)}</p>
               <p className="text-xs text-[var(--muted-foreground)]">
-                Spot scheduling gaps and fill them from your idea board — free, powered by DeepSeek Flash.
+                Spot scheduling gaps in the {view} on screen and fill them from your idea board.
               </p>
             </div>
           </div>
           <Button className="h-8 px-3 text-xs" onClick={() => void runPlan()} disabled={planning || !calendarAvailable}>
             {planning ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />}
-            {planning ? "Planning…" : plan ? "Re-plan" : "Plan my week"}
+            {planning ? "Planning…" : plan ? "Re-plan" : planLabel}
           </Button>
         </div>
         {planError ? <div className="mt-3"><WorkflowLoadNotice title="Planning could not finish" message={planError} retained={plan !== null} retrying={planning} onRetry={() => void runPlan()} /></div> : null}
@@ -534,8 +688,8 @@ export function MasterCalendarPage() {
                         </p>
                       </div>
                       <Link
-                        href={source.href}
-                        title={`Open ${source.hrefLabel}`}
+                        href={sourceHrefForDay(source.id, suggestion.dateKey)}
+                        title={`Open ${source.hrefLabel} on ${formatDayKey(suggestion.dateKey, { month: "short", day: "numeric" })}`}
                         className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition hover:text-white"
                       >
                         <ArrowUpRight className="h-3.5 w-3.5" />
@@ -558,14 +712,14 @@ export function MasterCalendarPage() {
                 type="button"
                 onClick={() => shift(-1)}
                 aria-label="Previous period"
-                className="flex h-8 w-8 items-center justify-center text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+                className="flex h-8 w-8 items-center justify-center text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white max-sm:h-10 max-sm:w-10"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <button
                 type="button"
                 onClick={() => setAnchor(todayKey)}
-                className="border-x border-[var(--border)] px-3 text-xs font-medium leading-8 text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+                className="border-x border-[var(--border)] px-3 text-xs font-medium leading-8 text-[var(--muted-foreground)] max-sm:leading-10 transition hover:bg-white/10 hover:text-white"
               >
                 Today
               </button>
@@ -573,7 +727,7 @@ export function MasterCalendarPage() {
                 type="button"
                 onClick={() => shift(1)}
                 aria-label="Next period"
-                className="flex h-8 w-8 items-center justify-center text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+                className="flex h-8 w-8 items-center justify-center text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white max-sm:h-10 max-sm:w-10"
               >
                 <ChevronRight className="h-4 w-4" />
               </button>
@@ -582,9 +736,31 @@ export function MasterCalendarPage() {
               <CalendarDays className="h-4 w-4 text-[var(--accent)]" />
               {periodLabel}
               {visibleEvents.length > 0 ? (
-                <Badge className="border-white/10 bg-white/5 text-[10px] text-[var(--muted-foreground)]">
+                <Badge tone={statusTone(SCHEDULED_WORD)} className="text-[10px]">
                   {visibleEvents.length} scheduled
                 </Badge>
+              ) : null}
+              {lateCount > 0 ? (
+                <Badge
+                  tone="warning"
+                  className="gap-1 text-[10px]"
+                  title={`${lateCount} ${lateCount === 1 ? "post is" : "posts are"} past ${lateCount === 1 ? "its" : "their"} slot and not confirmed out in this view: check the platform, or Automations if the publisher has not sent ${lateCount === 1 ? "it" : "them"}`}
+                >
+                  <Clock className="h-3 w-3" />
+                  {lateCount} {lateLabel}
+                </Badge>
+              ) : null}
+              {failedCount > 0 ? (
+                <Link
+                  href={failedHref}
+                  title={`${failedCount} ${failedCount === 1 ? "post" : "posts"} failed or partly failed in this view; open ${failedHref === "/x-posts" ? "Threads Autopilot" : "the Uploading Center"} to retry`}
+                  className="inline-flex items-center max-sm:min-h-10"
+                >
+                  <Badge tone="danger" className="gap-1 text-[10px]">
+                    <AlertTriangle className="h-3 w-3" />
+                    {failedCount} failed
+                  </Badge>
+                </Link>
               ) : null}
               {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--muted-foreground)]" /> : null}
             </span>
@@ -597,7 +773,7 @@ export function MasterCalendarPage() {
                 onClick={() => setView(mode)}
                 aria-pressed={view === mode}
                 className={cn(
-                  "rounded-full px-3.5 py-1.5 text-xs font-medium capitalize transition-all",
+                  "rounded-full px-3.5 py-1.5 text-xs font-medium capitalize transition-all max-sm:min-h-10",
                   view === mode
                     ? "bg-[var(--accent)] text-[var(--accent-contrast)] shadow-[0_1px_6px_color-mix(in_srgb,var(--accent)_45%,transparent)]"
                     : "text-[var(--muted-foreground)] hover:text-white"
@@ -652,7 +828,7 @@ export function MasterCalendarPage() {
                         onClick={() => openDay(dateKey)}
                         title="Open day view"
                         className={cn(
-                          "flex h-6 w-6 items-center justify-center rounded-full text-xs transition hover:bg-white/10",
+                          "flex h-6 w-6 items-center justify-center rounded-full text-xs transition hover:bg-white/10 max-sm:h-10 max-sm:w-10",
                           isToday
                             ? "bg-[var(--accent)] font-semibold text-[var(--accent-contrast)] shadow-[0_0_10px_color-mix(in_srgb,var(--accent)_50%,transparent)]"
                             : "text-[var(--muted-foreground)] hover:text-white"
@@ -669,7 +845,7 @@ export function MasterCalendarPage() {
                             type="button"
                             onClick={() => openDay(dateKey)}
                             title={`${sourceEvents.length} ${source.shortLabel} — open day`}
-                            className="flex w-full items-center gap-1.5 rounded-md border-l-2 bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:bg-white/10"
+                            className="flex w-full items-center gap-1.5 rounded-md border-l-2 bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:bg-white/10 max-sm:min-h-10"
                             style={{ borderLeftColor: source.color }}
                           >
                             <SourceIcon source={source.id} className="h-3 w-3" />
@@ -792,7 +968,8 @@ export function MasterCalendarPage() {
       {response ? (
         <p className="mt-3 text-xs text-[var(--muted-foreground)]">
           Times shown in {response.timezone}
-          {!response.publishEnabled ? " · Shorts publisher is not configured, so scheduled uploads are not included yet." : ""}
+          {!response.publishEnabled ? " · Video and picture posting is off in Settings, so scheduled uploads are not shown." : ""}
+          {events.some((event) => isReminderEventStatus(event.status)) ? " · Dashed bell items are reminders to post by hand, not scheduled posts." : ""}
         </p>
       ) : null}
     </div>

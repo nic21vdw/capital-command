@@ -1,20 +1,53 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { toast, type ExternalToast } from "sonner";
+import {
+  clearBookingSummary,
+  loadBookingSummary,
+  saveBookingSummary,
+  type BookingSummary
+} from "@/components/uploading-center/booking-summary-store";
 import { loadWorkflowJson, workflowLoadMessage } from "@/lib/marketing/workflow-resource";
 import { nameClips } from "@/components/uploading-center/bulk";
+import { describeRearmResults, type RearmPlatformResult } from "@/components/uploading-center/failures";
+import {
+  NO_AI_CAPTION_SUMMARY_NOTE,
+  bookedResult,
+  isManualLeg,
+  refusedResult,
+  summarizeAutoAssign,
+  summarizeSchedule,
+  type PlatformResult,
+  type RunOutcome
+} from "@/components/uploading-center/schedule-summary";
 import { windowSegments } from "@/lib/clipping/captions";
 import { loadJobCaptions } from "@/lib/clipping/captions-client";
 import { leadingSilenceSec } from "@/lib/clipping/editor";
-import { hasEditsBeyondAutoRender, renderSignature } from "@/lib/clipping/export-signature";
+import { hasEditsBeyondAutoRender } from "@/lib/clipping/export-signature";
 import { indexProjectsBySource, newestProjectFor, type ClipProjectIndex } from "@/lib/clipping/project-index";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { CaptionSegment, ClipProject } from "@/types/domain";
 import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/channelPlacement";
+import { ACCOUNTS_SETTINGS_HREF, describeFailure, plainError } from "@/lib/publisher/failure";
+import { describeRunOutcome, formatGoLive, manualReminderCopy, type OutcomeLine, type RunOutcomeLike } from "@/lib/publisher/outcomeCopy";
+import {
+  FACEBOOK_SCHEDULED_POSTS_URL,
+  publishedRemovalNote,
+  removalImpact,
+  removalUndoRequest
+} from "@/lib/publisher/boardActions";
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
+import { captionRequestFields } from "@/lib/publisher/captionTags";
 import { indexQueueByClip } from "@/lib/publisher/clipQueueIndex";
+import {
+  mirroredNote,
+  platformTargetHint,
+  type PublishMirrorOverview,
+  type PublisherAutomationOverview
+} from "@/lib/publisher/publishOverview";
 import { generateSlots } from "@/lib/publisher/slots";
+import { remoteUrlFor } from "@/lib/publisher/remoteUrl";
 import type { YoutubeQuota } from "@/lib/publisher/quota";
 import { DEFAULT_SLOT_OFFSET_DAYS, SLOT_WINDOW_DAYS } from "@/lib/publisher/slotWindow";
 import { ALL_PLATFORMS, type PlatformId, type QueueItem, type TiktokPostOptions } from "@/lib/publisher/types";
@@ -60,6 +93,17 @@ export type Overview = {
   timezone: string;
   slotTimes?: string[];
   weekendSlotTimes?: string[];
+  /** Most short-form posts the server will book on one local day (PUBLISH_SHORTS_PER_DAY). */
+  shortsPerDay?: number;
+  /** Whether the runner copies YouTube's schedule onto Instagram and Facebook. */
+  mirror?: PublishMirrorOverview;
+  /** Whether the publisher is paused, and whether its runner is installed and running. */
+  automation?: PublisherAutomationOverview;
+  /**
+   * Whether a model can write captions (never says which, or with what key).
+   * Absent on an older server, which is read as "yes": that is the default.
+   */
+  aiCopyAvailable?: boolean;
   quota: YoutubeQuota;
 };
 
@@ -175,6 +219,9 @@ function computeNeedsRerender(clip: ClipCandidate, jobId: string, projects: Clip
  */
 export const ALL_PLATFORMS_TARGET = "all";
 
+/** "Retry connection failures" leaves failures whose slot is older than this for one-by-one retry. */
+export const REARM_MAX_SLOT_AGE_HOURS = 24;
+
 export type PlatformTarget = PlatformId | typeof ALL_PLATFORMS_TARGET;
 
 export function targetPlatforms(target: PlatformTarget): PlatformId[] {
@@ -230,12 +277,42 @@ export const PLATFORM_TARGET_LABELS: Record<PlatformTarget, string> = {
 };
 
 /**
+ * The picker's wording once the mirror is known: with PUBLISH_MIRROR on, a
+ * YouTube booking also reaches Instagram and Facebook (the runner copies it
+ * over), so the picker says so rather than letting those posts surprise him.
+ */
+export function platformTargetLabels(mirror?: PublishMirrorOverview): Record<PlatformTarget, string> {
+  const note = mirroredNote(mirror, PLATFORM_LABELS);
+  return mirror && note ? { ...PLATFORM_TARGET_LABELS, [mirror.lead]: note } : PLATFORM_TARGET_LABELS;
+}
+
+/** What each picker option books, for the line under the draft's platform select. */
+export function platformTargetHints(mirror?: PublishMirrorOverview): Record<PlatformTarget, string> {
+  const hints = {} as Record<PlatformTarget, string>;
+  for (const target of Object.keys(PLATFORM_TARGET_LABELS) as PlatformTarget[]) {
+    hints[target] = platformTargetHint(target, mirror, PLATFORM_LABELS);
+  }
+  return hints;
+}
+
+/**
  * The platform whose copy an "all platforms" caption is written for. One
- * caption goes out to every platform, so it is tailored to the longest-form
- * of them rather than to a single short-form feed.
+ * caption goes out to every platform (the queue stores one caption per post and
+ * the draft holds one), so it is written for the MOST RESTRICTIVE of them:
+ * TikTok's short, punchy copy with five hashtags fits a YouTube description, an
+ * Instagram caption and a Facebook post. It used to be written for YouTube,
+ * which is the one platform where long copy is rewarded, and then posted
+ * everywhere.
  */
 export function copyPlatformFor(target: PlatformTarget): PlatformId {
-  return target === ALL_PLATFORMS_TARGET ? "youtube" : target;
+  return target === ALL_PLATFORMS_TARGET ? "tiktok" : target;
+}
+
+/** What a toast calls the audience of an AI caption, so "all" is not a silent fib. */
+export function copyTargetLabel(target: PlatformTarget): string {
+  return target === ALL_PLATFORMS_TARGET
+    ? "all platforms (short copy written to fit all of them)"
+    : PLATFORM_TARGET_LABELS[target];
 }
 
 // Keep in sync with the Clip Generator's headline: the creator/auto title on
@@ -261,10 +338,22 @@ function clipFiles(clip: ClipCandidate): string[] {
   return files;
 }
 
-export function remoteUrlFor(platform: PlatformId, postId: string | undefined): string | null {
-  if (!postId) return null;
-  if (platform === "youtube") return `https://www.youtube.com/watch?v=${postId}`;
-  return null;
+// The link builder lives in lib/publisher so the calendars can use it too.
+export { remoteUrlFor };
+
+/**
+ * Scrolls to a post on the board and opens its inline title editor - the same
+ * one its pencil opens. The post can be on more than one platform tab (one
+ * element per tab), so the one actually on screen is the one used.
+ */
+export function focusRenameOnBoard(itemId: string): boolean {
+  if (typeof document === "undefined") return false;
+  const cards = Array.from(document.querySelectorAll<HTMLElement>(`[id="queue-item-${itemId}"]`));
+  const card = cards.find((candidate) => candidate.offsetParent !== null) ?? cards[0];
+  if (!card) return false;
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+  card.querySelector<HTMLButtonElement>('button[aria-label="Rename video"]')?.click();
+  return true;
 }
 
 /** The channel's "Content" page in YouTube Studio (Studio home when unknown). */
@@ -278,6 +367,21 @@ export function studioVideoUrl(videoId: string): string {
 }
 
 /** What the post-upload confirmation dialog shows after a YouTube upload. */
+/**
+ * An error toast with a stable id. The same failure repeated (three clips
+ * refused for the same reason, a retry that fails the same way) UPDATES the
+ * toast already on screen instead of stacking a copy of it, which is how three
+ * identical red toasts ended up overlapping.
+ */
+export function errorToast(message: string, options?: ExternalToast) {
+  // A not-connected adapter error names environment variables; say what to do
+  // instead, and offer Settings (beside any action the caller already set).
+  const plain = plainError(message);
+  const settings = { label: "Open Settings", onClick: () => window.location.assign(ACCOUNTS_SETTINGS_HREF) };
+  const link = plain.notConnected ? (options?.action ? { cancel: settings } : { action: settings }) : {};
+  return toast.error(plain.text, { id: `error:${plain.text}`, ...link, ...options });
+}
+
 export type UploadSuccess = {
   title: string;
   videoUrl: string;
@@ -290,13 +394,19 @@ export type UploadSuccess = {
 
 /** Either the platform-ready caption, or why it couldn't be written. */
 export type TailoredCaption =
-  | { ok: true; caption: string; bestTime?: string; note?: string }
+  | { ok: true; caption: string; bestTime?: string; note?: string; source: "ai" | "fallback" }
   | { ok: false; error: string };
+
+/** What the screen says when no AI key is set and the clip title stood in. */
+export const NO_AI_CAPTION_NOTICE = "No AI key set - used the clip title as the caption. Edit it before booking.";
+export const NO_AI_CAPTION_NOTICE_PLURAL =
+  "No AI key set - used the clip titles as the captions. Edit them before booking.";
 
 /** One clip a bulk caption pass could not write copy for, and why. */
 export type CaptionFailure = { clip: ReadyClip; error: string };
 
-export type CaptionPassResult = { filled: number; failed: CaptionFailure[] };
+/** `usedTitle` counts captions that are just the clip title because no AI key answered. */
+export type CaptionPassResult = { filled: number; failed: CaptionFailure[]; usedTitle?: number };
 
 async function readError(response: Response): Promise<string> {
   try {
@@ -338,11 +448,25 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   /** How far a bulk caption pass has got, or null when none is running. */
   const [captionProgress, setCaptionProgress] = useState<{ done: number; total: number } | null>(null);
   /**
+   * What the last bulk booking did to each run, set this session. `null` is a dismissal and
+   * beats whatever the browser remembers; a run with no entry falls back to the stored line
+   * (booking-summary-store), which is how the summary survives a reload.
+   */
+  const [bookingSummaries, setBookingSummaries] = useState<Record<string, BookingSummary | null>>({});
+  const setBookingSummaryFor = useCallback((jobId: string, summary: BookingSummary | null) => {
+    setBookingSummaries((current) => ({ ...current, [jobId]: summary }));
+    if (summary) saveBookingSummary(jobId, summary);
+    else clearBookingSummary(jobId);
+  }, []);
+  /**
    * Clips whose AI caption failed, by clip key, with the reason. This is what
    * stops a failure being invisible: the card is marked, the run offers a retry,
    * and Auto Assign refuses to schedule them behind a green toast.
    */
   const [captionFailures, setCaptionFailures] = useState<Record<string, string>>({});
+  // What the last caption request really returned: "fallback" means no model
+  // answered and the clip's title stood in, whatever the config promised.
+  const [aiCopyFellBack, setAiCopyFellBack] = useState(false);
   const remindedRef = useRef(new Set<string>());
   const refreshInFlightRef = useRef(false);
   /**
@@ -472,7 +596,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           loadWorkflowJson<{ jobs: ClipJob[] }>("/api/clips", "jobs").then((next) => {
             setJobs(next.jobs);
           }),
-          loadWorkflowJson<{ items: QueueItem[] }>("/api/publish", "items").then((next) => {
+          loadWorkflowJson<{ items: QueueItem[] }>("/api/publish?board=1", "items").then((next) => {
             setQueueItems(next.items);
           }),
           refreshOverview()
@@ -523,6 +647,12 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     () => jobsWithClips.find((job) => job.id === activeJobId) ?? jobsWithClips[0] ?? null,
     [activeJobId, jobsWithClips]
   );
+  // Only the run on screen shows its summary: another run's line would describe clips that are not here.
+  const bookingSummary = useMemo(() => {
+    if (!activeJob) return null;
+    const session = bookingSummaries[activeJob.id];
+    return session !== undefined ? session : loadBookingSummary(activeJob.id);
+  }, [activeJob, bookingSummaries]);
 
   // The job list carries no transcripts — only the tab actually on screen
   // needs one, so it is fetched per active job rather than for all fifty.
@@ -716,7 +846,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         });
         if (!response.ok) throw new Error(await readError(response));
       } catch {
-        toast.error("Could not save the clip title.");
+        errorToast("Could not save the clip title.");
         await refresh();
       }
     },
@@ -746,10 +876,13 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         if (youtube === "updated") {
           toast.success("Title updated on YouTube.");
         } else if (youtube === "error") {
-          toast.warning(`Title saved here, but YouTube didn't take it: ${youtubeError ?? "unknown error"}`);
+          toast.warning(`Title saved here, but YouTube didn't take it: ${plainError(youtubeError ?? "unknown error").text}`);
+        } else {
+          // Not on YouTube yet: the new title is simply what it uploads with.
+          toast.success("Title saved. It uploads with this title.");
         }
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Could not rename the post.");
+        errorToast(error instanceof Error ? error.message : "Could not rename the post.");
         await refresh();
       }
     },
@@ -792,45 +925,67 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    * Scheduled in YouTube Studio) and reports how that went; TikTok/Instagram
    * just queue.
    */
-  const announceScheduleOutcome = useCallback(async (response: Response, platform: PlatformId) => {
-    const { item, report } = (await response.json()) as {
-      item?: QueueItem;
-      report?: { outcomes: Array<{ platform: string; outcome: string; detail: string }> };
-    };
-    const outcome = report?.outcomes.find((entry) => entry.platform === platform);
-    const postId = platform === "youtube" ? item?.platforms.youtube?.postId : undefined;
-    const videoUrl = remoteUrlFor(platform, postId);
-    if ((outcome?.outcome === "scheduled" || outcome?.outcome === "published") && item && videoUrl) {
-      // The confirmation dialog (video link + YouTube Studio button)
-      // replaces the plain toast for a completed YouTube upload.
-      setUploadSuccess({ title: item.title, videoUrl, status: outcome.outcome, publishAt: item.publishAt, postId });
-    } else if (outcome?.outcome === "scheduled") {
-      toast.success("Uploaded to YouTube — it now shows as Scheduled on your channel.");
-    } else if (outcome?.outcome === "published") {
-      toast.success(`Published to ${PLATFORM_LABELS[platform]}.`);
-    } else if (
-      platform === "youtube" &&
-      outcome?.outcome === "failed" &&
-      outcome.detail.includes("YouTube connection expired")
-    ) {
-      const accountId = item?.accountId ?? primaryAccountIdFor("youtube");
-      toast.error("Your YouTube connection expired. Reconnect once and Command will resume this upload automatically.", {
-        duration: Infinity,
-        action: {
-          label: "Reconnect YouTube",
-          onClick: () => {
-            window.location.href = `/api/auth/google?account=${encodeURIComponent(accountId)}`;
+  const announceScheduleOutcome = useCallback(
+    async (
+      response: Response,
+      platform: PlatformId,
+      /**
+       * Part of a multi-platform booking: the one summary toast carries the
+       * words, so only what a toast cannot say is kept here - the YouTube
+       * confirmation dialog and the reconnect prompt.
+       */
+      options?: { summary?: boolean }
+    ): Promise<{ item?: QueueItem; result: PlatformResult }> => {
+      const { item, report } = (await response.json()) as {
+        item?: QueueItem;
+        report?: { outcomes: RunOutcome[] };
+      };
+      const outcome = report?.outcomes.find((entry) => entry.platform === platform);
+      const result = bookedResult(platform, item, outcome);
+      const postId = platform === "youtube" ? item?.platforms.youtube?.postId : undefined;
+      const videoUrl = remoteUrlFor(platform, postId);
+      const quiet = options?.summary === true;
+      if ((outcome?.outcome === "scheduled" || outcome?.outcome === "published") && item && videoUrl) {
+        // The confirmation dialog (video link + YouTube Studio button)
+        // replaces the plain toast for a completed YouTube upload.
+        setUploadSuccess({ title: item.title, videoUrl, status: outcome.outcome, publishAt: item.publishAt, postId });
+      } else if (
+        platform === "youtube" &&
+        outcome?.outcome === "failed" &&
+        outcome.detail.includes("YouTube connection expired")
+      ) {
+        const accountId = item?.accountId ?? primaryAccountIdFor("youtube");
+        errorToast("Your YouTube connection expired. Reconnect once and CoLateral Marketing will resume this upload automatically.", {
+          duration: Infinity,
+          action: {
+            label: "Reconnect YouTube",
+            onClick: () => {
+              window.location.href = `/api/auth/google?account=${encodeURIComponent(accountId)}`;
+            }
           }
-        }
-      });
-    } else if (outcome?.outcome === "retrying") {
-      toast.warning(`Upload interrupted — Command will retry automatically. ${outcome.detail || ""}`.trim());
-    } else if (outcome?.outcome === "failed") {
-      toast.error(`Upload failed: ${outcome.detail || "The platform rejected the upload."}`);
-    } else {
-      toast.success(`Scheduled for ${PLATFORM_LABELS[platform]}.`);
-    }
-  }, []);
+        });
+      } else if (quiet) {
+        // Said in the summary.
+      } else if (outcome?.outcome === "scheduled") {
+        toast.success("Uploaded to YouTube — it now shows as Scheduled on your channel.");
+      } else if (outcome?.outcome === "published") {
+        toast.success(`Published to ${PLATFORM_LABELS[platform]}.`);
+      } else if (outcome?.outcome === "retrying") {
+        toast.warning(`Upload interrupted — CoLateral Marketing will retry automatically. ${outcome.detail || ""}`.trim());
+      } else if (outcome?.outcome === "failed") {
+        errorToast(
+          `Upload failed: ${describeFailure({ status: "failed", attempts: 0, error: outcome.detail }, platform).headline}`
+        );
+      } else if (result.manual) {
+        // Booked, but only as a reminder: nothing posts by itself. Amber, not green.
+        toast.warning(manualReminderCopy(platform));
+      } else {
+        toast.success(`Scheduled for ${PLATFORM_LABELS[platform]}.`);
+      }
+      return { item, result };
+    },
+    []
+  );
 
   /**
    * The clip's most recently edited Clip Editor project, used to bake its trim
@@ -862,11 +1017,13 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           })
         });
         if (!response.ok) return { ok: false, error: await readError(response) };
-        const { copy } = (await response.json()) as {
+        const { copy, source } = (await response.json()) as {
           copy: { caption: string; hashtags: string[]; bestTime?: string; note?: string };
+          source?: "ai" | "fallback";
         };
         const caption = copy.hashtags.length ? `${copy.caption}\n\n${copy.hashtags.join(" ")}` : copy.caption;
-        return { ok: true, caption, bestTime: copy.bestTime, note: copy.note };
+        setAiCopyFellBack(source === "fallback");
+        return { ok: true, caption, bestTime: copy.bestTime, note: copy.note, source: source ?? "ai" };
       } catch {
         return { ok: false, error: "Couldn't tailor the caption — try again." };
       }
@@ -879,18 +1036,19 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       clip: ReadyClip,
       platform: PlatformId,
       title: string
-    ): Promise<{ caption: string; bestTime?: string; note?: string } | null> => {
+    ): Promise<{ caption: string; bestTime?: string; note?: string; source: "ai" | "fallback" } | null> => {
       setBusy(`tailor:${clip.key}`);
       try {
         const result = await fetchTailoredCaption(clip, platform, title);
         if (!result.ok) {
-          toast.error(result.error);
+          errorToast(result.error);
           setCaptionFailures((current) => ({ ...current, [clip.key]: result.error }));
           return null;
         }
         setCaptionFailures((current) => {
           if (!(clip.key in current)) return current;
-          const { [clip.key]: _cleared, ...rest } = current;
+          const rest = { ...current };
+          delete rest[clip.key];
           return rest;
         });
         return result;
@@ -913,12 +1071,18 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   const tailorCaptionsForAll = useCallback(
     async (
       targets: Array<{ clip: ReadyClip; platform: PlatformId; title: string }>,
-      onCaption: (clip: ReadyClip, caption: string) => void
+      onCaption: (clip: ReadyClip, caption: string) => void,
+      /**
+       * Booking follows this pass straight away (Auto Assign), so the caller says the
+       * no-AI-key notice itself, in the tense that is true by then.
+       */
+      options: { deferFallbackNotice?: boolean } = {}
     ): Promise<CaptionPassResult> => {
       if (targets.length === 0) return { filled: 0, failed: [] };
       setBusy("captions-all");
       setCaptionProgress({ done: 0, total: targets.length });
       let filled = 0;
+      let usedTitle = 0;
       const failed: CaptionFailure[] = [];
       try {
         for (const [index, target] of targets.entries()) {
@@ -927,6 +1091,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
             failed.push({ clip: target.clip, error: result.error });
           } else {
             filled += 1;
+            if (result.source === "fallback") usedTitle += 1;
             onCaption(target.clip, result.caption);
           }
           setCaptionProgress({ done: index + 1, total: targets.length });
@@ -938,16 +1103,19 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           return next;
         });
         const names = nameClips(failed.map((failure) => failure.clip.headline));
-        if (failed.length === 0) {
+        if (failed.length === 0 && usedTitle > 0) {
+          // No model answered: the "captions" are the clip titles. Say so.
+          if (!options.deferFallbackNotice) toast.warning(NO_AI_CAPTION_NOTICE_PLURAL, { id: "caption-fallback" });
+        } else if (failed.length === 0) {
           toast.success(`Wrote ${filled} caption${filled === 1 ? "" : "s"}.`);
         } else if (filled > 0) {
           toast.warning(
             `Wrote ${filled} of ${targets.length} captions. No caption for ${names} — ${failed[0].error}`
           );
         } else {
-          toast.error(`Couldn't write a caption for ${names} — ${failed[0].error}`);
+          errorToast(`Couldn't write a caption for ${names} — ${failed[0].error}`);
         }
-        return { filled, failed };
+        return { filled, failed, usedTitle };
       } finally {
         setCaptionProgress(null);
         setBusy(null);
@@ -957,13 +1125,35 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   );
 
   const schedule = useCallback(
-    async (clip: ReadyClip, draft: ClipDraft) => {
+    async (
+      clip: ReadyClip,
+      draft: ClipDraft,
+      options: {
+        /** Told the caption written for an empty box, so the card shows what was posted. */
+        onCaption?: (caption: string) => void;
+      } = {}
+    ) => {
       if (!draft.slotUtc) {
-        toast.error("Pick a schedule slot first.");
+        errorToast("Pick a schedule slot first.");
         return false;
       }
       setBusy(`schedule:${clip.key}`);
       try {
+        // An empty caption box means "write one when I schedule", which is what
+        // its placeholder promises. Without this the post went out with no
+        // caption at all when no AI key was set. With no key the words are the
+        // clip's title (the same fallback the bulk button uses) and the toast
+        // below says so. A failed write is not fatal: enqueue writes one too.
+        let caption = draft.caption;
+        let usedTitle = false;
+        if (!caption.trim()) {
+          const written = await fetchTailoredCaption(clip, copyPlatformFor(draft.platform), draft.title);
+          if (written.ok && written.caption.trim()) {
+            caption = written.caption;
+            usedTitle = written.source === "fallback";
+            options.onCaption?.(caption);
+          }
+        }
         // If the trim/edits aren't baked into the current render, render them
         // now and post the fresh cut — so the upload is always the edited clip,
         // no round-trip through the editor required.
@@ -971,14 +1161,14 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         if (clip.needsRerender) {
           const project = projectForClip(clip);
           if (!project) {
-            toast.error("Open this clip in the editor and hit Schedule Short to bake in your edits first.");
+            errorToast("Open this clip in the editor and hit Schedule Short to bake in your edits first.");
             return false;
           }
           const bakeToast = toast.loading("Baking your trim before scheduling…");
           try {
             file = await bakeProject(project);
           } catch (error) {
-            toast.error(`Couldn't render the trimmed clip: ${error instanceof Error ? error.message : "render failed"}.`, {
+            errorToast(`Couldn't render the trimmed clip: ${error instanceof Error ? error.message : "render failed"}.`, {
               id: bakeToast
             });
             return false;
@@ -989,53 +1179,71 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         // account. Sequential: the queue store isn't safe under concurrent
         // writes. A platform that fails never blocks the rest.
         const platforms = schedulePlatforms(draft.platform);
-        let scheduled = 0;
+        const several = platforms.length > 1;
+        const results: PlatformResult[] = [];
         let firstError: string | null = null;
         for (const platform of platforms) {
-          const response = await fetch("/api/publish", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              jobId: clip.jobId,
-              file,
-              publishAt: draft.slotUtc,
-              title: draft.title.trim() || undefined,
-              caption: draft.caption.trim() || undefined,
-              platforms: [platform],
-              // "public" is what makes YouTube honor publishAt: the video is
-              // uploaded private and YouTube flips it live at the slot time.
-              visibility: "public",
-              // The post lands on the account the platform's tab is showing.
-              accountId: activeAccountIds[platform],
-              // Only TikTok has consent to carry, and only when the creator
-              // chose to post straight to the profile.
-              ...(platform === "tiktok" && draft.tiktok ? { tiktok: draft.tiktok } : {})
-            })
-          });
-          if (!response.ok) {
-            firstError ??= await readError(response);
+          let response: Response;
+          try {
+            response = await fetch("/api/publish", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                jobId: clip.jobId,
+                file,
+                publishAt: draft.slotUtc,
+                title: draft.title.trim() || undefined,
+                // The AI caption's hashtag line travels as `hashtags`; left inside the
+                // caption, enqueue generated a second set on top of it.
+                ...captionRequestFields(caption),
+                platforms: [platform],
+                // "public" is what makes YouTube honor publishAt: the video is
+                // uploaded private and YouTube flips it live at the slot time.
+                visibility: "public",
+                // The post lands on the account the platform's tab is showing.
+                accountId: activeAccountIds[platform],
+                // Only TikTok has consent to carry, and only when the creator
+                // chose to post straight to the profile.
+                ...(platform === "tiktok" && draft.tiktok ? { tiktok: draft.tiktok } : {})
+              })
+            });
+          } catch {
+            firstError ??= "Network error while scheduling.";
+            results.push(refusedResult(platform, "network error while scheduling"));
             continue;
           }
-          scheduled += 1;
-          // YouTube's outcome always gets the full treatment (the upload
-          // confirmation dialog, the reconnect prompt); the other platforms
-          // fold into the summary below when several were targeted.
-          if (platforms.length === 1 || platform === "youtube") {
-            await announceScheduleOutcome(response, platform);
+          if (!response.ok) {
+            const error = await readError(response);
+            firstError ??= error;
+            results.push(refusedResult(platform, error));
+            continue;
           }
+          // The outcome of each request (the YouTube confirmation dialog, the
+          // reconnect prompt) is announced as it lands; with several platforms
+          // the words wait for the one summary below.
+          const { result } = await announceScheduleOutcome(response, platform, { summary: several });
+          results.push(result);
         }
-        if (scheduled === 0) {
-          toast.error(firstError ?? "Couldn't schedule this clip.");
+        const booked = results.filter((result) => result.booked);
+        if (!several && booked.length === 0) {
+          errorToast(firstError ?? "Couldn't schedule this clip.");
           return false;
         }
-        if (platforms.length > 1) {
-          if (scheduled === platforms.length) {
-            toast.success(`Scheduled on all ${scheduled} platforms.`);
-          } else {
-            toast.warning(
-              `Scheduled on ${scheduled} of ${platforms.length} platforms${firstError ? ` — ${firstError}` : "."}`
-            );
-          }
+        if (several) {
+          // One toast, a line per platform: "scheduled everywhere" used to hide
+          // which platform refused and why.
+          const summary = summarizeSchedule(results);
+          const noKeyNote = usedTitle && booked.length > 0;
+          toast[noKeyNote && summary.level === "success" ? "warning" : summary.level](summary.title, {
+            description: [...summary.lines, ...(noKeyNote ? [NO_AI_CAPTION_SUMMARY_NOTE] : [])].join("\n"),
+            duration: summary.level === "success" && !noKeyNote ? 8000 : 15000,
+            style: { whiteSpace: "pre-line" }
+          });
+          if (booked.length === 0) return false;
+        } else if (usedTitle) {
+          // Said beside the booking's own toast, not instead of it: the post is
+          // booked, and its caption is only the title.
+          toast.warning(NO_AI_CAPTION_SUMMARY_NOTE, { id: "caption-fallback", duration: 15000 });
         }
         await refresh({ channelRefresh: platforms.includes("youtube") });
         return true;
@@ -1043,7 +1251,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         setBusy(null);
       }
     },
-    [activeAccountIds, announceScheduleOutcome, projectForClip, refresh]
+    [activeAccountIds, announceScheduleOutcome, fetchTailoredCaption, projectForClip, refresh]
   );
 
   /**
@@ -1068,14 +1276,23 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           body: file
         });
         if (!response.ok) {
-          toast.error(await readError(response));
+          errorToast(await readError(response));
           return false;
         }
-        await announceScheduleOutcome(response, draft.platform);
+        const { item } = await announceScheduleOutcome(response, draft.platform);
         await refresh({ channelRefresh: draft.platform === "youtube" });
+        // The title and caption were written from the file's name, so say what
+        // they came out as, and where to change it, before it goes live.
+        if (item) {
+          toast(`Titled “${item.title}” from the file name.`, {
+            description: "Rename it on the board if that isn't what you want to post.",
+            duration: 12000,
+            action: { label: "Rename", onClick: () => focusRenameOnBoard(item.id) }
+          });
+        }
         return true;
       } catch {
-        toast.error("Network error while uploading the video.");
+        errorToast("Network error while uploading the video.");
         return false;
       } finally {
         setBusy(null);
@@ -1095,14 +1312,27 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    * fallback copy and nobody knew.
    */
   const autoAssign = useCallback(
-    async (assignments: Array<{ clip: ReadyClip; draft: ClipDraft }>, heldBack: ReadyClip[] = []) => {
+    async (
+      assignments: Array<{ clip: ReadyClip; draft: ClipDraft }>,
+      heldBack: ReadyClip[] = [],
+      /** A sentence to keep in the persisted summary (e.g. NO_AI_CAPTION_SUMMARY_NOTE). */
+      note?: string
+    ) => {
       if (assignments.length === 0) return;
       setBusy("auto-assign");
       // Counted in requests, not clips: a clip aimed at "All platforms" is
       // three, the Instagram one carrying Facebook with it.
       const total = assignments.reduce((sum, { draft }) => sum + schedulePlatforms(draft.platform).length, 0);
       let scheduled = 0;
+      let manual = 0;
+      const manualPlatforms: string[] = [];
+      // The slot and queue id of every post the queue accepted, for "4 booked for
+      // Oct 13-16" and the "View 4 bookings" button that finds them again.
+      const bookedSlots: string[] = [];
+      const bookedIds: string[] = [];
       let firstError: string | null = null;
+      const summaryJobId = assignments[0].clip.jobId;
+      setBookingSummaryFor(summaryJobId, null);
       try {
         for (const { clip, draft } of assignments) {
           let file = clip.file;
@@ -1129,7 +1359,9 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
                   file,
                   publishAt: draft.slotUtc,
                   title: draft.title.trim() || undefined,
-                  caption: draft.caption.trim() || undefined,
+                  // The AI caption's hashtag line travels as `hashtags`; left inside the
+              // caption, enqueue generated a second set on top of it.
+              ...captionRequestFields(draft.caption),
                   platforms: [platform],
                   visibility: "public",
                   accountId: activeAccountIds[platform],
@@ -1141,6 +1373,14 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
                 continue;
               }
               scheduled += 1;
+              // A platform with no connected account is booked as a reminder.
+              const booked = (await response.json().catch(() => null)) as { item?: QueueItem } | null;
+              bookedSlots.push(draft.slotUtc);
+              if (booked?.item?.id) bookedIds.push(booked.item.id);
+              if (isManualLeg(booked?.item, platform)) {
+                manual += 1;
+                manualPlatforms.push(PLATFORM_LABELS[platform]);
+              }
             } catch {
               firstError ??= "Network error while scheduling.";
             }
@@ -1151,42 +1391,148 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
               heldBack.map((clip) => clip.headline)
             )}.`
           : "";
-        if (scheduled === total && !held) {
-          toast.success(`Auto-assigned ${scheduled} post${scheduled === 1 ? "" : "s"} to the next open slots.`);
-        } else if (scheduled === total) {
-          toast.warning(`Auto-assigned ${scheduled} post${scheduled === 1 ? "" : "s"}.${held}`);
-        } else if (scheduled > 0) {
-          toast.warning(`Auto-assigned ${scheduled} of ${total} posts${firstError ? ` — ${firstError}` : "."}${held}`);
-        } else {
-          toast.error(`${firstError ?? "Auto assign failed."}${held}`);
-        }
+        const summary = summarizeAutoAssign({
+          scheduled,
+          manual,
+          total,
+          manualPlatforms,
+          firstError,
+          held,
+          bookedSlots,
+          timeZone: timezone,
+          note
+        });
+        // Said ONCE, in the run's card beside the button that was pressed. It used
+        // to be a toast as well, the same words twice within a second, and the
+        // card's line is the one that survives a reload and carries "View N
+        // bookings". It is a status region, so a screen reader hears it too.
+        setBookingSummaryFor(summaryJobId, { ...summary, ...(bookedIds.length > 0 ? { itemIds: bookedIds } : {}) });
         await refresh();
       } finally {
         setBusy(null);
       }
     },
-    [activeAccountIds, projectForClip, refresh]
+    [activeAccountIds, projectForClip, refresh, setBookingSummaryFor, timezone]
   );
 
+  /** Shows each run outcome as the toast its tone calls for. */
+  const showOutcomes = useCallback((lines: OutcomeLine[]) => {
+    for (const line of lines) {
+      if (line.tone === "error") errorToast(line.text);
+      else if (line.tone === "warning") toast.warning(line.text);
+      else if (line.tone === "info") toast.info(line.text);
+      else toast.success(line.text);
+    }
+  }, []);
+
+  /**
+   * Publish now, confirmed on the board first: every platform on the post that
+   * has not finished goes out immediately, and a YouTube video held for its slot
+   * is made public. The toast says what happened to each, in words.
+   */
   const publishNow = useCallback(
-    async (item: QueueItem) => {
+    async (item: QueueItem, platforms?: PlatformId[]) => {
       setBusy(`publish:${item.id}`);
       try {
-        const response = await fetch(`/api/publish/${item.id}/publish`, { method: "POST" });
+        const response = await fetch(`/api/publish/${item.id}/publish`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          // `platforms` leaves out legs whose account is not connected: they stay waiting.
+          body: JSON.stringify(platforms ? { mode: "now", platforms } : { mode: "now" })
+        });
         if (!response.ok) {
-          toast.error(await readError(response));
+          errorToast(await readError(response));
           return;
         }
         const { report } = (await response.json()) as {
           report: { outcomes: Array<{ platform: string; outcome: string; detail: string }> };
         };
-        for (const outcome of report.outcomes) {
-          const line = `${PLATFORM_LABELS[outcome.platform as PlatformId]}: ${outcome.outcome}`;
-          if (outcome.outcome === "failed") toast.error(`${line} — ${outcome.detail}`);
-          else toast.success(line);
-        }
+        showOutcomes(report.outcomes.map((outcome) => describeRunOutcome(outcome, { publishAt: item.publishAt, timeZone: timezone })));
         if (report.outcomes.length === 0) toast.info("Nothing left to publish on that post.");
         await refresh({ channelRefresh: true });
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh, showOutcomes, timezone]
+  );
+
+  /**
+   * Retry one platform of a post. Puts only that platform's leg back in the
+   * queue, then runs the post WITHOUT force: a slot that has passed posts now,
+   * a slot still ahead waits for it, and the post's other platforms are left
+   * exactly as they were (a forced run would publish them all early).
+   */
+  const retryQueueItem = useCallback(
+    async (item: QueueItem, platform: PlatformId) => {
+      setBusy(`publish:${item.id}`);
+      try {
+        const rearm = await fetch("/api/publish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "retry", itemId: item.id, platform })
+        }).catch(() => null);
+        if (!rearm) {
+          errorToast("Network error while retrying that post.");
+          return;
+        }
+        if (!rearm.ok) {
+          errorToast(await readError(rearm));
+          return;
+        }
+        const slotPassed = new Date(item.publishAt).getTime() <= Date.now();
+        const run = await fetch(`/api/publish/${item.id}/publish`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "slot" })
+        }).catch(() => null);
+        const report = run?.ok
+          ? ((await run.json().catch(() => null)) as { report?: { outcomes: RunOutcomeLike[] } } | null)?.report
+          : undefined;
+        const outcomes = report?.outcomes ?? [];
+        if (!report) {
+          toast.warning(
+            `${PLATFORM_LABELS[platform]} is back in the queue, but the run did not start. It is picked up on the next pass.`
+          );
+        } else if (outcomes.length === 0) {
+          toast.success(
+            slotPassed
+              ? `${PLATFORM_LABELS[platform]} is back in the queue and posts on the next run.`
+              : `${PLATFORM_LABELS[platform]} is back in the queue. It posts at its slot, ${formatGoLive(item.publishAt, timezone)} - the post's other platforms were not touched.`
+          );
+        } else {
+          showOutcomes(outcomes.map((outcome) => describeRunOutcome(outcome, { publishAt: item.publishAt, timeZone: timezone })));
+        }
+        await refresh({ channelRefresh: true });
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh, showOutcomes, timezone]
+  );
+
+  /**
+   * Books a removed post again - the toast's Undo. It is the ordinary booking
+   * route, so the slot and duplicate rules apply to it like to any new post; if
+   * the queue refuses, the toast says why and the post stays removed.
+   */
+  const restoreRemoved = useCallback(
+    async (request: Record<string, unknown>, title: string) => {
+      setBusy("restore");
+      try {
+        const response = await fetch("/api/publish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request)
+        });
+        if (!response.ok) {
+          errorToast(`Could not put "${title}" back: ${await readError(response)}`);
+        } else {
+          toast.success(`"${title}" is back on the schedule.`);
+        }
+        await refresh();
+      } catch {
+        errorToast(`Could not put "${title}" back: network error.`);
       } finally {
         setBusy(null);
       }
@@ -1194,16 +1540,123 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     [refresh]
   );
 
+  /**
+   * Removes the whole post (every platform on it). The board has already asked
+   * and listed the platforms. The server keeps a YouTube video the channel
+   * already holds private instead of leaving it to go live, and reports a
+   * Facebook post it cannot cancel; the toast says which happened.
+   *
+   * Undo is offered only for a post nothing was sent for (see
+   * `removalUndoRequest`): once a platform holds a copy, putting the post back
+   * would book a second one and leave the first behind, so the toast says what
+   * happened to the platform instead.
+   */
   const remove = useCallback(
-    async (item: QueueItem) => {
+    async (item: QueueItem, options: { anyway?: boolean } = {}) => {
       setBusy(`remove:${item.id}`);
       try {
-        const response = await fetch(`/api/publish/${item.id}`, { method: "DELETE" });
-        if (!response.ok) toast.error(await readError(response));
-        else toast.success("Removed from the schedule.");
+        const response = await fetch(`/api/publish/${item.id}${options.anyway ? "?anyway=1" : ""}`, { method: "DELETE" });
+        if (!response.ok) {
+          const detail = (await response.json().catch(() => null)) as { error?: string; code?: string } | null;
+          const message = detail?.error ?? "Could not remove that post.";
+          if (
+            detail?.code === "youtube-hold-failed" ||
+            detail?.code === "uploading" ||
+            detail?.code === "youtube-may-exist"
+          ) {
+            errorToast(message, {
+              duration: Infinity,
+              action: { label: "Remove anyway", onClick: () => void remove(item, { anyway: true }) }
+            });
+          } else {
+            errorToast(message);
+          }
+        } else {
+          const result = (await response.json().catch(() => ({}))) as {
+            youtube?: string;
+            youtubeVideoId?: string;
+            youtubeMayExist?: boolean;
+            facebookPostId?: string;
+          };
+          const studio = result.youtubeVideoId
+            ? { label: "Open in Studio", onClick: () => window.open(studioVideoUrl(result.youtubeVideoId!), "_blank", "noopener") }
+            : undefined;
+          if (result.youtube === "held" || result.youtube === "already-private") {
+            toast.success("Removed from the schedule. The YouTube video was kept private - it is not deleted.", {
+              description: "To post it later, set a time or make it public in YouTube Studio.",
+              action: studio
+            });
+          } else if (result.youtube === "already-public") {
+            toast.warning("Removed from the schedule, but the YouTube video is already public.", {
+              description: "Delete or hide it in YouTube Studio if you do not want it up.",
+              action: studio
+            });
+          } else if (result.youtube === "unchecked") {
+            toast.warning("Removed from the schedule, but YouTube was not told. The video may still go live at its time.", {
+              action: studio
+            });
+          } else {
+            const live = removalImpact(item).published;
+            const undoRequest = result.facebookPostId || result.youtubeMayExist ? null : removalUndoRequest(item, { timeZone: timezone });
+            toast.success("Removed from the schedule.", {
+              ...(live.length > 0 ? { description: publishedRemovalNote(live, PLATFORM_LABELS) } : {}),
+              ...(undoRequest
+                ? {
+                    duration: 10_000,
+                    action: { label: "Undo", onClick: () => void restoreRemoved(undoRequest, item.title) }
+                  }
+                : {})
+            });
+          }
+          if (result.youtubeMayExist) {
+            toast.warning("A video may still be on YouTube for this post. Check YouTube Studio.", {
+              action: { label: "Open Studio", onClick: () => window.open("https://studio.youtube.com", "_blank", "noopener") }
+            });
+          }
+          if (result.facebookPostId) {
+            toast.warning("Facebook already holds this post and will still publish it at its time.", {
+              description: "Facebook posts cannot be cancelled from here.",
+              duration: 12_000,
+              action: { label: "Open Facebook", onClick: () => window.open(FACEBOOK_SCHEDULED_POSTS_URL, "_blank", "noopener") }
+            });
+          }
+        }
         await refresh();
       } finally {
         setBusy(null);
+      }
+    },
+    [refresh, restoreRemoved, timezone]
+  );
+
+  /**
+   * Edits the caption of a queued post. This changes the QUEUE only: the
+   * platforms read the caption when they post, so legs that have not gone out
+   * pick it up; a YouTube video already uploaded keeps the description it was
+   * uploaded with, and the toast says so with a Studio link.
+   */
+  const editQueueCaption = useCallback(
+    async (item: QueueItem, caption: string) => {
+      const trimmed = caption.trim();
+      if (!trimmed || trimmed === (item.caption ?? "").trim()) return;
+      setQueueItems((prev) => prev.map((candidate) => (candidate.id === item.id ? { ...candidate, caption: trimmed } : candidate)));
+      try {
+        const response = await fetch(`/api/publish/${item.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ caption: trimmed })
+        });
+        if (!response.ok) throw new Error(await readError(response));
+        const youtubeId = item.platforms.youtube?.postId;
+        toast.success("Caption saved on the queued post.", {
+          description: youtubeId ? "YouTube's description is not changed - edit it in YouTube Studio." : undefined,
+          action: youtubeId
+            ? { label: "Open in Studio", onClick: () => window.open(studioVideoUrl(youtubeId), "_blank", "noopener") }
+            : undefined
+        });
+      } catch (error) {
+        errorToast(error instanceof Error ? error.message : "Could not save the caption.");
+        await refresh();
       }
     },
     [refresh]
@@ -1237,7 +1690,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           body: JSON.stringify({ platform, label })
         });
         if (!response.ok) {
-          toast.error(await readError(response));
+          errorToast(await readError(response));
           return false;
         }
         const { account } = (await response.json()) as { account: SocialAccountView };
@@ -1259,7 +1712,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       try {
         const response = await fetch(`/api/publish/accounts/${account.id}`, { method: "DELETE" });
         if (!response.ok) {
-          toast.error(await readError(response));
+          errorToast(await readError(response));
           return false;
         }
         setActiveAccount(account.platform, primaryAccountIdFor(account.platform));
@@ -1271,6 +1724,66 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       }
     },
     [refresh, refreshAccounts, setActiveAccount]
+  );
+
+  /**
+   * "Retry posts that lost their connection": puts the posts that FAILED
+   * because their connection lapsed back to pending, for exactly the accounts
+   * the strip says are connected now (planConnectionRetry) - never a platform
+   * with no connection, where the posts would only fail again. "manual"
+   * reminders are not touched (the user may have posted those by hand),
+   * rejected videos stay failed, and a failure whose slot is more than
+   * REARM_MAX_SLOT_AGE_HOURS gone stays failed too: re-armed, it would post the
+   * moment the runner next ran. A post that already reached the platform
+   * resumes rather than uploading twice (rearm.ts). The next runner pass, or
+   * Publish now, sends them.
+   *
+   * The toast says what happened platform by platform (describeRearmResults).
+   */
+  const rearmConnectionFailures = useCallback(
+    async (targets: Array<{ platform: PlatformId; accountId: string }>) => {
+      if (targets.length === 0) return 0;
+      setBusy("rearm");
+      const byPlatform = new Map<PlatformId, RearmPlatformResult>();
+      try {
+        for (const { platform, accountId } of targets) {
+          const result = byPlatform.get(platform) ?? { platform, recovered: 0, skippedOld: 0 };
+          byPlatform.set(platform, result);
+          try {
+            const response = await fetch("/api/publish", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "rearm",
+                platform,
+                accountId,
+                statuses: ["failed"],
+                maxSlotAgeHours: REARM_MAX_SLOT_AGE_HOURS
+              })
+            });
+            if (!response.ok) {
+              result.error ??= await readError(response);
+              continue;
+            }
+            const body = (await response.json()) as { recovered?: number; skippedOld?: number };
+            result.recovered += body.recovered ?? 0;
+            result.skippedOld += body.skippedOld ?? 0;
+          } catch {
+            result.error ??= "Network error while retrying.";
+          }
+        }
+        const results = [...byPlatform.values()];
+        const { tone, message } = describeRearmResults(results);
+        if (tone === "success") toast.success(message);
+        else if (tone === "warning") toast.warning(message);
+        else errorToast(message);
+        await refresh();
+        return results.reduce((sum, result) => sum + result.recovered, 0);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh]
   );
 
   return {
@@ -1311,6 +1824,10 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     busy,
     uploadSuccess,
     dismissUploadSuccess: () => setUploadSuccess(null),
+    bookingSummary,
+    dismissBookingSummary: () => {
+      if (activeJob) setBookingSummaryFor(activeJob.id, null);
+    },
     renameClip,
     renameQueueItem,
     tailorCaption,
@@ -1318,11 +1835,16 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     captionProgress,
     /** Clip key → why its AI caption failed, for the cards and the retry. */
     captionFailures,
+    /** The last caption request came back as the clip title: no model answered. */
+    aiCopyFellBack,
     schedule,
     uploadToSlot,
     autoAssign,
     publishNow,
+    retryQueueItem,
+    editQueueCaption,
     remove,
+    rearmConnectionFailures,
     refresh,
     refreshOverview,
     refreshAccounts,

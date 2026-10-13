@@ -22,7 +22,19 @@ export type EnsurePackResult = {
 };
 
 export async function ensureDailyPack(
-  options: { focus?: string; force?: boolean; requestedAt?: string; date?: string } = {}
+  options: {
+    focus?: string;
+    force?: boolean;
+    requestedAt?: string;
+    date?: string;
+    /**
+     * With `force`: never swap a model-written pack for the idea-library fallback.
+     * A rewrite that cannot reach the model would otherwise replace six written
+     * posts with twenty-four stock ones; the written pack stays and the reason is
+     * returned so the page can say why nothing changed.
+     */
+    keepWritten?: boolean;
+  } = {}
 ): Promise<EnsurePackResult> {
   const data = await readAppData();
   const today = options.date ?? localDateKey();
@@ -44,6 +56,14 @@ export async function ensureDailyPack(
     recentTopics,
     requestedAt: options.requestedAt ?? new Date().toISOString()
   });
+
+  if (options.force && options.keepWritten && existing?.source === "ai" && pack.source === "library") {
+    return {
+      pack: existing,
+      cached: true,
+      reason: `Kept today's pack: ${reason ?? "the new one could only come from the built-in idea library."} Try the rewrite again once AI is available.`
+    };
+  }
 
   const nextPacks = [pack, ...packs.filter((entry) => entry.date !== today)].slice(0, PACKS_TO_KEEP);
   await writeAppData({ ...data, xPlanner: { packs: nextPacks } });

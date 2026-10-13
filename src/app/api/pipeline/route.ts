@@ -8,6 +8,8 @@ import { runListStatus } from "@/lib/pipeline/status";
 import { readAppData } from "@/lib/storage/store";
 import { createRunFromSource, createRunFromUrl, listRuns, overviewContext, runOverview, updateRun } from "@/lib/pipeline/runs";
 import { summarizeStream } from "@/lib/pipeline/streams";
+import { attentionSummary } from "@/lib/attention/failures";
+import { readQueue as readThreadsQueue } from "@/lib/threads/queue";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,14 +34,28 @@ export async function GET(request: NextRequest) {
     // "Not connected" counts: a scan that cannot see the channel is a scan that
     // will never take anything in, which is the same nothing-happened morning.
     const scanFailed = Boolean(outcome && outcome.status !== "ok");
+    const pipelineAttention =
+      overviews.filter(
+        (entry) =>
+          entry.run.status === "error" ||
+          entry.retryable.length > 0 ||
+          (entry.run.queueFailures?.length ?? 0) > 0
+      ).length + (scanFailed ? 1 : 0);
+    // A post that failed when it was due, and a failed Threads post, used to
+    // raise nothing anywhere. They join the same count, with the breakdown so
+    // the shell can say which is which. The publish queue is the one the run
+    // overviews above already read (an unreadable queue reads as empty, never
+    // as a failed poll); the Threads queue is read here, best effort.
+    const [queue, threadsItems] = await Promise.all([context.queue(), readThreadsQueue().catch(() => [])]);
+    const { needsAttention, breakdown, failures } = attentionSummary({
+      pipeline: pipelineAttention,
+      queue,
+      threadsItems
+    });
     return NextResponse.json({
-      needsAttention:
-        overviews.filter(
-          (entry) =>
-            entry.run.status === "error" ||
-            entry.retryable.length > 0 ||
-            (entry.run.queueFailures?.length ?? 0) > 0
-        ).length + (scanFailed ? 1 : 0),
+      needsAttention,
+      breakdown,
+      failures,
       scanFailed,
       scan: outcome,
       working: overviews.filter((entry) => entry.run.status !== "error" && !entry.settled).length,

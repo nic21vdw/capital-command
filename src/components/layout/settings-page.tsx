@@ -1,8 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useId, useState } from "react";
 import { AtSign, Download, Palette, Send, SlidersHorizontal, UserRound } from "lucide-react";
+import { OvernightConfirmDialog } from "@/components/automations/overnight-confirm";
+import { overnightConsequence } from "@/lib/automations/overnight";
 import { ConnectionsSettings } from "@/components/layout/connections-settings";
+import { OAuthLandingBanner, useOAuthLanding } from "@/components/layout/oauth-landing";
 import { ProfileSettings } from "@/components/layout/profile-settings";
 import { ThemePicker } from "@/components/finance/theme-picker";
 import { useAppData } from "@/components/providers/app-provider";
@@ -19,9 +23,54 @@ const SECTIONS = [
   { href: "#more", label: "More", icon: SlidersHorizontal }
 ];
 
+/**
+ * Scroll to the section the address names, once it exists.
+ *
+ * The browser's own jump runs before the sections have rendered (the page is
+ * client-rendered and the account rows load after it), so `/settings#accounts`
+ * opened at the top. This waits a few frames for the element, then nudges again
+ * as the rows above it settle. It also follows later hash changes, which is a
+ * link to Accounts clicked while already on Settings.
+ */
+function useScrollToHash() {
+  useEffect(() => {
+    const timers: number[] = [];
+    let frame = 0;
+    const jump = () => {
+      const id = decodeURIComponent(window.location.hash.slice(1));
+      if (!id) return;
+      let tries = 0;
+      const attempt = () => {
+        const element = document.getElementById(id);
+        if (element) {
+          element.scrollIntoView({ block: "start" });
+          return;
+        }
+        if (tries++ < 30) frame = window.requestAnimationFrame(attempt);
+      };
+      attempt();
+      // Content above the target can still grow after the first scroll.
+      for (const delay of [400, 1200]) {
+        timers.push(window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ block: "start" }), delay));
+      }
+    };
+    jump();
+    window.addEventListener("hashchange", jump);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      timers.forEach((timer) => window.clearTimeout(timer));
+      window.removeEventListener("hashchange", jump);
+    };
+  }, []);
+}
+
 export function SettingsPage() {
   const { data, apiStatus, mutate } = useAppData();
   const { hosted } = useThemePreset();
+  const [confirmOvernight, setConfirmOvernight] = useState(false);
+  useScrollToHash();
+  // ConnectionsSettings tidies the address itself, so leave it alone here.
+  const { landing, dismiss } = useOAuthLanding({ strip: false });
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -32,13 +81,14 @@ export function SettingsPage() {
       />
       <nav aria-label="Settings sections" className="flex flex-wrap gap-2 pb-1">
         {SECTIONS.map(({ href, label, icon: Icon }) => (
-          <a key={href} href={href} className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-3.5 py-2 text-sm font-medium text-white/90 transition hover:border-[var(--accent)] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]">
+          <a key={href} href={href} className="inline-flex min-h-10 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-3.5 py-2 text-sm font-medium text-white/90 transition hover:border-[var(--accent)] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]">
             <Icon className="h-4 w-4 text-[var(--accent)]" aria-hidden="true" />
             {label}
           </a>
         ))}
       </nav>
 
+      <OAuthLandingBanner landing={landing} onDismiss={dismiss} settingsLink={false} />
       <ProfileSettings />
       <ConnectionsSettings />
 
@@ -57,9 +107,11 @@ export function SettingsPage() {
         <div className="mt-5 divide-y divide-[var(--border)] rounded-xl border border-[var(--border)] px-4">
           <label className="flex cursor-pointer items-start justify-between gap-4 py-4 text-sm text-white">
             <span>
-              <span className="block font-medium">Allow posting</span>
+              <span className="block font-medium">Allow video and picture posting</span>
               <span className="mt-1 block text-xs text-[var(--muted-foreground)]">
-                Turn off to stop every automatic post. Work can still be created and queued.
+                When off, nothing new can be booked and the publisher sends nothing. Threads and the podcast have their own Pause on{" "}
+                <Link href="/automations" className="font-medium text-[var(--accent)] underline-offset-2 hover:underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center">Automations</Link>.
+                Posts YouTube or Facebook already hold still go live.
               </span>
             </span>
             <input
@@ -73,21 +125,34 @@ export function SettingsPage() {
           </label>
           <label className="flex cursor-pointer items-start justify-between gap-4 py-4 text-sm text-white">
             <span>
-              <span className="block font-medium">Schedule overnight results</span>
+              <span className="block font-medium">Auto-book overnight streams</span>
               <span className="mt-1 block text-xs text-[var(--muted-foreground)]">
-                When off, stream content waits for review in the Stream Pipeline.
+                When on, new overnight streams are booked into future slots on their own. When off, stream content waits for review in the Stream Pipeline.
+              </span>
+              <span className={`mt-1 block text-xs ${data.settings.autoScheduleOvernight === true ? "text-amber-200" : "text-[var(--muted-foreground)]"}`}>
+                {overnightConsequence(data.settings.autoScheduleOvernight === true)}
               </span>
             </span>
             <input
               type="checkbox"
               checked={data.settings.autoScheduleOvernight === true}
-              onChange={(event) => void mutate("updateSettings", { ...data.settings, autoScheduleOvernight: event.target.checked }, {
-                successMessage: event.target.checked ? "Overnight scheduling is on." : "Overnight results will wait for review."
-              })}
+              onChange={(event) => {
+                // Turning it ON asks first: the checkbox stays as it is until the dialog says yes.
+                if (event.target.checked) { setConfirmOvernight(true); return; }
+                void mutate("updateSettings", { ...data.settings, autoScheduleOvernight: false }, { successMessage: "Overnight streams will wait for review." });
+              }}
               className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--accent)]"
             />
           </label>
         </div>
+        <OvernightConfirmDialog
+          open={confirmOvernight}
+          onCancel={() => setConfirmOvernight(false)}
+          onConfirm={() => {
+            setConfirmOvernight(false);
+            void mutate("updateSettings", { ...data.settings, autoScheduleOvernight: true }, { successMessage: "Overnight streams will be auto-booked." });
+          }}
+        />
         {apiStatus.bookingBlockers?.length ? (
           <p className="mt-3 text-xs text-amber-200">{apiStatus.bookingBlockers[0]}</p>
         ) : null}
@@ -107,7 +172,7 @@ export function SettingsPage() {
         </div>
         <div className="mt-5 space-y-3">
           <details className="rounded-xl border border-[var(--border)] p-4">
-            <summary className="flex cursor-pointer items-center gap-2 font-medium text-white">
+            <summary className="flex cursor-pointer items-center gap-2 font-medium text-white max-sm:min-h-10">
               <Palette className="h-4 w-4 text-[var(--accent)]" aria-hidden="true" /> Appearance
             </summary>
             <div className="mt-4">
@@ -119,7 +184,7 @@ export function SettingsPage() {
             </div>
           </details>
           <details className="rounded-xl border border-[var(--border)] p-4">
-            <summary className="cursor-pointer font-medium text-white">Personal finance screens</summary>
+            <summary className="cursor-pointer font-medium text-white max-sm:py-3">Personal finance screens</summary>
             <label className="mt-4 flex cursor-pointer items-start justify-between gap-4 text-sm text-white">
               <span>
                 Show finance in the sidebar
@@ -138,13 +203,13 @@ export function SettingsPage() {
             </label>
           </details>
           <details className="rounded-xl border border-[var(--border)] p-4">
-            <summary className="flex cursor-pointer items-center gap-2 font-medium text-white">
+            <summary className="flex cursor-pointer items-center gap-2 font-medium text-white max-sm:min-h-10">
               <Download className="h-4 w-4 text-[var(--accent)]" aria-hidden="true" /> Data tools
             </summary>
             <p className="mt-4 text-sm text-[var(--muted-foreground)]">Download a copy of your app data.</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <a href="/api/data?format=json" className="inline-flex rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-contrast)] hover:bg-[var(--accent-strong)]">Export JSON</a>
-              <a href="/api/data?format=csv" className="inline-flex rounded-lg border border-[var(--border)] bg-white/5 px-4 py-2 text-sm font-medium text-white hover:bg-white/10">Export CSV</a>
+              <a href="/api/data?format=json" className="inline-flex items-center rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-contrast)] hover:bg-[var(--accent-strong)] max-sm:min-h-10">Export JSON</a>
+              <a href="/api/data?format=csv" className="inline-flex items-center rounded-lg border border-[var(--border)] bg-white/5 px-4 py-2 text-sm font-medium text-white hover:bg-white/10 max-sm:min-h-10">Export CSV</a>
             </div>
             <div className="mt-5 border-t border-[var(--border)] pt-4">
               <p className="text-sm font-medium text-red-200">Reset data</p>
@@ -179,7 +244,7 @@ function CarouselThemeCard() {
   const current = data.settings.carouselTheme ?? "black";
   return (
     <details className="mt-4 rounded-xl border border-[var(--border)] p-4">
-      <summary className="cursor-pointer font-medium text-white">Carousel look</summary>
+      <summary className="cursor-pointer font-medium text-white max-sm:py-3">Carousel look</summary>
       <p className="mt-3 text-sm text-[var(--muted-foreground)]">
         The background every carousel slide is painted on. Decks already rendered repaint in the new look.
       </p>
@@ -202,6 +267,7 @@ function CarouselThemeCard() {
 function ClipDescriptionCard() {
   const { data, mutate } = useAppData();
   const saved = data.settings.clipDescription ?? "";
+  const headingId = useId();
   const [draft, setDraft] = useState(saved);
   const [lastSaved, setLastSaved] = useState(saved);
 
@@ -212,11 +278,12 @@ function ClipDescriptionCard() {
 
   return (
     <details className="mt-4 rounded-xl border border-[var(--border)] p-4">
-      <summary className="cursor-pointer font-medium text-white">Description added to every clip</summary>
+      <summary id={headingId} className="cursor-pointer font-medium text-white max-sm:py-3">Description added to every clip</summary>
       <p className="mt-3 text-sm text-[var(--muted-foreground)]">
         Add your links and handles below each clip upload. Leave it empty to add nothing.
       </p>
       <Textarea
+        aria-labelledby={headingId}
         className="mt-4 min-h-32"
         value={draft}
         spellCheck={false}

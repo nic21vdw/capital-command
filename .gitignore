@@ -35,6 +35,7 @@ data/publisher-tokens.json
 data/threads-tokens.json
 data/platform-auth.json
 rebuild-attempt.stamp
+data/credentials.json
 data/social-accounts.json
 data/title-log.jsonl
 data/youtube-outliers.json
@@ -53,6 +54,7 @@ data/overlay-images/
 
 # Local carousel-frame evaluation output (scripts/eval-carousel-frames.ts)
 /eval-out/
+data/youtube-stats.json
 
 # Python bytecode
 __pycache__/

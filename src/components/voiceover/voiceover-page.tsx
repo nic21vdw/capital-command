@@ -103,8 +103,8 @@ export function VoiceoverPage() {
       />
 
       <Card className="mb-6 space-y-3">
-        <Input placeholder="Voiceover title (optional)" value={title} onChange={(event) => setTitle(event.target.value)} />
-        <Textarea placeholder="Type what you want said…" value={script} onChange={(event) => setScript(event.target.value)} />
+        <Input aria-label="Voiceover title" placeholder="Voiceover title (optional)" value={title} onChange={(event) => setTitle(event.target.value)} />
+        <Textarea aria-label="Script to voice" placeholder="Type what you want said…" value={script} onChange={(event) => setScript(event.target.value)} />
         <div className="flex justify-end">
           <Button onClick={() => void generate()} disabled={generating}>
             {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}

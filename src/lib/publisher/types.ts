@@ -48,6 +48,12 @@ export type PlatformState = {
   childContainerIds?: string[];
   error?: string;
   attempts: number;
+  /**
+   * When this leg last failed (ISO). `attempts` goes back to 0 on a re-arm, so
+   * a repeat failure would otherwise look like the one already alerted; the
+   * attention id uses this instead. Absent on legs that failed before it existed.
+   */
+  lastFailedAt?: string;
   /** Backoff gate — the runner skips this platform until this instant. */
   nextAttemptAt?: string;
   /** Soft lease so overlapping runners don't double-process one item. */
@@ -57,6 +63,14 @@ export type PlatformState = {
   uploadedAt?: string;
   /** Human note for the UI (e.g. why a post is "manual"). Not an error. */
   note?: string;
+  /**
+   * Set when the runner (or `publish:mirror`) added this platform to the post
+   * by copying the lead platform's schedule, rather than the user choosing it.
+   * The board tags such legs "Mirrored from YouTube" so a post showing up on a
+   * platform nobody picked has an explanation. Absent on every leg booked by
+   * hand, and on mirror legs added before this field existed.
+   */
+  mirroredFrom?: PlatformId;
 };
 
 /**
@@ -215,6 +229,9 @@ export type PublishPlan = {
   notes: string[];
 };
 
+/** Options for `PlatformAdapter.finalize`; see `PublishInput.publishNow`. */
+export type FinalizeOptions = { publishNow?: boolean };
+
 export type PublishInput = {
   item: QueueItem;
   /** Absolute path to the media file, already resolved/downloaded by the runner. */
@@ -238,6 +255,13 @@ export type PublishInput = {
    * next run can resume instead of starting a second upload.
    */
   onHandle?: (handle: string) => Promise<void>;
+  /**
+   * True only for the board's explicit "Publish now" (the forced run). An
+   * adapter that can hold a post for its slot (YouTube) then goes live at once
+   * instead. Never set by a retry or the scheduler - they must keep a future
+   * slot's post waiting.
+   */
+  publishNow?: boolean;
   /**
    * How long this adapter may spend waiting on the platform to finish
    * processing before it gives the run back. The runner shares one budget
@@ -267,5 +291,5 @@ export interface PlatformAdapter {
    * made it public and force it public if not. Must be idempotent and must
    * not re-upload media. Returns "published" on success.
    */
-  finalize?(item: QueueItem, state: PlatformState): Promise<PostResult>;
+  finalize?(item: QueueItem, state: PlatformState, options?: FinalizeOptions): Promise<PostResult>;
 };
