@@ -173,7 +173,7 @@ describe("shiftBatch", () => {
 
 describe("editItemText", () => {
   it("clears an unstarted contextual reply when the parent topic changes", () => {
-    const items = [item({ plugText: "Explore the engineering tools: https://colateralai.com" })];
+    const items = [item({ plugText: "Explore the workspace: https://colateralai.com" })];
     editItemText(items, "item-1", "A better way to organise a marketing campaign.");
     expect(items[0].plugText).toBeUndefined();
   });

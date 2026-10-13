@@ -95,7 +95,9 @@ describe("COLATERAL_LIBRARY", () => {
     expect(copy).toMatch(/creators/);
     expect(copy).toMatch(/engineers/);
     expect(copy).toMatch(/game/);
-    expect(copy).toMatch(/calculator/);
+    expect(copy).toMatch(/one-time licence/);
+    expect(copy).toMatch(/slides|sheets/);
+    expect(copy).not.toMatch(/CoLateral Engineering|structural|load path|calculation|design checker/i);
     expect(copy).toMatch(/Claude Code and Codex/);
     expect(copy).not.toMatch(
       /you can now|just launched|fixed.*today|saves.*hours|\$\d|guaranteed compliance|automatically approves/i

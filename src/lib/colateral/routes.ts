@@ -41,6 +41,8 @@ export const CAPITAL_COMMAND_ROUTES: RouteEntry[] = [
   { path: "/ideas", label: "Idea Lab", group: "Studio" },
   { path: "/scripts", label: "Scripts", group: "Studio" },
   { path: "/outliers", label: "Outlier Radar", group: "Studio" },
+  { path: "/listening", label: "Listening", group: "Studio" },
+  { path: "/outreach", label: "Outreach", group: "Studio" },
   { path: "/execution", label: "Execution", group: "Studio" },
   { path: "/presentation", label: "Segment Deck", group: "Studio" },
   { path: "/voiceover", label: "Voiceover", group: "Studio" },

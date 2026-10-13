@@ -141,6 +141,15 @@ already shipped.
 - **Signing in is clearer.** Signing in with YouTube, TikTok or Spotify before saving app keys now goes to Settings > Accounts with a plain message instead of a raw error page. Finishing a connection no longer lands you back on the setup screen. Sidebar chips turn amber with "Reconnect <platform>" when the last post failed because the connection expired.
 
 - **Settings explains each connection.** Settings > Accounts shows the exact redirect address for Google, TikTok and Spotify, and says where each value comes from ("Set in .env - edit it there"). Pasted Instagram and Facebook tokens show as "Saved - not verified", and there is a Media hosting row. Channel name and handle can be changed in Settings > Profile. The unused YouTube API key field is gone.
+- Threads and X posts now plug CoLateral as the all-in-one agentic workspace (agents side by side in your real files, bring your own AI, pay once) instead of engineering tools, and never mention CoLateral Engineering. Your saved X reply brief in Settings may still carry the old wording.
+
+- New **Outreach** page (Studio): keep a list of the creators, newsletters and podcasts you want to offer CoLateral to, filter it by where each conversation stands, see who is due a follow-up and whether you are on pace for 5-10 contacts a week, and copy a message personalised with their name and recent video. Paste a JSON list on the page or run `npm run outreach:import -- <file>` to bring in researched contacts; duplicates are merged by url and nothing you wrote is overwritten. It is a tracker only - it never sends anything.
+
+- New **Listening** page (Studio): press **Scan now** to find the last week's Hacker News and Reddit threads where people describe juggling coding agents, look for a Cursor or Warp alternative, or complain about AI subscriptions. Mark each one replied or ignored with a note, edit the keyword groups, and follow the reply checklist on the page. If Reddit or Hacker News refuses the scan, the page says so instead of quietly showing nothing. `npm run listening:scan` runs the same scan from a terminal.
+
+- Launch Pad now has a **Directory submissions** checklist next to the Product Hunt playbook: BetaList, DevHunt, Uneed, AlternativeTo, There's An AI For That, Futurepedia, Show HN and Peerlist, each dated off your launch day with a link and what to have ready. Launches you already planned keep their progress.
+
+- Marketing stops refreshing the pipeline screen and stream list while its window is hidden, refreshes as soon as you return, and recovers from a stalled server read without requiring a reload. Background automation and taskbar alerts keep running.
 
 ## 2026-10-04
 
@@ -1763,3 +1772,4 @@ The evening that started with "none of the buttons are clicking".
 - **`npm test` runs the whole suite.** It used to compile one file and print
   "portfolio calculation tests passed", which is how a green `npm test` sat
   next to a dozen failures.
+

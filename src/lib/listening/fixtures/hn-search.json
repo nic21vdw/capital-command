@@ -1,0 +1,39 @@
+{
+  "hits": [
+    {
+      "objectID": "41000001",
+      "_tags": ["story", "author_alice", "story_41000001"],
+      "title": "Ask HN: How do you run multiple Claude Code sessions without losing track?",
+      "url": null,
+      "story_text": "I have four terminals open and keep forgetting which agent is on which branch.",
+      "author": "alice",
+      "created_at": "2026-10-09T15:00:00.000Z",
+      "created_at_i": 1791558000
+    },
+    {
+      "objectID": "41000002",
+      "_tags": ["comment", "author_bob", "story_40999999"],
+      "story_title": "Show HN: Yet another terminal",
+      "comment_text": "Honestly I just want a <i>Cursor alternative</i> that lets me run Codex &amp; Claude side by side.",
+      "author": "bob",
+      "created_at": "2026-10-10T16:30:00.000Z",
+      "created_at_i": 1791649800
+    },
+    {
+      "objectID": "41000003",
+      "_tags": ["story", "author_carol", "story_41000003"],
+      "title": "The history of the cursor in early GUIs",
+      "url": "https://example.com/cursor-history",
+      "author": "carol",
+      "created_at": "2026-10-08T12:00:00.000Z",
+      "created_at_i": 1791460800
+    },
+    {
+      "_tags": ["story"],
+      "title": "A hit with no id is skipped",
+      "author": "nobody",
+      "created_at": "2026-10-08T12:00:00.000Z"
+    }
+  ],
+  "nbHits": 4
+}

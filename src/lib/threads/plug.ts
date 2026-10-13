@@ -30,13 +30,13 @@ const REPLY_LINES = {
     "Take a look at CoLateral if you'd like to bring agents and project files into one workspace:",
     "See how CoLateral puts agents, files and ideas together on one project canvas:"
   ],
-  engineering: [
-    "Explore CoLateral Engineering for a closer look at the tools I'm building for engineering work:",
-    "See the workspace I use to keep engineering tool ideas, agents and files together: CoLateral:",
-    "Got an engineering task you'd like to make less repetitive? Take a look at CoLateral's tools and canvas:",
-    "Bring your next engineering tool idea to CoLateral. Explore the workspace here:",
-    "See how CoLateral puts files, tool ideas and agents on one canvas for engineering projects:",
-    "Explore the engineering side of CoLateral, the workspace I build alongside my day job:"
+  "day-job": [
+    "Between day-job tasks, I run my agents in CoLateral. See the workspace that keeps them beside my files:",
+    "See the workspace I use after my day job to run Claude Code, Codex and Gemini side by side: CoLateral:",
+    "My day job keeps me busy, so my agents work in my real files. Take a look at CoLateral's canvas:",
+    "Explore CoLateral, the workspace I use to run my agents and files side by side:",
+    "Take a look at the workspace I build alongside my day job: CoLateral, one canvas for agents and files:",
+    "See how CoLateral keeps my agents working beside my slides, sheets and documents:"
   ],
   marketing: [
     "See the wider CoLateral workspace behind my marketing-tool experiments:",
@@ -77,8 +77,10 @@ type ReplyOrigin = "autopilot" | "pipeline";
 
 // Match subjects rather than brand mentions. A generic observation still gets
 // a truthful project introduction; it never invents a connection to that topic.
+// A post about Nic's engineering day job gets a WORKSPACE plug: CoLateral is not
+// engineering or design software, so no line here may pitch it as one.
 const CONTEXTS: ReadonlyArray<{ angle: ReplyAngle; pattern: RegExp }> = [
-  { angle: "engineering", pattern: /\b(?:engineer(?:s|ing)?|structural|revit|etabs|sap2000|beam(?:s)?|column(?:s)?|slab(?:s)?|footing(?:s)?|hollowcore|joist(?:s)?|masonry|concrete|steel|cad|bim)\b/i },
+  { angle: "day-job", pattern: /\b(?:engineer(?:s|ing)?|structural|revit|etabs|sap2000|beam(?:s)?|column(?:s)?|slab(?:s)?|footing(?:s)?|hollowcore|joist(?:s)?|masonry|concrete|steel|cad|bim)\b/i },
   { angle: "games", pattern: /\b(?:game(?:s|play)?|gaming|arcade|multiplayer|battle royale|warzone|nick ops|claude of duty|shrek|mortal kombat|guitar hero|player(?:s)?|character(?:s)?|cutscene(?:s)?)\b/i },
   { angle: "marketing", pattern: /\b(?:marketing|content|creator(?:s)?|social media|threads|youtube|instagram|tiktok|shorts|livestream(?:s|ing)?|audience|thumbnail(?:s)?|post(?:s|ing)?|carousel(?:s)?|caption(?:s)?|newsletter(?:s)?)\b/i },
   { angle: "workspace", pattern: /\b(?:workspace(?:s)?|ade|agent development environment|ide|canvas|terminal(?:s)?|dashboard(?:s)?|browser(?:s)?)\b/i },

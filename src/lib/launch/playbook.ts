@@ -174,27 +174,124 @@ export const LAUNCH_PLAYBOOK: LaunchTaskTemplate[] = [
   }
 ];
 
+/**
+ * The directories and communities worth a submission around the Product Hunt
+ * launch, each dated relative to the same launch day. Product Hunt itself is
+ * the playbook above. Data only, like LAUNCH_PLAYBOOK: completion is stored as
+ * these ids in `completedTasks`, so a launch saved before this list existed
+ * simply shows them all as not done yet.
+ *
+ * Requirements and prices on these sites change; the notes say what to have
+ * ready, and the site's own submission page is the authority.
+ */
+export const DIRECTORY_PLAYBOOK: LaunchTaskTemplate[] = [
+  {
+    id: "dir-betalist",
+    label: "Submit to BetaList",
+    url: "https://betalist.com/submit",
+    detail:
+      "For early-stage products, so submit before launch day. Needs a landing page with a clear one-liner and a way to sign up or download. The free queue can take weeks; there is a paid option to skip it.",
+    phase: "prep",
+    offsetDays: -14,
+    family: "directory"
+  },
+  {
+    id: "dir-devhunt",
+    label: "Book a DevHunt week",
+    url: "https://devhunt.org",
+    detail:
+      "Developer tools only, launched in weekly batches; sign in with GitHub. Free slots are booked weeks ahead, so book now and pick a week after the Product Hunt launch rather than the same one.",
+    phase: "prep",
+    offsetDays: -10,
+    family: "directory"
+  },
+  {
+    id: "dir-uneed",
+    label: "Book a Uneed launch day",
+    url: "https://www.uneed.best",
+    detail:
+      "Daily launches from a waiting line; the free line is long and a paid option picks the date. Choose a day a few days after Product Hunt so the two don't split the same audience. Needs a logo, a tagline and screenshots.",
+    phase: "prep",
+    offsetDays: -10,
+    family: "directory"
+  },
+  {
+    id: "dir-alternativeto",
+    label: "List it on AlternativeTo",
+    url: "https://alternativeto.net",
+    detail:
+      "Add the app with its platforms, a pay-once licence and screenshots, then list it as an alternative to the tools people compare it with (Cursor, Warp, Conductor). New listings are moderated, so allow a few days.",
+    phase: "final",
+    offsetDays: -7,
+    family: "directory"
+  },
+  {
+    id: "dir-taaft",
+    label: "Submit to There's An AI For That",
+    url: "https://theresanaiforthat.com",
+    detail:
+      "Paid submission with a review queue. Have a one-line task it does (run Claude Code, Codex and Gemini side by side on one canvas), the pricing model (pay once, bring your own AI subscriptions), a screenshot and the tracked link.",
+    phase: "final",
+    offsetDays: -5,
+    family: "directory"
+  },
+  {
+    id: "dir-futurepedia",
+    label: "Submit to Futurepedia",
+    url: "https://www.futurepedia.io/submit-tool",
+    detail:
+      "Submission form with paid listing tiers and a review before it is live. Needs a logo, categories, pricing and a short description of the all-in-one agentic workspace.",
+    phase: "final",
+    offsetDays: -5,
+    family: "directory"
+  },
+  {
+    id: "dir-show-hn",
+    label: "Post a Show HN",
+    url: "https://news.ycombinator.com/showhn.html",
+    detail:
+      "Title starts \"Show HN:\", and it must be something people can try now, ideally without a signup wall. Plain words, no marketing language; post it yourself, stay to answer comments, and never ask anyone for upvotes. A day after Product Hunt keeps the two from competing for your attention.",
+    phase: "after",
+    offsetDays: 1,
+    family: "directory"
+  },
+  {
+    id: "dir-peerlist",
+    label: "Launch on Peerlist Launchpad",
+    url: "https://peerlist.io/launchpad",
+    detail:
+      "Needs a Peerlist profile with the project added to it. Launches run in weekly cycles, so the week after Product Hunt gives it room of its own. Reuse the gallery and the maker comment, rewritten for a builder audience.",
+    phase: "after",
+    offsetDays: 7,
+    family: "directory"
+  }
+];
+
+function datedTask(template: LaunchTaskTemplate, launchDate: string, done: Set<string>, today: string): LaunchTask {
+  const dueDate = addDays(launchDate, template.offsetDays);
+  const isDone = done.has(template.id);
+  return { ...template, dueDate, done: isDone, overdue: !isDone && daysBetween(dueDate, today) > 0 };
+}
+
+function byDueDate(a: LaunchTask, b: LaunchTask) {
+  return a.dueDate === b.dueDate ? a.offsetDays - b.offsetDays : a.dueDate < b.dueDate ? -1 : 1;
+}
+
 export function buildLaunchPlan(launch: ProductLaunch, today: string): LaunchPlan {
   const done = new Set(launch.completedTasks);
-  const tasks: LaunchTask[] = LAUNCH_PLAYBOOK.map((template) => {
-    const dueDate = addDays(launch.launchDate, template.offsetDays);
-    const isDone = done.has(template.id);
-    return {
-      ...template,
-      dueDate,
-      done: isDone,
-      overdue: !isDone && daysBetween(dueDate, today) > 0
-    };
-  }).sort((a, b) => (a.dueDate === b.dueDate ? a.offsetDays - b.offsetDays : a.dueDate < b.dueDate ? -1 : 1));
+  const playbook: LaunchTask[] = LAUNCH_PLAYBOOK.map((template) => datedTask(template, launch.launchDate, done, today)).sort(byDueDate);
+  const directories: LaunchTask[] = DIRECTORY_PLAYBOOK.map((template) => datedTask(template, launch.launchDate, done, today)).sort(byDueDate);
+  const tasks = [...playbook, ...directories].sort(byDueDate);
 
   const groups: LaunchPlanGroup[] = PHASE_ORDER.map((phase) => ({
     phase,
     title: PHASE_TITLES[phase],
-    tasks: tasks.filter((task) => task.phase === phase)
+    tasks: playbook.filter((task) => task.phase === phase)
   })).filter((group) => group.tasks.length > 0);
 
   return {
     groups,
+    directories,
     total: tasks.length,
     completed: tasks.filter((task) => task.done).length,
     nextTask: tasks.find((task) => !task.done) ?? null,
@@ -202,6 +299,9 @@ export function buildLaunchPlan(launch: ProductLaunch, today: string): LaunchPla
     daysUntilLaunch: daysBetween(today, launch.launchDate)
   };
 }
+
+/** Every task id either list can hold. */
+export const ALL_LAUNCH_TASK_IDS: string[] = [...LAUNCH_PLAYBOOK, ...DIRECTORY_PLAYBOOK].map((task) => task.id);
 
 export function phaseTitle(phase: LaunchPhase) {
   return PHASE_TITLES[phase];

@@ -386,10 +386,10 @@ export const COLATERAL_LIBRARY: LibraryPost[] = [
   },
   {
     format: "question",
-    topic: "CoLateral for engineers",
-    text: "For engineers using CoLateral, I want the source beside the number. What else would you need in front of you when reviewing a result?",
+    topic: "CoLateral agents in real files",
+    text: "In CoLateral the agents work in my real files, slides and sheets included. Which file would you hand an agent first?",
     threadsVariant:
-      "The engineering side of CoLateral is about keeping work easy to inspect. A result needs its inputs and assumptions close by. When you review a calculation, which missing detail makes you stop and ask another question?"
+      "Most agent chats end with something you copy and paste somewhere else. In CoLateral I want the agents working inside the files the project already has: the slides, the sheets, the documents. Which one would you trust an agent with first?"
   },
   {
     format: "insight",
@@ -428,10 +428,10 @@ export const COLATERAL_LIBRARY: LibraryPost[] = [
   },
   {
     format: "question",
-    topic: "CoLateral custom calculator idea",
-    text: "What would your own calculator need to show before you trusted it? That is a question I keep coming back to while building CoLateral.",
+    topic: "CoLateral bring your own AI",
+    text: "CoLateral runs on the AI subscriptions you already pay for, and the app is a one-time licence. Which would you plug in first?",
     threadsVariant:
-      "A custom calculator is only useful if you can judge its answer. I want CoLateral projects to keep that question visible: what went in, what was assumed, and what still needs a person to check? What would you look for first?"
+      "I didn't want CoLateral to be another monthly AI bill. You bring the Claude, ChatGPT or Gemini subscription you already have, and the workspace itself is a one-time licence. Would you rather pay once or keep renting your tools?"
   },
   {
     format: "insight",

@@ -31,7 +31,7 @@ describe("Threads reply conversion links", () => {
     const raw =
       "https://colateralai.com/modules?ref=a%20b&choice=%2f#engineering";
     const result = threadsReplyUrl(raw, {
-      angle: "engineering",
+      angle: "day-job",
       origin: "pipeline",
     })!;
     expect(result).toContain(
@@ -39,7 +39,7 @@ describe("Threads reply conversion links", () => {
     );
     expect(result).toMatch(/#engineering$/);
     expect(new URL(result).searchParams.get("utm_content")).toBe(
-      "pipeline-engineering",
+      "pipeline-day-job",
     );
   });
 

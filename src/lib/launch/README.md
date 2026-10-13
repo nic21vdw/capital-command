@@ -19,6 +19,15 @@ plan is derived, never stored, so editing the playbook updates every launch and
 moving the launch date moves the whole schedule with it. Only the set of
 completed task ids is persisted.
 
+`DIRECTORY_PLAYBOOK` is a second task family (ids `dir-*`, `family:
+"directory"`, each with a `url`) for the directory and community submissions
+around the launch — BetaList, DevHunt, Uneed, AlternativeTo, There's An AI For
+That, Futurepedia, Show HN, Peerlist. It is dated off the same launch day and
+completed through the same `completedTasks` list, so a launch saved before the
+family existed reads with its Product Hunt progress intact and every directory
+open. `buildLaunchPlan` returns it as `plan.directories`, separate from the
+phased `groups`; totals, `nextTask` and the overdue count cover both.
+
 **`copy.ts`** — writes the listing kit (tagline, description, maker's first
 comment, topics, gallery order, launch-day social posts) through `runAi`,
 reusing `CHANNEL_KEYWORDS` so the social posts share the channel's voice. Same

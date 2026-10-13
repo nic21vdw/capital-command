@@ -11,8 +11,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Clapperboard,
+  Ear,
   Facebook,
   FileText,
+  Handshake,
   Images,
   LayoutList,
   Lightbulb,
@@ -122,6 +124,11 @@ const STUDIO_ITEMS: NavItem[] = [
   { href: "/ideas", label: "Idea Lab", icon: Lightbulb },
   { href: "/scripts", label: "Scripts", icon: FileText },
   { href: "/outliers", label: "Outlier Radar", icon: Radar },
+  // Public threads where someone is describing the problem CoLateral solves,
+  // and the creators worth offering it to. Trackers only: neither page posts
+  // or sends anything.
+  { href: "/listening", label: "Listening", icon: Ear },
+  { href: "/outreach", label: "Outreach", icon: Handshake },
   // Built, and reachable by URL alone until now: the recurring content,
   // networking and build goals that decide whether the pipeline gets fed.
   { href: "/execution", label: "Execution", icon: Target },

@@ -18,7 +18,7 @@ const REPLY_ANGLES = new Set([
   "workspace",
   "custom-tools",
   "agents",
-  "engineering",
+  "day-job",
   "marketing",
   "games",
   "build-in-public",

@@ -310,6 +310,7 @@ REPLACE THIS with the handles worth reading in your field.
 - Do NOT mention your own product unless directly relevant
 - Do NOT turn the reply into a sales pitch
 - Do NOT claim to be a licensed professional engineer
+- Do NOT present your product as engineering, structural or design software, or claim a stamp, approval or compliance
 - Do NOT invent projects, results, revenue, customers, or statistics
 - Do NOT use overly polished AI phrasing or excessive em dashes
 

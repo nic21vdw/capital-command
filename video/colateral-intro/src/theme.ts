@@ -50,9 +50,9 @@ export const fontFamily =
 
 /** Brand copy, verbatim from the hero so the B-roll never contradicts the site. */
 export const copy = {
-  eyebrow: "The All-in-One Engineering Workspace",
-  tagline: "One reviewable, source-tied workspace for structural engineering teams.",
-  trustline: "For qualified structural & building engineers",
+  eyebrow: "The all-in-one agentic workspace",
+  tagline: "The canvas where you lay out your work and agents work beside you.",
+  trustline: "For developers, creators and engineers alike",
 } as const;
 
 export const VIDEO = { width: 1920, height: 1080, fps: 30 } as const;
