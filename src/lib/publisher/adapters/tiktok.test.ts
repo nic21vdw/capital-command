@@ -24,6 +24,16 @@ vi.mock("@/lib/publisher/tokens", () => ({
   }
 }));
 
+const probe = vi.hoisted(() => ({ durationSec: 30 as number | null, unreadable: false, calls: 0 }));
+
+vi.mock("@/lib/clipping/ffmpeg", () => ({
+  probeVideoStream: vi.fn(async () => {
+    probe.calls += 1;
+    if (probe.unreadable) throw new Error("not a video");
+    return { width: 1080, height: 1920, durationSec: probe.durationSec };
+  })
+}));
+
 vi.mock("@/lib/publisher/config", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/publisher/config")>();
   return {
@@ -46,6 +56,9 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  probe.durationSec = 30;
+  probe.unreadable = false;
+  probe.calls = 0;
   tokenCache.clear();
   vi.stubEnv("TIKTOK_CLIENT_KEY", "tt-key");
   vi.stubEnv("TIKTOK_CLIENT_SECRET", "tt-secret");
@@ -71,10 +84,18 @@ function input(overrides: Partial<PublishInput["item"]> = {}): PublishInput {
 
 /** The same input, with the consent a creator gives in the panel. */
 function direct(base: PublishInput, consent: Omit<TiktokPostOptions, "delivery">): PublishInput {
-  return { ...base, item: { ...base.item, tiktok: { delivery: "direct", ...consent } } };
+  return {
+    ...base,
+    item: { ...base.item, tiktok: { delivery: "direct", consentedAt: "2026-10-13T12:00:00.000Z", ...consent } }
+  };
 }
 
-function routes(finalStatus: "PUBLISH_COMPLETE" | "SEND_TO_USER_INBOX" = "SEND_TO_USER_INBOX") {
+type CreatorInfoOverride = { data?: Record<string, unknown>; error?: { code: string; message?: string } };
+
+function routes(
+  finalStatus: "PUBLISH_COMPLETE" | "SEND_TO_USER_INBOX" = "SEND_TO_USER_INBOX",
+  creatorInfo: CreatorInfoOverride = {}
+) {
   const init = () =>
     jsonResponse({
       data: { publish_id: "pub-1", upload_url: "https://upload.tiktok.example/u1" },
@@ -92,13 +113,14 @@ function routes(finalStatus: "PUBLISH_COMPLETE" | "SEND_TO_USER_INBOX" = "SEND_T
       match: "/v2/post/publish/creator_info/query/",
       respond: () =>
         jsonResponse({
-          data: {
+          data: creatorInfo.data ?? {
             creator_nickname: "Nic",
             creator_username: "nicvandewetering",
             privacy_level_options: ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"],
-            duet_disabled: true
+            duet_disabled: true,
+            max_video_post_duration_sec: 600
           },
-          error: { code: "ok" }
+          error: creatorInfo.error ?? { code: "ok" }
         })
     },
     // Inbox first: its path also ends in /video/init/, so it has to be matched
@@ -185,6 +207,16 @@ describe("tiktok adapter", () => {
     expect(result.status).toBe("published");
   });
 
+  it("tells the creator the post can take a few minutes to show on their profile", async () => {
+    vi.stubEnv("TIKTOK_AUDITED", "true");
+    routes("PUBLISH_COMPLETE");
+    const adapter = await loadAdapter();
+
+    const result = await adapter.publish(direct(input(), { privacyLevel: "PUBLIC_TO_EVERYONE" }));
+
+    expect(result.detail).toMatch(/few minutes/i);
+  });
+
   it("keeps a private item SELF_ONLY once audited", async () => {
     vi.stubEnv("TIKTOK_AUDITED", "true");
     const requests = routes("PUBLISH_COMPLETE");
@@ -253,6 +285,119 @@ describe("tiktok adapter", () => {
     expect((error as Error).message).toMatch(/unaudited app to private posts/i);
     // Refused before a byte was uploaded.
     expect(requests.some((request) => request.url.includes("/video/init/"))).toBe(false);
+  });
+
+  it("sends nothing until the creator has explicitly agreed to the upload", async () => {
+    vi.stubEnv("TIKTOK_AUDITED", "true");
+    const requests = routes("PUBLISH_COMPLETE");
+    const adapter = await loadAdapter();
+
+    const unagreed = direct(input(), { privacyLevel: "SELF_ONLY" });
+    delete unagreed.item.tiktok!.consentedAt;
+    const error = await adapter.publish(unagreed).catch((thrown: unknown) => thrown);
+
+    expect((error as Error).message).toMatch(/agree/i);
+    expect(requests.some((request) => request.url.includes("/video/init/"))).toBe(false);
+    expect(requests.some((request) => request.url.includes("upload.tiktok.example"))).toBe(false);
+  });
+
+  it("refuses a disclosure that was switched on without saying who is promoted", async () => {
+    vi.stubEnv("TIKTOK_AUDITED", "true");
+    const requests = routes("PUBLISH_COMPLETE");
+    const adapter = await loadAdapter();
+
+    const error = await adapter
+      .publish(direct(input(), { privacyLevel: "PUBLIC_TO_EVERYONE", disclosure: true }))
+      .catch((thrown: unknown) => thrown);
+
+    expect((error as Error).message).toMatch(/promotes yourself, a third party, or both/i);
+    expect(requests.some((request) => request.url.includes("/video/init/"))).toBe(false);
+  });
+
+  it("holds the clip against the longest video the creator's account may post", async () => {
+    vi.stubEnv("TIKTOK_AUDITED", "true");
+    probe.durationSec = 601;
+    const requests = routes("PUBLISH_COMPLETE");
+    const adapter = await loadAdapter();
+
+    const error = await adapter
+      .publish(direct(input(), { privacyLevel: "PUBLIC_TO_EVERYONE" }))
+      .catch((thrown: unknown) => thrown);
+
+    expect((error as Error).message).toMatch(/601s long.*up to 600s/i);
+    expect(requests.some((request) => request.url.includes("/video/init/"))).toBe(false);
+  });
+
+  it("posts a clip that is exactly as long as the account allows", async () => {
+    vi.stubEnv("TIKTOK_AUDITED", "true");
+    probe.durationSec = 600;
+    const requests = routes("PUBLISH_COMPLETE");
+    const adapter = await loadAdapter();
+
+    const result = await adapter.publish(direct(input(), { privacyLevel: "PUBLIC_TO_EVERYONE" }));
+
+    expect(result.status).toBe("published");
+    expect(requests.some((request) => request.url.endsWith("/post/publish/video/init/"))).toBe(true);
+  });
+
+  it("does not block a post on a duration it could not read", async () => {
+    vi.stubEnv("TIKTOK_AUDITED", "true");
+    probe.unreadable = true;
+    routes("PUBLISH_COMPLETE");
+    const adapter = await loadAdapter();
+
+    const result = await adapter.publish(direct(input(), { privacyLevel: "PUBLIC_TO_EVERYONE" }));
+
+    expect(result.status).toBe("published");
+  });
+
+  it("waits and tries again when TikTok says the account has hit its daily post limit", async () => {
+    vi.stubEnv("TIKTOK_AUDITED", "true");
+    const requests = routes("PUBLISH_COMPLETE", {
+      data: {},
+      error: { code: "spam_risk_too_many_posts", message: "daily cap" }
+    });
+    const adapter = await loadAdapter();
+    const { ThrottledError } = await import("@/lib/publisher/http");
+
+    const error = await adapter
+      .publish(direct(input(), { privacyLevel: "SELF_ONLY" }))
+      .catch((thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(ThrottledError);
+    expect((error as InstanceType<typeof ThrottledError>).retryAfterMinutes).toBe(720);
+    expect((error as Error).message).toMatch(/try again later/i);
+    expect(requests.some((request) => request.url.includes("/video/init/"))).toBe(false);
+  });
+
+  it("fails for good when TikTok has banned the account from posting", async () => {
+    vi.stubEnv("TIKTOK_AUDITED", "true");
+    const requests = routes("PUBLISH_COMPLETE", {
+      data: {},
+      error: { code: "spam_risk_user_banned_from_posting", message: "banned" }
+    });
+    const adapter = await loadAdapter();
+    const { PermanentError } = await import("@/lib/publisher/http");
+
+    const error = await adapter
+      .publish(direct(input(), { privacyLevel: "SELF_ONLY" }))
+      .catch((thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(PermanentError);
+    expect(requests.some((request) => request.url.includes("/video/init/"))).toBe(false);
+  });
+
+  it("leaves the inbox flow exactly as it was: no creator_info, no duration check, no consent needed", async () => {
+    probe.durationSec = 99_999;
+    const requests = routes();
+    const adapter = await loadAdapter();
+
+    const result = await adapter.publish(input({ visibility: "public" }));
+
+    expect(result.status).toBe("scheduled");
+    expect(requests.some((request) => request.url.includes("creator_info"))).toBe(false);
+    expect(requests.some((request) => request.url.endsWith("/post/publish/inbox/video/init/"))).toBe(true);
+    expect(probe.calls).toBe(0);
   });
 
   it("defers instead of failing when TikTok's inbox backlog blocks the upload", async () => {

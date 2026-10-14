@@ -1,11 +1,18 @@
 import { open, stat } from "node:fs/promises";
+import { probeVideoStream } from "@/lib/clipping/ffmpeg";
 import { noteRefreshAccepted, noteRefreshRejected } from "@/lib/platform-health/refresh";
 import { itemAccountId, primaryAccountId, tiktokRefreshTokenKey } from "@/lib/publisher/accounts";
 import { publisherConfig } from "@/lib/publisher/config";
 import { PermanentError, StillProcessingError, ThrottledError, fetchJson, fetchRaw } from "@/lib/publisher/http";
 import { IMAGE_REFUSALS, isImagePost } from "@/lib/publisher/images";
 import { composeCaption } from "@/lib/publisher/metadata";
-import { consentProblem, fetchCreatorPostingInfo, reconcileWithCreator } from "@/lib/publisher/tiktokPost";
+import {
+  CreatorCannotPostError,
+  PROCESSING_NOTICE,
+  consentProblem,
+  fetchCreatorPostingInfo,
+  reconcileWithCreator
+} from "@/lib/publisher/tiktokPost";
 import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
 import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/lib/publisher/types";
@@ -306,7 +313,7 @@ async function pollStatus(publishId: string, token: string): Promise<PostResult>
         status: "published",
         postId: postId ? String(postId) : publishId,
         containerId: publishId,
-        detail: "PUBLISH_COMPLETE"
+        detail: `Posted to TikTok. ${PROCESSING_NOTICE}`
       };
     }
     if (data.status === "FAILED") {
@@ -317,6 +324,14 @@ async function pollStatus(publishId: string, token: string): Promise<PostResult>
   throw new StillProcessingError(publishId, "TikTok is still processing the upload — will resume on the next run.");
 }
 
+async function clipDurationSec(localPath: string): Promise<number | null> {
+  try {
+    return (await probeVideoStream(localPath)).durationSec;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Re-reads the creator's TikTok settings and holds the stored consent against
  * them. An answer the account no longer permits is dropped rather than sent,
@@ -324,9 +339,14 @@ async function pollStatus(publishId: string, token: string): Promise<PostResult>
  * letting it go out as something the creator did not choose.
  */
 async function withCurrentCreatorSettings(input: PublishInput, token: string): Promise<PublishInput> {
-  const info = await fetchCreatorPostingInfo(token);
+  const info = await fetchCreatorPostingInfo(token).catch((error: unknown) => {
+    if (error instanceof CreatorCannotPostError && error.retryAfterMinutes !== null) {
+      throw new ThrottledError(error.retryAfterMinutes, error.message);
+    }
+    throw error;
+  });
   const consent = reconcileWithCreator(input.item.tiktok ?? { delivery: "direct" }, info);
-  const problem = consentProblem(consent, info);
+  const problem = consentProblem(consent, info, await clipDurationSec(input.localPath));
   if (problem) throw new PermanentError("TikTok will not take this post as scheduled: " + problem);
   if (!publisherConfig().tiktok.audited && consent.privacyLevel !== "SELF_ONLY") {
     throw new PermanentError(

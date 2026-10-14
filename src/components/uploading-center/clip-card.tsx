@@ -48,7 +48,8 @@ import { cn } from "@/lib/utils";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
 import { TiktokConsent } from "@/components/uploading-center/tiktok-consent";
-import { consentProblem } from "@/lib/publisher/tiktokPost";
+import { useTiktokCreatorInfo } from "@/components/uploading-center/use-tiktok-creator-info";
+import { consentBlocker as tiktokConsentBlocker } from "@/lib/publisher/tiktokPost";
 
 export const CLIP_DRAG_TYPE = "application/x-capital-command-clip";
 
@@ -341,7 +342,9 @@ export function ClipCard({
   const tiktokTargeted = draft.platform === "tiktok" || everywhere;
   // TikTok's own rules, applied where the button is: a direct post with an
   // unanswered question is not schedulable at all.
-  const consentBlocker = tiktokTargeted && draft.tiktok ? consentProblem(draft.tiktok) : null;
+  const tiktokDirect = tiktokTargeted && draft.tiktok?.delivery === "direct";
+  const creatorInfo = useTiktokCreatorInfo(tiktokAccountId, tiktokDirect);
+  const consentBlocker = tiktokTargeted ? tiktokConsentBlocker(draft.tiktok, creatorInfo, clip.durationSec) : null;
   // Only while the caption is still empty: once there is copy in the box, typed
   // or retried, the clip is no longer the one that quietly went out uncaptioned.
   const captionFailed = Boolean(captionError) && !draft.caption.trim();
@@ -553,7 +556,12 @@ export function ClipCard({
             </p>
           ) : null}
           {tiktokTargeted ? (
-            <TiktokConsent value={draft.tiktok} accountId={tiktokAccountId} onChange={(tiktok) => onDraftChange({ ...draft, tiktok })} />
+            <TiktokConsent
+              value={draft.tiktok}
+              state={creatorInfo}
+              clipDurationSec={clip.durationSec}
+              onChange={(tiktok) => onDraftChange({ ...draft, tiktok })}
+            />
           ) : null}
           <div className="flex flex-wrap items-center gap-2">
             <Select

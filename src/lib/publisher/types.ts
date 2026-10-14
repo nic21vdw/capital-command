@@ -125,11 +125,13 @@ export type TiktokPostOptions = {
   allowComment?: boolean;
   allowDuet?: boolean;
   allowStitch?: boolean;
+  /** The content disclosure switch itself, which can be on before either box below is ticked. */
+  disclosure?: boolean;
   /** "Your brand" — the creator promoting themselves. */
   brandOrganic?: boolean;
   /** "Branded content" — a paid partnership. Cannot be posted privately. */
   brandedContent?: boolean;
-  /** When the creator consented, for the audit trail. */
+  /** When the creator ticked the box agreeing to this upload. A direct post is refused without it. */
   consentedAt?: string;
 };
 
