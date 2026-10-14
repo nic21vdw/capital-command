@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **The server log stops filling up while posts wait on a limit.** When YouTube's daily upload cap, TikTok's inbox or Facebook's early hand-over cap holds posts back, the publish runner now writes one summary line per tick (for example `deferred 281: tiktok inbox full 279, youtube daily cap 2`) instead of one line per waiting post, which was about 14 MB of server output a day. Published, failed and token-rejected posts still get their own line, and the publish results and automation history are unchanged.
+
 ## 2026-10-13
 
 - **The logs now keep yesterday, and the app has one way to start.** Each publish and Threads tick writes one summary line (counts per status, plus a line for any clip that changed state) instead of an 87 KB line, so `publish-runner.log` and `threads-autopilot.log` hold 14 days rather than 2 hours, and the garbled dashes are gone because they are written as UTF-8. `server.out.log`, `server.err.log` and `build.log` are archived by day when the app starts, and `build.log` is UTF-8 instead of UTF-16. When the app is down the runners start it through `start-server.ps1` (without rebuilding), so `server.pid` is written and `stop-server.ps1` can stop it. The automation history records a clip again only when its state or message changes, not 95,000 times a day.

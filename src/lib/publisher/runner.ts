@@ -425,6 +425,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
   // run allowed to take a held YouTube video public ahead of its slot.
   const forcedNow = Boolean(options.force && options.itemId);
 
+  const deferrals = new Map<string, number>();
   for (const { item, platforms } of due) {
     if (!options.itemId && await isAutomationPaused("publisher")) break;
     let localPath: string | null = null;
@@ -435,7 +436,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
       const accountId = itemAccountId(item, platform);
       if (await accountHeld(platform, accountId)) continue;
       const adapter = adapters[platform];
-      const record = async (outcome: RunOutcome["outcome"], detail: string) => {
+      const record = async (outcome: RunOutcome["outcome"], detail: string, deferralReason?: string) => {
         report.outcomes.push({ itemId: item.id, clip: item.clipPath, platform, outcome, detail });
         const state = item.platforms[platform];
         const at = new Date().toISOString();
@@ -444,7 +445,12 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
           at, itemId: item.id, destination: platform, detail: `${item.title} (${platform}): ${detail || outcome}`,
           nextAttemptAt: state?.nextAttemptAt, key: `${item.id}:${platform}:${state?.postId ?? state?.containerId ?? ""}:${state?.attempts ?? 0}:${outcome === "failed" || outcome === "retrying" ? at : ""}`
         });
-        log(`[publisher]   ${item.id} → ${platform}: ${outcome} — ${detail}`);
+        if (outcome === "deferred" && deferralReason) {
+          const key = `${platform} ${deferralReason}`;
+          deferrals.set(key, (deferrals.get(key) ?? 0) + 1);
+        } else {
+          log(`[publisher]   ${item.id} → ${platform}: ${outcome} — ${detail}`);
+        }
       };
       let calledPlatform = false;
       try {
@@ -478,7 +484,8 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
             if (youtubeUploadsLeft <= 0) {
               await record(
                 "deferred",
-                `YouTube's ${config.youtube.dailyUploadBudget} uploads for today are used — this one goes up on the next run after the quota resets.`
+                `YouTube's ${config.youtube.dailyUploadBudget} uploads for today are used — this one goes up on the next run after the quota resets.`,
+                "daily cap"
               );
               continue;
             }
@@ -490,7 +497,8 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
             if (tiktokInboxLeft <= 0) {
               await record(
                 "deferred",
-                `${tiktokDraftsWaiting} clips are already waiting in your TikTok inbox — open the TikTok app and post or discard them, then this one goes up on the next run.`
+                `${tiktokDraftsWaiting} clips are already waiting in your TikTok inbox — open the TikTok app and post or discard them, then this one goes up on the next run.`,
+                "inbox full"
               );
               continue;
             }
@@ -500,7 +508,8 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
             if (facebookPreschedulesLeft <= 0) {
               await record(
                 "deferred",
-                `${FACEBOOK_PRESCHEDULES_PER_RUN} Reels have already been handed to Facebook ahead of time this run — this one goes up on the next run.`
+                `${FACEBOOK_PRESCHEDULES_PER_RUN} Reels have already been handed to Facebook ahead of time this run — this one goes up on the next run.`,
+                "pre-schedule cap"
               );
               continue;
             }
@@ -563,7 +572,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
           // A wall that time takes down, not the item: keep its attempts and
           // come back when the platform's window has moved.
           await queue.deferAttempt(item, platform, message, error.retryAfterMinutes, now);
-          await record("deferred", `${message} (next attempt ${item.platforms[platform]?.nextAttemptAt ?? "later"})`);
+          await record("deferred", `${message} (next attempt ${item.platforms[platform]?.nextAttemptAt ?? "later"})`, "throttled");
           continue;
         }
         if (isAuthFailure(error)) {
@@ -587,6 +596,12 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
         );
       }
     }
+  }
+
+  if (deferrals.size > 0) {
+    const total = [...deferrals.values()].reduce((sum, count) => sum + count, 0);
+    const reasons = [...deferrals].sort(([, a], [, b]) => b - a).map(([key, count]) => `${key} ${count}`);
+    log(`[publisher]   deferred ${total}: ${reasons.join(", ")}`);
   }
 
   await runBuffer();
