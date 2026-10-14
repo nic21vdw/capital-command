@@ -498,6 +498,37 @@ pauses the others.
 - There is no email, push or other notification code: the banner and that toast
   are the only alerts.
 
+## LinkedIn (`adapters/linkedin.ts`, `linkedinAuth.ts`, `linkedinApi.ts`)
+
+Ships switched off. With `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET` unset the
+Settings row says what to set and links `docs/LINKEDIN_SETUP.md`, and the Uploading Center
+shows no LinkedIn tab until an account is connected. `linkedin` is in `ALL_PLATFORMS` but
+not in `DEFAULT_PLATFORMS` (`types.ts`), which is what the default platform list and
+"All platforms" use, so connecting it does not start posting every clip there. Opt in with
+`PUBLISH_PLATFORMS` / `PUBLISH_MIRROR_TARGETS`.
+
+- Posts go to `POST /rest/posts` with `LinkedIn-Version` (`LINKEDIN_API_VERSION`, default in
+  `linkedinApi.ts`) and `X-Restli-Protocol-Version: 2.0.0`. Media is uploaded by the
+  adapter (Images, Videos, Documents APIs), so LinkedIn never needs the S3 hosting; the
+  runner skips hosting for a picture post whose legs are all LinkedIn. A multi-slide deck
+  becomes one PDF (`carousels/pdf.ts`, `@napi-rs/canvas`) posted as a document.
+- Commentary uses LinkedIn's little-text format. `littleText` escapes `| { } @ [ ] ( ) < > # \ * _ ~`
+  and turns hashtags into `{hashtag|\#|tag}`; an unescaped `(` cuts the post short.
+- Errors: 429 is a `ThrottledError` that waits for the daily reset at midnight UTC (or
+  `Retry-After`), 5xx and network errors are transient, 401 is `HTTP 401` so
+  `isAuthFailure` trips the account breaker, everything else is permanent. A UTC-day budget
+  (`LINKEDIN_DAILY_POST_BUDGET`, `remainingLinkedinPosts`) defers fresh posts past it.
+- The mid-flight handle (`containerId`) is the media URN, stored after the upload finishes;
+  a retry polls that asset and posts instead of uploading again.
+- Tokens live in `data/publisher-tokens.json` under `linkedin.*` (`linkedinKeys.ts`),
+  written with `setCachedTokens` (one atomic, serialised write for several keys). The
+  OAuth state is single-use and expires in ten minutes. Standard apps get a 60 day access
+  token and no refresh token: `platform-health/expiry.ts` adds an `expiring` entry to
+  `/api/health/platforms` seven days ahead and the banner shows it. A refresh token, when
+  LinkedIn issues one, is used silently.
+- The author (`urn:li:person:<sub>` or `urn:li:organization:<id>`) is chosen in Settings
+  (`/api/linkedin/author`). A page needs `w_organization_social`; page posts are always public.
+
 ## Launch Pad (`src/lib/launch`)
 
 Product Hunt launch planning at `/launch`. Product Hunt has NO write API for

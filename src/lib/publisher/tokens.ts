@@ -44,13 +44,31 @@ async function writeAll(values: Record<string, string>): Promise<void> {
   await atomicWriteFile(FILE_PATH, text);
 }
 
+let queue: Promise<unknown> = Promise.resolve();
+
+function serialized<T>(work: () => Promise<T>): Promise<T> {
+  const next = queue.then(work, work);
+  queue = next.catch(() => undefined);
+  return next;
+}
+
 export async function getCachedToken(key: string): Promise<string | null> {
   return (await readAll())[key] ?? null;
 }
 
+export async function setCachedTokens(entries: Record<string, string>): Promise<void> {
+  await serialized(async () => {
+    const values = await readAll();
+    let changed = false;
+    for (const [key, value] of Object.entries(entries)) {
+      if (values[key] === value) continue;
+      values[key] = value;
+      changed = true;
+    }
+    if (changed) await writeAll(values);
+  });
+}
+
 export async function setCachedToken(key: string, value: string): Promise<void> {
-  const values = await readAll();
-  if (values[key] === value) return;
-  values[key] = value;
-  await writeAll(values);
+  await setCachedTokens({ [key]: value });
 }

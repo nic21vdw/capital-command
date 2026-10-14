@@ -285,13 +285,14 @@ type AccountRow = {
 
 type PlatformKey = PlatformIconKey;
 
-const OTHER_PLATFORMS: PlatformKey[] = ["instagram", "tiktok", "facebook"];
+const OTHER_PLATFORMS: PlatformKey[] = ["instagram", "tiktok", "facebook", "linkedin"];
 
 const PLATFORM_STYLE: Record<PlatformKey, { label: string; tint: string; background: string }> = {
   youtube: { label: PLATFORM_LABEL.youtube, tint: "text-[#ff4d4d]", background: "bg-[#ff0000]/15" },
   instagram: { label: PLATFORM_LABEL.instagram, tint: "text-[#f0629b]", background: "bg-[#e1306c]/15" },
   tiktok: { label: PLATFORM_LABEL.tiktok, tint: "text-[#25f4ee]", background: "bg-[#25f4ee]/12" },
-  facebook: { label: PLATFORM_LABEL.facebook, tint: "text-[#4f9bff]", background: "bg-[#1877f2]/20" }
+  facebook: { label: PLATFORM_LABEL.facebook, tint: "text-[#4f9bff]", background: "bg-[#1877f2]/20" },
+  linkedin: { label: PLATFORM_LABEL.linkedin, tint: "text-[#5aa9ff]", background: "bg-[#0a66c2]/25" }
 };
 
 /**

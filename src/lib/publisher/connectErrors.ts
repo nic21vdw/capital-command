@@ -63,7 +63,7 @@ export function explainConnectError(raw: string, platform?: string | null): Conn
       `Paste the ${label} client ID and secret into the ${label} row below, save them, then sign in.`
     );
   }
-  if (lower.includes("denied")) {
+  if (lower.includes("denied") || lower.includes("cancel")) {
     // Only the providers that actually gate a new app say why it was refused.
     const gate =
       platform === "youtube"

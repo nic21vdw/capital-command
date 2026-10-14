@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
 const actionSchema = z.object({
   action: z.enum(["retry", "rearm"]),
   itemId: z.string().min(1).optional(),
-  platform: z.enum(["youtube", "instagram", "tiktok", "facebook"]).optional(),
+  platform: z.enum(["youtube", "instagram", "tiktok", "facebook", "linkedin"]).optional(),
   accountId: z.string().min(1).optional(),
   /** "rearm" only: which blocked states to revive (default: the connect flow's, failed and manual). */
   statuses: z.array(z.enum(["failed", "manual"])).min(1).optional(),
@@ -87,7 +87,7 @@ const enqueueSchema = z.object({
   // Blank is allowed on purpose: enqueue treats it as "not given" and writes one (completePostMetadata).
   caption: z.string().optional(),
   hashtags: z.array(z.string()).optional(),
-  platforms: z.array(z.enum(["youtube", "instagram", "tiktok", "facebook"])).optional(),
+  platforms: z.array(z.enum(["youtube", "instagram", "tiktok", "facebook", "linkedin"])).optional(),
   visibility: z.enum(["public", "private", "unlisted"]).optional(),
   accountId: z.string().min(1).optional(),
   format: z.enum(["short", "long"]).optional(),

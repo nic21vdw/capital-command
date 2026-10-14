@@ -30,6 +30,12 @@ describe("explainConnectError", () => {
     expect(explainConnectError("The user denied the authorization request", "tiktok").kind).toBe("denied");
   });
 
+  it("reads LinkedIn's cancelled authorization as a cancelled sign-in", () => {
+    const result = explainConnectError("The user cancelled the authorization", "linkedin");
+    expect(result.kind).toBe("denied");
+    expect(result.summary).toContain("LinkedIn");
+  });
+
   it("mentions the Google verification step only for YouTube", () => {
     const youtube = explainConnectError("access_denied", "youtube").fix;
     expect(youtube).toContain("If Google says the app is unverified");

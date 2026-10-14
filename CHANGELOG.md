@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **LinkedIn is ready to connect.** Once you create the LinkedIn app (docs/LINKEDIN_SETUP.md) and press Connect LinkedIn in Settings > Accounts, the app can post to LinkedIn as you or as a company page: text with a link, a picture, a video, or a carousel sent as a PDF document. A LinkedIn tab appears in the Uploading Center, and Carousels can be scheduled to LinkedIn. Until you set the two app credentials nothing changes: LinkedIn is not part of "All platforms" or the default platform list, and the Settings row tells you what to set. LinkedIn does not renew its sign-in by itself, so a banner warns you 7 days before it runs out. Captions for LinkedIn are written longer and more professional, with at most three hashtags, and links become colateralai.com/li.
+
 ## 2026-10-13
 
 - A dead Threads token now shows up the moment the app tries to renew it, not hours later when a post fails. Before, the red banner and the Windows toast only fired when a post was rejected, so with the day's posts already scheduled an expired token sat unreported while `threads-autopilot.log` said "Session has expired". A renewal that Meta turns down for a bad or expired token now marks that account as broken straight away, the same as a failed post; a Meta outage or a dropped connection does not. YouTube and TikTok do the same when Google or TikTok refuses to renew their login. A renewal that works clears the banner.

@@ -13,7 +13,9 @@ import type { PlatformId, QueueItem } from "@/lib/publisher/types";
  */
 
 /** Networks that can take a picture post through the app's own integrations. */
-export const IMAGE_CAPABLE_PLATFORMS: PlatformId[] = ["instagram", "facebook"];
+export const IMAGE_CAPABLE_PLATFORMS: PlatformId[] = ["instagram", "facebook", "linkedin"];
+
+export const PUBLIC_URL_PLATFORMS: PlatformId[] = ["instagram", "facebook"];
 
 /**
  * Why the other two are refused rather than queued. YouTube's Data API has no

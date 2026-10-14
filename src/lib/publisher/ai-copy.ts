@@ -38,6 +38,12 @@ export type CopySource = {
 
 const MAX_HASHTAGS = 8;
 const MAX_CAPTION_CHARS = 500;
+const PLATFORM_CAPTION_LIMIT: Partial<Record<PlatformId, number>> = { linkedin: 1300 };
+const PLATFORM_HASHTAG_LIMIT: Partial<Record<PlatformId, number>> = { linkedin: 3 };
+
+function captionLimit(platform?: PlatformId): number {
+  return (platform && PLATFORM_CAPTION_LIMIT[platform]) || MAX_CAPTION_CHARS;
+}
 
 /** How each platform's audience and copy conventions differ. */
 const PLATFORM_GUIDE: Record<PlatformId, string> = {
@@ -48,14 +54,17 @@ const PLATFORM_GUIDE: Record<PlatformId, string> = {
   instagram:
     "Instagram Reels: a caption with personality and a light call-to-engage (save/share). A tasteful line break is fine. Hashtags are expected and should blend broad + niche.",
   facebook:
-    "Facebook Reels: slightly longer, plain-spoken and context-giving for an older audience. Fewer hashtags; clarity over slang."
+    "Facebook Reels: slightly longer, plain-spoken and context-giving for an older audience. Fewer hashtags; clarity over slang.",
+  linkedin:
+    "LinkedIn: professional and first-person, written for engineers and developers. Longer than the other platforms: open with one concrete line, then 2-4 short paragraphs on what was built, what broke or what you learned, and why it matters. No slang, no emoji spam, no engagement bait. End with a plain invitation to read or watch. Few hashtags."
 };
 
 const PLATFORM_HASHTAG_TARGET: Record<PlatformId, number> = {
   youtube: 4,
   tiktok: 5,
   instagram: 8,
-  facebook: 3
+  facebook: 3,
+  linkedin: 3
 };
 
 export function platformCopyConfigured(): boolean {
@@ -84,7 +93,9 @@ export function buildPlatformCopyPrompt(
   timezone: string
 ): string {
   const lines: string[] = [
-    `You are writing the post copy for a single short-form vertical clip being posted to ${platform.toUpperCase()}.`,
+    platform === "linkedin"
+      ? "You are writing the post copy for a single post being published to LINKEDIN."
+      : `You are writing the post copy for a single short-form vertical clip being posted to ${platform.toUpperCase()}.`,
     "",
     PLATFORM_GUIDE[platform],
     "",
@@ -98,7 +109,7 @@ export function buildPlatformCopyPrompt(
   lines.push(
     "",
     `Return ONLY a JSON object: {"caption": string, "hashtags": string[], "bestTime": "HH:mm", "note": string}`,
-    `- "caption": tailored for ${platform}, under ${MAX_CAPTION_CHARS} characters, no clickbait lies, no emoji spam.`,
+    `- "caption": tailored for ${platform}, under ${captionLimit(platform)} characters, no clickbait lies, no emoji spam.`,
     `- "hashtags": about ${PLATFORM_HASHTAG_TARGET[platform]} hashtags with the # prefix, ordered strongest first.`,
     `- "bestTime": a strong local time to post on ${platform} in 24h "HH:mm" (timezone ${timezone}).`,
     `- "note": one short sentence on the angle or timing choice.`
@@ -107,15 +118,18 @@ export function buildPlatformCopyPrompt(
 }
 
 /** Pulls the copy object out of the reply, tolerating fences / prose. Pure. */
-export function parsePlatformCopy(text: string): PlatformCopy | null {
+export function parsePlatformCopy(text: string, platform?: PlatformId): PlatformCopy | null {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   const candidate = fenced ? fenced[1] : text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
   try {
     const parsed = JSON.parse(candidate) as Record<string, unknown>;
-    const caption = typeof parsed.caption === "string" ? parsed.caption.trim().slice(0, MAX_CAPTION_CHARS) : "";
+    const caption = typeof parsed.caption === "string" ? parsed.caption.trim().slice(0, captionLimit(platform)) : "";
     if (!caption) return null;
     const hashtags = Array.isArray(parsed.hashtags)
-      ? normalizeHashtags(parsed.hashtags.filter((tag): tag is string => typeof tag === "string"))
+      ? normalizeHashtags(
+          parsed.hashtags.filter((tag): tag is string => typeof tag === "string"),
+          (platform && PLATFORM_HASHTAG_LIMIT[platform]) || MAX_HASHTAGS
+        )
       : [];
     const bestTime =
       typeof parsed.bestTime === "string" && /^\d{1,2}:\d{2}$/.test(parsed.bestTime.trim())
@@ -135,7 +149,7 @@ export function fallbackPlatformCopy(source: CopySource, platform: PlatformId): 
     ["AI", "vibecoding", "coding", "buildinpublic", "startup"],
     PLATFORM_HASHTAG_TARGET[platform]
   );
-  return { caption: base.slice(0, MAX_CAPTION_CHARS), hashtags, source: "fallback" };
+  return { caption: base.slice(0, captionLimit(platform)), hashtags, source: "fallback" };
 }
 
 /**
@@ -157,7 +171,7 @@ export async function generatePlatformCopy(
       messages: [{ role: "user", content: buildPlatformCopyPrompt(source, platform, timezone) }]
     });
     if (!result || result.refused) return fallback;
-    const parsed = parsePlatformCopy(result.text);
+    const parsed = parsePlatformCopy(result.text, platform);
     return parsed ? { ...parsed, source: "ai" } : fallback;
   } catch {
     return fallback;

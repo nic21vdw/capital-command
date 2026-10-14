@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 /**
- * Only the two networks the publisher really posts a picture carousel to.
+ * Only the networks the publisher really posts a picture carousel to.
  * TikTok and YouTube pictures are refused by `enqueueImagePost`, so they never
  * reach this route: the page keeps those as reminders on the carousel.
  */
@@ -26,7 +26,7 @@ const bookSchema = z.object({
   /** "YYYY-MM-DDTHH:mm" in PUBLISH_TIMEZONE, like every other booking. */
   publishAt: z.string().min(1),
   caption: z.string().trim().min(1).max(2200).optional(),
-  platforms: z.array(z.enum(["instagram", "facebook"])).min(1)
+  platforms: z.array(z.enum(["instagram", "facebook", "linkedin"])).min(1)
 });
 
 /**
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     body = bookSchema.parse(await request.json());
   } catch {
-    return NextResponse.json({ error: "Pick Instagram and/or Facebook and a date and time." }, { status: 400 });
+    return NextResponse.json({ error: "Pick Instagram, Facebook and/or LinkedIn and a date and time." }, { status: 400 });
   }
 
   const data = await readAppData();

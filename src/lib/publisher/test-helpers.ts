@@ -66,6 +66,14 @@ export function testConfig(overrides: Partial<PublisherConfig> = {}): PublisherC
       appId: "ig-app-id"
     },
     facebook: { pageId: "10000000000000000", pageAccessToken: "fb-token", graphApiVersion: "v23.0" },
+    linkedin: {
+      clientId: "li-client",
+      clientSecret: "li-secret",
+      accessToken: "li-access",
+      refreshToken: null,
+      authorUrn: "urn:li:person:abc123",
+      dailyPostBudget: 10
+    },
     tiktok: {
       clientKey: "tt-key",
       clientSecret: "tt-secret",

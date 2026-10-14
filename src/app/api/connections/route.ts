@@ -3,6 +3,7 @@ import { CONNECTIONS, CONNECTION_FIELD_NAMES } from "@/lib/publisher/connections
 import { credentialSources, credentialsPresent, saveCredentials } from "@/lib/publisher/credentials";
 import { accountIdConfigured } from "@/lib/publisher/accounts";
 import { googleRedirectUri } from "@/lib/publisher/googleAuth";
+import { linkedinConnected, linkedinRedirectUri } from "@/lib/publisher/linkedinAuth";
 import { tiktokRedirectUri } from "@/lib/publisher/tiktokAuth";
 import { spotifyConnected, spotifyRedirectUri } from "@/lib/spotify/auth";
 
@@ -27,19 +28,21 @@ function redirectUris(origin: string) {
   return {
     youtube: googleRedirectUri(origin),
     tiktok: tiktokRedirectUri(origin),
-    spotify: spotifyRedirectUri(origin)
+    spotify: spotifyRedirectUri(origin),
+    linkedin: linkedinRedirectUri(origin)
   };
 }
 
 async function connectionState(origin: string) {
-  const [present, sources, youtube, tiktok, spotify] = await Promise.all([
+  const [present, sources, youtube, tiktok, spotify, linkedin] = await Promise.all([
     credentialsPresent(CONNECTION_FIELD_NAMES),
     credentialSources(CONNECTION_FIELD_NAMES),
     accountIdConfigured("youtube"),
     accountIdConfigured("tiktok"),
-    spotifyConnected()
+    spotifyConnected(),
+    linkedinConnected()
   ]);
-  return { present, sources, connected: { youtube, tiktok, spotify }, redirectUris: redirectUris(origin) };
+  return { present, sources, connected: { youtube, tiktok, spotify, linkedin }, redirectUris: redirectUris(origin) };
 }
 
 export async function POST(request: Request) {

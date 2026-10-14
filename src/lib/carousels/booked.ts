@@ -151,7 +151,8 @@ const LABELS: Partial<Record<PlatformId, string>> = {
   instagram: "Instagram",
   facebook: "Facebook",
   tiktok: "TikTok",
-  youtube: "YouTube"
+  youtube: "YouTube",
+  linkedin: "LinkedIn"
 };
 
 /** "Instagram + Facebook". */

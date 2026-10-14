@@ -17,10 +17,12 @@ import {
 import type { Carousel } from "@/types/domain";
 
 describe("which carousel networks really post", () => {
-  it("lists only Instagram and Facebook, because the publisher refuses TikTok and YouTube pictures", () => {
-    expect(IMAGE_CAPABLE_PLATFORMS).toEqual(["instagram", "facebook"]);
+  it("lists Instagram, Facebook and LinkedIn, because the publisher refuses TikTok and YouTube pictures", () => {
+    expect(IMAGE_CAPABLE_PLATFORMS).toEqual(["instagram", "facebook", "linkedin"]);
     expect(DEFAULT_CAROUSEL_PLATFORMS).toEqual(["instagram", "facebook"]);
     expect(platformPostingMode("instagram")).toBe("automatic");
+    expect(platformPostingMode("linkedin")).toBe("automatic");
+    expect(platformPostingMode("linkedin", { linkedin: false })).toBe("reminder");
     expect(platformPostingMode("tiktok")).toBe("manual");
     expect(platformPostingMode("youtube")).toBe("manual");
   });
@@ -130,8 +132,8 @@ describe("connection-aware posting mode", () => {
 });
 
 describe("a deck that is already booked", () => {
-  it("closes both picture networks and leaves the reminder ones", () => {
-    expect(platformsClosedByBooking(true)).toEqual(["instagram", "facebook"]);
+  it("closes every picture network and leaves the reminder ones", () => {
+    expect(platformsClosedByBooking(true)).toEqual(["instagram", "facebook", "linkedin"]);
     expect(platformsClosedByBooking(false)).toEqual([]);
     expect(activePlatformPicks(["instagram", "facebook", "tiktok"], true)).toEqual(["tiktok"]);
     expect(activePlatformPicks(["instagram", "facebook"], false)).toEqual(["instagram", "facebook"]);

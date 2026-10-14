@@ -7,6 +7,7 @@ import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
 import { hostImages, hostMedia } from "@/lib/publisher/hosting";
 import {
   MAX_IMAGES_PER_POST,
+  PUBLIC_URL_PLATFORMS,
   isSupportedImagePath,
   splitImagePlatforms,
   SUPPORTED_IMAGE_EXTENSIONS
@@ -33,7 +34,8 @@ const PLATFORM_LABELS: Record<PlatformId, string> = {
   youtube: "YouTube",
   instagram: "Instagram",
   tiktok: "TikTok",
-  facebook: "Facebook"
+  facebook: "Facebook",
+  linkedin: "LinkedIn"
 };
 
 function manualPlatformState(platform: PlatformId): PlatformState {
@@ -424,10 +426,11 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
   const accountId = await resolveAccountId(options.accountId, supported);
   const configured = await configuredPlatformSet(supported, accountId, config);
 
-  // Both picture platforms pull the file from a public HTTPS URL, so an
-  // automated image post cannot exist without hosting. Say so now.
-  const needsHosting = configured.size > 0 || config.queueBackend === "r2";
-  if (configured.size > 0 && !hostingConfigured(config)) {
+  // Instagram and Facebook pull the file from a public HTTPS URL, so an
+  // automated image post for either cannot exist without hosting. Say so now.
+  const needsPublicUrl = [...configured].some((platform) => PUBLIC_URL_PLATFORMS.includes(platform));
+  const needsHosting = needsPublicUrl || config.queueBackend === "r2";
+  if (needsPublicUrl && !hostingConfigured(config)) {
     // Operator detail (the S3_* variables and the R2 free tier) belongs here,
     // not in the message the user reads.
     throw new Error(

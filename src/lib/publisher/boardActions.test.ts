@@ -47,7 +47,7 @@ describe("what Remove touches", () => {
 });
 
 describe("Remove on a post that is already live", () => {
-  const names = { youtube: "YouTube", instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook" };
+  const names = { youtube: "YouTube", instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook", linkedin: "LinkedIn" };
 
   it("lists the platforms that are live, and says a fully published post has nothing left to remove", () => {
     const impact = removalImpact({

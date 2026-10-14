@@ -2,12 +2,13 @@ import type { Carousel, CarouselSchedule } from "@/types/domain";
 import { publishZoneLabel } from "@/lib/carousels/booked";
 import { formatClockTime } from "@/lib/timeFormat";
 
-/** The four networks a carousel can be scheduled to, in display order. */
+/** The five networks a carousel can be scheduled to, in display order. */
 export const CAROUSEL_PLATFORMS = [
   { id: "instagram", label: "Instagram", short: "IG", color: "#e1306c" },
   { id: "facebook", label: "Facebook", short: "FB", color: "#1877f2" },
   { id: "tiktok", label: "TikTok", short: "TT", color: "#25f4ee" },
-  { id: "youtube", label: "YouTube", short: "YT", color: "#ff0000" }
+  { id: "youtube", label: "YouTube", short: "YT", color: "#ff0000" },
+  { id: "linkedin", label: "LinkedIn", short: "LI", color: "#0a66c2" }
 ] as const;
 
 export type CarouselPlatformId = (typeof CAROUSEL_PLATFORMS)[number]["id"];
@@ -16,7 +17,8 @@ export const PLATFORM_LABEL: Record<CarouselPlatformId, string> = {
   instagram: "Instagram",
   facebook: "Facebook",
   tiktok: "TikTok",
-  youtube: "YouTube"
+  youtube: "YouTube",
+  linkedin: "LinkedIn"
 };
 
 /**
@@ -27,7 +29,7 @@ export const PLATFORM_LABEL: Record<CarouselPlatformId, string> = {
  * `IMAGE_CAPABLE_PLATFORMS` in `lib/publisher/images.ts`, which this
  * client-safe module cannot import.
  */
-export const IMAGE_CAPABLE_PLATFORMS: CarouselPlatformId[] = ["instagram", "facebook"];
+export const IMAGE_CAPABLE_PLATFORMS: CarouselPlatformId[] = ["instagram", "facebook", "linkedin"];
 
 /** The pair a new schedule starts with: the two networks that really post. */
 export const DEFAULT_CAROUSEL_PLATFORMS: CarouselPlatformId[] = ["instagram", "facebook"];

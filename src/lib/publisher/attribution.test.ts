@@ -9,7 +9,8 @@ describe("per-platform attribution links", () => {
     ["instagram", "https://colateralai.com/ig"],
     ["tiktok", "https://colateralai.com/tt"],
     ["facebook", "https://colateralai.com/fb"],
-    ["threads", "https://colateralai.com/th"]
+    ["threads", "https://colateralai.com/th"],
+    ["linkedin", "https://colateralai.com/li"]
   ] as const)("rewrites the bare domain for %s", (platform, expected) => {
     expect(attributeLinks("Explore CoLateral: https://colateralai.com", platform)).toBe(`Explore CoLateral: ${expected}`);
   });

@@ -51,7 +51,8 @@ describe("account setup status", () => {
       youtube: "http://localhost:3000/api/auth/google/callback",
       tiktok: "http://localhost:3000/api/auth/tiktok/callback",
       // Spotify refuses localhost, so the address to register is the loopback IP.
-      spotify: "http://127.0.0.1:3000/api/auth/spotify/callback"
+      spotify: "http://127.0.0.1:3000/api/auth/spotify/callback",
+      linkedin: "http://localhost:3000/api/linkedin/callback"
     });
     vi.unstubAllEnvs();
   });
@@ -89,6 +90,6 @@ describe("account setup status", () => {
     }));
     expect(response.status).toBe(200);
     expect(saveCredentials).toHaveBeenCalledWith({ YOUTUBE_CLIENT_ID: "new-id" });
-    expect((await response.json()).connected).toEqual({ youtube: true, tiktok: false, spotify: false });
+    expect((await response.json()).connected).toEqual({ youtube: true, tiktok: false, spotify: false, linkedin: false });
   });
 });
