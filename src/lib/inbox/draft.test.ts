@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runAi } from "@/lib/ai";
 import { DraftUnavailableError, draftReply } from "@/lib/inbox/draft";
 import { sampleItem, stubFetch } from "@/lib/inbox/test-helpers";
-import { replyVoiceBlock } from "@/lib/inbox/voice";
+import { brandPromptBlock } from "@/lib/brand/kit";
 
 vi.mock("@/lib/ai", () => ({ runAi: vi.fn() }));
 
@@ -25,7 +25,7 @@ describe("draftReply", () => {
 
     expect(draft).toBe("Yes, Codex works too.");
     const request = runAiMock.mock.calls[0][0];
-    expect(request.system).toContain(replyVoiceBlock());
+    expect(request.system).toContain(brandPromptBlock("threads"));
     expect(request.system).toMatch(/untrusted/i);
     const prompt = request.messages.map((message) => message.content).join("\n");
     expect(prompt).toContain("A short about worktrees");
