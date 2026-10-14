@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { PERSONAL_NAV } from "@/lib/personal-routes";
 import { SCREENS, findScreen, visibleScreens } from "@/lib/voice/screens";
 
 const SHELL = readFileSync(path.resolve(__dirname, "../../components/layout/app-shell.tsx"), "utf8");
@@ -41,5 +42,20 @@ describe("command bar screens against the sidebar", () => {
     expect(SCREENS.some((screen) => screen.label === "Dashboard")).toBe(false);
     expect(findScreen("dashboard")?.href).toBe("/");
     expect(findScreen("stream pipeline")?.id).toBe("pipeline");
+  });
+});
+
+describe("command bar screens for the personal group", () => {
+  it.each(PERSONAL_NAV)("still opens $href, called by its nav label, only behind the switch", ({ href, label }) => {
+    const screen = SCREENS.find((candidate) => candidate.href === href);
+    expect(screen, `${href} has no command bar screen`).toBeDefined();
+    expect(screen!.label.startsWith(label)).toBe(true);
+    expect(screen!.needs).toBe("personalDashboard");
+    expect(visibleScreens().some((candidate) => candidate.href === href)).toBe(false);
+    expect(visibleScreens({ personalDashboard: true }).some((candidate) => candidate.href === href)).toBe(true);
+  });
+
+  it("does not list a personal page among the sidebar's marketing screens", () => {
+    expect(sidebar.some((entry) => PERSONAL_NAV.some((item) => item.href === entry.href))).toBe(false);
   });
 });
