@@ -196,4 +196,79 @@ describe("createTextContainer", () => {
     const body = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as URLSearchParams;
     expect(body.get("text")).toBe("Try it: https://colateralai.com/th");
   });
+
+  it("adds the post's code to the Threads link when one is given", async () => {
+    const fetchMock = stubFetch("container-1");
+
+    await createTextContainer(account({ userId: "1" }), "Try it: https://colateralai.com", config(), undefined, "a3f9c2");
+
+    const body = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as URLSearchParams;
+    expect(body.get("text")).toBe("Try it: https://colateralai.com/th?c=a3f9c2");
+  });
+
+  it("carries the code through postToThreads", async () => {
+    const fetchMock = stubFetch("container-1");
+
+    await postToThreads({ account: account({ userId: "1" }), text: "Try it: colateralai.com", attributionCode: "a3f9c2" }, config());
+
+    const body = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as URLSearchParams;
+    expect(body.get("text")).toBe("Try it: colateralai.com/th?c=a3f9c2");
+  });
+
+  it("adds the code to a stored link reply that already has its Threads path and utm tags", async () => {
+    const fetchMock = stubFetch("container-1");
+    const reply = "Explore CoLateral:\nhttps://colateralai.com/th?utm_source=threads&utm_medium=social";
+
+    await createTextContainer(account({ userId: "1" }), reply, config(), "post-main", "a3f9c2");
+
+    const body = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as URLSearchParams;
+    expect(body.get("text")).toBe(`${reply}&c=a3f9c2`);
+  });
+
+  describe("the 500 character limit", () => {
+    const sent = (fetchMock: ReturnType<typeof stubFetch>) =>
+      ((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as URLSearchParams).get("text")!;
+
+    it("sends a post with its code when the coded text is exactly 500 characters", async () => {
+      const fetchMock = stubFetch("container-1");
+      const text = `${"a".repeat(472)} colateralai.com`;
+
+      await createTextContainer(account({ userId: "1" }), text, config(), undefined, "a3f9c2");
+
+      expect(sent(fetchMock)).toHaveLength(500);
+      expect(sent(fetchMock)).toMatch(/colateralai\.com\/th\?c=a3f9c2$/);
+    });
+
+    it("sends a post without its code when the code would take it to 501", async () => {
+      const fetchMock = stubFetch("container-1");
+      const text = `${"a".repeat(473)} colateralai.com`;
+
+      await createTextContainer(account({ userId: "1" }), text, config(), undefined, "a3f9c2");
+
+      expect(sent(fetchMock)).toBe(`${"a".repeat(473)} colateralai.com/th`);
+      expect(sent(fetchMock).length).toBeLessThanOrEqual(500);
+    });
+
+    it("sends a link reply with its code when the coded reply is exactly 500 characters", async () => {
+      const fetchMock = stubFetch("container-1");
+      const link = "https://colateralai.com/th?utm_source=threads";
+      const text = `${"b".repeat(500 - "\n".length - link.length - "&c=a3f9c2".length)}\n${link}`;
+
+      await createTextContainer(account({ userId: "1" }), text, config(), "post-main", "a3f9c2");
+
+      expect(sent(fetchMock)).toHaveLength(500);
+      expect(sent(fetchMock).endsWith("&c=a3f9c2")).toBe(true);
+    });
+
+    it("sends a link reply without its code when the code would take it to 501", async () => {
+      const fetchMock = stubFetch("container-1");
+      const link = "https://colateralai.com/th?utm_source=threads";
+      const text = `${"b".repeat(500 - "\n".length - link.length - "&c=a3f9c2".length + 1)}\n${link}`;
+
+      await createTextContainer(account({ userId: "1" }), text, config(), "post-main", "a3f9c2");
+
+      expect(text + "&c=a3f9c2").toHaveLength(501);
+      expect(sent(fetchMock)).toBe(text);
+    });
+  });
 });

@@ -110,7 +110,7 @@ function buildBody(input: PublishInput): { body: YoutubeBody; scheduled: boolean
   const body: YoutubeBody = {
     snippet: {
       title: item.title.slice(0, 100),
-      description: composeDescription(item).slice(0, 5000),
+      description: composeDescription(item, 5000),
       ...(bareTags(item).length > 0 ? { tags: bareTags(item) } : {}),
       ...(config.youtube.categoryId ? { categoryId: config.youtube.categoryId } : {})
     },

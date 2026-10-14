@@ -1,6 +1,6 @@
 import { PermanentError, TransientError, fetchJson, isTransient } from "@/lib/publisher/http";
 import { attributeLinks } from "@/lib/publisher/attribution";
-import { threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
+import { THREADS_TEXT_LIMIT, threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 
 /**
  * Meta's Threads Graph API — text posts only.
@@ -71,14 +71,20 @@ export async function accountUserId(account: ThreadsAccount, config: ThreadsConf
   return profile.id;
 }
 
+function textWithinLimit(text: string, attributionCode: string | undefined): string {
+  const coded = attributeLinks(text, "threads", attributionCode);
+  return coded.length > THREADS_TEXT_LIMIT ? attributeLinks(text, "threads") : coded;
+}
+
 /** Creates the text container. Returns its creation id. */
 export async function createTextContainer(
   account: ThreadsAccount,
   text: string,
   config: ThreadsConfig = threadsConfig(),
-  replyToId?: string
+  replyToId?: string,
+  attributionCode?: string
 ): Promise<string> {
-  const body = new URLSearchParams({ media_type: "TEXT", text: attributeLinks(text, "threads"), access_token: account.accessToken });
+  const body = new URLSearchParams({ media_type: "TEXT", text: textWithinLimit(text, attributionCode), access_token: account.accessToken });
   if (replyToId) body.set("reply_to_id", replyToId);
   const userId = await accountUserId(account, config);
 
@@ -120,6 +126,7 @@ export type ThreadsPublishInput = {
   text: string;
   containerId?: string;
   replyToId?: string;
+  attributionCode?: string;
   /** Persist a fresh handle before a publish call can put it on the feed. */
   onContainerCreated?: (containerId: string) => Promise<void>;
   /** Re-check pause/settings after network waits and between publish retries. */
@@ -147,7 +154,7 @@ export async function postToThreads(
   // while the user turns the automation off.
   const account = { ...input.account, userId: await accountUserId(input.account, config) };
   await checkControl(input.containerId);
-  const containerId = input.containerId ?? await createTextContainer(account, input.text, config, input.replyToId);
+  const containerId = input.containerId ?? await createTextContainer(account, input.text, config, input.replyToId, input.attributionCode);
   if (!input.containerId) await input.onContainerCreated?.(containerId);
 
   let lastError: unknown;
