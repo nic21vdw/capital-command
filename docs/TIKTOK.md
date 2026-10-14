@@ -10,7 +10,7 @@ until TikTok approves the app — which it has already declined once.
 | OAuth (Login Kit, refresh, rotation) | working — the connection is live |
 | More than one TikTok profile | working — each connected account keeps its own token, profile and avatar |
 | Upload of a clip to TikTok | working — clip goes to your TikTok **inbox** |
-| The consent panel Direct Post requires | built — audience, interactions and disclosure, per post |
+| The consent panel Direct Post requires | built and checked line by line against TikTok's Direct Post guidelines — see the gap table in TIKTOK-RESUBMISSION.md |
 | Direct Post (straight to the profile, no tap) | blocked by app review; only "Only you" is accepted until then |
 | App review | **Rejected 2026-07-29**, not pending — and not resubmitted since |
 | The credentials in `.env` | the **sandbox** app's, so approval would not reach this machine on its own |
@@ -88,10 +88,11 @@ app. Direct Post is never counted, because it leaves nothing in the inbox.
 video shot list and the portal click-through. The short form:
 
 1. `Return to Draft` on the app.
-2. Rewrite the description and the review notes so they describe the product,
+2. Rewrite the description and the explanation (both are written out under
+   "Submission") so they describe the product,
    not one person's own accounts — TikTok rejects "for my own channels"
    outright. Only claim what is true.
-3. Record a fresh demo video showing the real end-to-end flow, opening on the
+3. Record a fresh demo video from TIKTOK-DEMO-SCRIPT.md, opening on the
    address registered for the app —
    `https://nic21vdw.github.io/capital-command/` — and covering every scope
    requested

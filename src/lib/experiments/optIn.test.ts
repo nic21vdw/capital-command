@@ -13,8 +13,9 @@ function sources(dir: string): string[] {
 }
 
 const files = sources(SRC);
+const contents = new Map(files.map((file) => [file, readFileSync(file, "utf8")]));
 const rel = (file: string) => path.relative(SRC, file).split(path.sep).join("/");
-const read = (file: string) => readFileSync(file, "utf8");
+const read = (file: string) => contents.get(file) ?? readFileSync(file, "utf8");
 
 describe("nothing creates an experiment but a person pressing Start test", () => {
   it("calls createExperiment only from the experiments route", () => {
