@@ -16,6 +16,7 @@ import {
   FileText,
   Handshake,
   Images,
+  Inbox,
   LayoutList,
   Lightbulb,
   Link2,
@@ -44,6 +45,7 @@ import { UpdateBanner } from "@/components/layout/update-banner";
 import { UpdateCheckButton } from "@/components/layout/update-check";
 import { StreamBanner } from "@/components/layout/stream-banner";
 import { StreamCard } from "@/components/layout/stream-card";
+import { useInboxUnread } from "@/components/inbox/unread";
 import { PipelineAttentionProvider, usePipelineAttention } from "@/components/pipeline/attention";
 import { useAppData } from "@/components/providers/app-provider";
 import { useColateralBridge } from "@/components/providers/colateral-bridge-provider";
@@ -127,6 +129,7 @@ const STUDIO_ITEMS: NavItem[] = [
   // Public threads where someone is describing the problem CoLateral solves,
   // and the creators worth offering it to. Trackers only: neither page posts
   // or sends anything.
+  { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/listening", label: "Listening", icon: Ear },
   { href: "/outreach", label: "Outreach", icon: Handshake },
   // Built, and reachable by URL alone until now: the recurring content,
@@ -645,7 +648,10 @@ function NavLink({ item, active, collapsed = false }: { item: NavItem; active: b
   // A stage that broke overnight has to be visible from wherever he is, not
   // only from the run he would have to think to open.
   const { breakdown } = usePipelineAttention();
-  const { count: attention, noun } = navAttention(item.href, breakdown);
+  const inboxUnread = useInboxUnread();
+  const flagged = navAttention(item.href, breakdown);
+  const attention = item.href === "/inbox" ? inboxUnread : flagged.count;
+  const noun = item.href === "/inbox" ? "unread" : flagged.noun;
   // Walking down the flow keeps the stream you are working on. Every screen
   // below used to open on everything the app had ever made, so following the
   // sidebar meant hunting for your own recording on each one.
@@ -1022,8 +1028,9 @@ function NarrowChrome({ pathname }: { pathname: string }) {
 function NarrowNavItem({ item, active, onSelect }: { item: NavItem; active: boolean; onSelect: () => void }) {
   const Icon = item.icon;
   const { breakdown } = usePipelineAttention();
+  const inboxUnread = useInboxUnread();
   const { stream } = useStream();
-  const { count: attention } = navAttention(item.href, breakdown);
+  const attention = item.href === "/inbox" ? inboxUnread : navAttention(item.href, breakdown).count;
   return (
     <Link
       href={streamHref(item.href, stream)}

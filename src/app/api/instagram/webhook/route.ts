@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
+import { queueInstagramEvent } from "@/lib/inbox/webhookQueue";
 import { publisherConfig } from "@/lib/publisher/config";
 
 export const runtime = "nodejs";
@@ -33,11 +34,14 @@ function isValidSignature(rawBody: string, signatureHeader: string | null, appSe
 }
 
 /**
- * POST /api/instagram/webhook — receives subscribed events (comments,
- * mentions, messages, etc). Meta expects a fast 200; the payload signature
- * is verified against IG_APP_SECRET before anything is trusted, and every
- * event is refused while that secret is unset. This route is exempt from the
- * loopback origin guard in src/middleware.ts for exactly that reason.
+ * POST /api/instagram/webhook — receives subscribed events. Comment and
+ * mention events are queued for the inbox (src/lib/inbox/webhookQueue.ts) and
+ * written after this answers; the poll in src/lib/inbox/sync.ts is the backstop
+ * for anything a failed write loses. Meta expects a fast 200, so nothing but
+ * the signature check happens before it. The payload signature is verified
+ * against IG_APP_SECRET before anything is trusted, and every event is refused
+ * while that secret is unset. This route is exempt from the loopback origin
+ * guard in src/middleware.ts for exactly that reason.
  */
 export async function POST(request: Request) {
   const rawBody = await request.text();
@@ -47,12 +51,15 @@ export async function POST(request: Request) {
     return new NextResponse("Invalid signature", { status: 401 });
   }
 
+  let payload: unknown;
   try {
-    const payload = JSON.parse(rawBody) as unknown;
-    console.log("Instagram webhook event:", JSON.stringify(payload));
+    payload = JSON.parse(rawBody) as unknown;
   } catch {
     console.warn("Instagram webhook: received non-JSON body");
+    return new NextResponse("OK", { status: 200 });
   }
+
+  queueInstagramEvent(payload);
 
   return new NextResponse("OK", { status: 200 });
 }
