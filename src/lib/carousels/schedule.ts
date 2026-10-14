@@ -83,28 +83,33 @@ export function bookingNeedsHands(statuses: Partial<Record<CarouselPlatformId, s
 }
 
 /**
- * Once a deck is in the publish queue it cannot be booked again, so both
- * networks that take a picture post are closed to a new action: the ones it is
- * booked on show their slot, the other says where to change it. What is left to
- * choose is the reminder-only networks.
+ * A deck already in the publish queue cannot be booked to the same audience a
+ * second time, so the networks it is booked on are closed: Instagram and
+ * Facebook go together (one post carries both), LinkedIn is its own. A network
+ * the deck is not booked on stays open, so LinkedIn can be added to a deck that
+ * already went to Instagram and Facebook. What is left to choose is that and the
+ * reminder-only networks.
  */
-export function platformsClosedByBooking(booked: boolean): CarouselPlatformId[] {
-  return booked ? [...IMAGE_CAPABLE_PLATFORMS] : [];
+export function platformsClosedByBooking(bookedOn: readonly string[]): CarouselPlatformId[] {
+  const closed: CarouselPlatformId[] = [];
+  if (bookedOn.includes("instagram") || bookedOn.includes("facebook")) closed.push("instagram", "facebook");
+  if (bookedOn.includes("linkedin")) closed.push("linkedin");
+  return closed;
 }
 
-/** The picks that still mean something: a booked deck drops the closed networks. */
-export function activePlatformPicks(picks: CarouselPlatformId[], booked: boolean): CarouselPlatformId[] {
-  const closed = platformsClosedByBooking(booked);
+/** The picks that still mean something: a booked deck drops the networks it is already on. */
+export function activePlatformPicks(picks: CarouselPlatformId[], bookedOn: readonly string[]): CarouselPlatformId[] {
+  const closed = platformsClosedByBooking(bookedOn);
   return picks.filter((id) => !closed.includes(id));
 }
 
 /**
- * The form's last button. On a booked deck there is nothing to save until a
- * reminder network is picked, so the footer is just Close and the link to the
+ * The form's last button. On a booked deck there is nothing to save until an
+ * open network is picked, so the footer is just Close and the link to the
  * booking; everywhere else Cancel and the save button stay.
  */
-export function scheduleFooterMode(booked: boolean, picks: CarouselPlatformId[]): "save" | "close-only" {
-  return booked && activePlatformPicks(picks, booked).length === 0 ? "close-only" : "save";
+export function scheduleFooterMode(bookedOn: readonly string[], picks: CarouselPlatformId[]): "save" | "close-only" {
+  return bookedOn.length > 0 && activePlatformPicks(picks, bookedOn).length === 0 ? "close-only" : "save";
 }
 
 /**

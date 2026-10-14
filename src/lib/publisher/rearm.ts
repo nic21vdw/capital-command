@@ -1,5 +1,6 @@
 import { itemBelongsToAccount } from "@/lib/publisher/accounts";
 import { isConnectionFailure } from "@/lib/publisher/failure";
+import { isPostAttempt, mediaOfHandle } from "@/lib/publisher/linkedinKeys";
 import type { PlatformId, PlatformState, PlatformStatus, QueueItem } from "@/lib/publisher/types";
 
 /**
@@ -100,6 +101,7 @@ export function rearmItem(item: QueueItem, scope: RearmScope = {}): PlatformId[]
     state.note = undefined;
     state.nextAttemptAt = undefined;
     state.claimedAt = undefined;
+    if (platform === "linkedin" && isPostAttempt(state.containerId)) state.containerId = mediaOfHandle(state.containerId);
     revived.push(platform);
   }
   // The failure clock only means anything while the item is still failed.

@@ -32,6 +32,32 @@ describe("re-arming blocked posts", () => {
     expect(item.platforms.tiktok?.status).toBe("scheduled");
   });
 
+  it("clears LinkedIn's post-attempt marker on a re-arm, keeping the media it uploaded", () => {
+    const item = testItem({ platformIds: ["linkedin"] });
+    item.platforms.linkedin = {
+      status: "failed",
+      attempts: 1,
+      containerId: "posting:urn:li:document:DOC1",
+      error: "May already be posted. Check the LinkedIn feed, then re-arm to post again"
+    };
+
+    expect(rearmItem(item, { platform: "linkedin" })).toEqual(["linkedin"]);
+    expect(item.platforms.linkedin).toEqual({ status: "pending", attempts: 0, containerId: "urn:li:document:DOC1" });
+  });
+
+  it("does not revive an ambiguous LinkedIn create when a reconnect re-arms connection failures", () => {
+    const item = testItem({ platformIds: ["linkedin"] });
+    item.platforms.linkedin = {
+      status: "failed",
+      attempts: 1,
+      containerId: "posting:urn:li:document:DOC1",
+      error: "May already be posted. Check the LinkedIn feed, then re-arm to post again"
+    };
+
+    expect(rearmItem(item, connectRearmScope("linkedin"))).toEqual([]);
+    expect(item.platforms.linkedin?.containerId).toBe("posting:urn:li:document:DOC1");
+  });
+
   it("scopes to one platform", () => {
     const item = blocked();
 

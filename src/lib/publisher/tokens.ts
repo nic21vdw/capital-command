@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { dataPath } from "@/lib/paths";
 import { atomicWriteFile } from "@/lib/storage/atomic-json";
+import { withFileLock } from "@/lib/storage/file-lock";
 import { publisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
 
@@ -12,26 +13,50 @@ import { mediaHost } from "@/lib/publisher/hosting";
  * the queue backend is r2 so GitHub Actions runs share the same rotation.
  *
  * .env values act as the initial seed; a cached value always wins after that.
+ *
+ * Every write re-reads the whole store and writes it back, so a read that
+ * fails must stop the write: only a file that does not exist is an empty store.
+ * Any other failure (a lock held by a virus scanner, a half-written file) throws
+ * and leaves the file exactly as it was. Reads are forgiving and answer "no
+ * token", so a post fails as not connected instead of crashing.
  */
 
 const FILE_PATH = dataPath("publisher-tokens.json");
 const R2_KEY = "publisher/tokens.json";
 
-async function readAll(): Promise<Record<string, string>> {
-  const config = publisherConfig();
+type Store = Record<string, string>;
+
+function parseStore(text: string): Store {
+  let parsed: unknown;
   try {
-    if (config.queueBackend === "r2") {
-      const host = mediaHost(config);
-      const text = host ? await host.getObjectText(R2_KEY) : null;
-      return text ? (JSON.parse(text) as Record<string, string>) : {};
-    }
-    return JSON.parse(await readFile(FILE_PATH, "utf8")) as Record<string, string>;
+    parsed = JSON.parse(text);
   } catch {
-    return {};
+    throw new Error("publisher-tokens.json is not valid JSON, so it was left untouched.");
   }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("publisher-tokens.json does not hold a JSON object, so it was left untouched.");
+  }
+  return parsed as Store;
 }
 
-async function writeAll(values: Record<string, string>): Promise<void> {
+async function readStrict(): Promise<Store> {
+  const config = publisherConfig();
+  if (config.queueBackend === "r2") {
+    const host = mediaHost(config);
+    const text = host ? await host.getObjectText(R2_KEY) : null;
+    return text ? parseStore(text) : {};
+  }
+  let text: string;
+  try {
+    text = await readFile(FILE_PATH, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw error;
+  }
+  return parseStore(text);
+}
+
+async function writeAll(values: Store): Promise<void> {
   const config = publisherConfig();
   const text = JSON.stringify(values, null, 2);
   if (config.queueBackend === "r2") {
@@ -46,27 +71,41 @@ async function writeAll(values: Record<string, string>): Promise<void> {
 
 let queue: Promise<unknown> = Promise.resolve();
 
-function serialized<T>(work: () => Promise<T>): Promise<T> {
+function exclusive<T>(work: () => Promise<T>): Promise<T> {
+  if (publisherConfig().queueBackend !== "r2") return withFileLock(FILE_PATH, work);
   const next = queue.then(work, work);
   queue = next.catch(() => undefined);
   return next;
 }
 
 export async function getCachedToken(key: string): Promise<string | null> {
-  return (await readAll())[key] ?? null;
+  try {
+    return (await readStrict())[key] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export type TokenUpdate<T> = { set: Record<string, string>; result: T };
+
+export function updateCachedTokens<T>(update: (current: Readonly<Store>) => TokenUpdate<T>): Promise<T> {
+  return exclusive(async () => {
+    const values = await readStrict();
+    const { set, result } = update(values);
+    const next = { ...values };
+    let changed = false;
+    for (const [key, value] of Object.entries(set)) {
+      if (next[key] === value) continue;
+      next[key] = value;
+      changed = true;
+    }
+    if (changed) await writeAll(next);
+    return result;
+  });
 }
 
 export async function setCachedTokens(entries: Record<string, string>): Promise<void> {
-  await serialized(async () => {
-    const values = await readAll();
-    let changed = false;
-    for (const [key, value] of Object.entries(entries)) {
-      if (values[key] === value) continue;
-      values[key] = value;
-      changed = true;
-    }
-    if (changed) await writeAll(values);
-  });
+  await updateCachedTokens(() => ({ set: entries, result: undefined }));
 }
 
 export async function setCachedToken(key: string, value: string): Promise<void> {

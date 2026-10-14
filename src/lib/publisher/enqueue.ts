@@ -46,6 +46,24 @@ function manualPlatformState(platform: PlatformId): PlatformState {
   };
 }
 
+function heldForVisibilityState(platform: PlatformId): PlatformState {
+  return {
+    status: "manual",
+    attempts: 0,
+    note: `${PLATFORM_LABELS[platform]} only posts publicly, and this post is not public, so it is held as a reminder instead of being posted. Post it by hand at the scheduled time, or schedule it again as a public post.`
+  };
+}
+
+function platformState(
+  platform: PlatformId,
+  connected: boolean,
+  visibility: Visibility,
+  held: (platform: PlatformId) => PlatformState
+): PlatformState {
+  if (platform === "linkedin" && visibility !== "public") return heldForVisibilityState(platform);
+  return connected ? newPlatformState() : held(platform);
+}
+
 /**
  * A picture post that can't publish itself is not a clip waiting to be dragged
  * into an upload box — the slides are already rendered, and the only thing
@@ -291,7 +309,7 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     queue: publishQueue(config),
     publishAt: publishAtDate,
     timeZone: config.timezone,
-    candidate: { paths: [prepared.path, absolute], jobId: options.jobId, title: options.title },
+    candidate: { paths: [prepared.path, absolute], jobId: options.jobId, title: options.title, platforms },
     allowSameDay: options.allowSameDay,
     allowDuplicate: options.allowDuplicate
   });
@@ -315,6 +333,7 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     videoId: id
   });
   const title = finalized.title;
+  const visibility: Visibility = format === "long" ? "private" : (options.visibility ?? config.defaultVisibility);
   const item: QueueItem = {
     id,
     clipPath: path.relative(process.cwd(), prepared.path),
@@ -323,7 +342,7 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     caption,
     hashtags,
     publishAt: publishAtDate.toISOString(),
-    visibility: format === "long" ? "private" : (options.visibility ?? config.defaultVisibility),
+    visibility,
     ...(format === "long" ? { format } : {}),
     createdAt: new Date().toISOString(),
     jobId: options.jobId,
@@ -331,7 +350,7 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     ...(accountId ? { accountId } : {}),
     ...(options.tiktok && platforms.includes("tiktok") ? { tiktok: options.tiktok } : {}),
     platforms: Object.fromEntries(
-      platforms.map((p) => [p, configured.has(p) ? newPlatformState() : manualPlatformState(p)])
+      platforms.map((p) => [p, platformState(p, configured.has(p), visibility, manualPlatformState)])
     )
   };
 
@@ -342,7 +361,7 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
 
   await saveBooking({
     queue: publishQueue(config), publishAt: publishAtDate, timeZone: config.timezone,
-    candidate: { paths: [prepared.path, absolute], jobId: options.jobId, title: options.title },
+    candidate: { paths: [prepared.path, absolute], jobId: options.jobId, title: options.title, platforms },
     allowSameDay: options.allowSameDay, allowDuplicate: options.allowDuplicate,
     item, writer: options.by ?? "enqueue", ...(format === "short" ? { shortsPerDay: shortsLimit(config) } : {})
   });
@@ -444,7 +463,7 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
     queue: publishQueue(config),
     publishAt: publishAtDate,
     timeZone: config.timezone,
-    candidate: { paths: absolutePaths, jobId: options.jobId, title: options.title },
+    candidate: { paths: absolutePaths, jobId: options.jobId, title: options.title, platforms: supported },
     allowSameDay: options.allowSameDay,
     allowDuplicate: options.allowDuplicate
   });
@@ -457,6 +476,7 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
   const id = crypto.randomUUID().slice(0, 8);
   const relativePaths = absolutePaths.map((absolute) => path.relative(process.cwd(), absolute));
 
+  const visibility: Visibility = options.visibility ?? config.defaultVisibility;
   const item: QueueItem = {
     id,
     mediaKind: "image",
@@ -468,7 +488,7 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
     caption,
     hashtags,
     publishAt: publishAtDate.toISOString(),
-    visibility: options.visibility ?? config.defaultVisibility,
+    visibility,
     createdAt: new Date().toISOString(),
     jobId: options.jobId,
     ...(options.runId ? { runId: options.runId } : {}),
@@ -476,7 +496,7 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
     platforms: Object.fromEntries(
       supported.map((p) => [
         p,
-        configured.has(p) ? newPlatformState() : manualImagePlatformState(p, relativePaths.length)
+        platformState(p, configured.has(p), visibility, (platform) => manualImagePlatformState(platform, relativePaths.length))
       ])
     )
   };
@@ -488,7 +508,7 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
 
   await saveBooking({
     queue: publishQueue(config), publishAt: publishAtDate, timeZone: config.timezone,
-    candidate: { paths: absolutePaths, jobId: options.jobId, title: options.title },
+    candidate: { paths: absolutePaths, jobId: options.jobId, title: options.title, platforms: supported },
     allowSameDay: options.allowSameDay, allowDuplicate: options.allowDuplicate,
     item, writer: options.by ?? "enqueue-image"
   });

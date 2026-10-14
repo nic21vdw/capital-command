@@ -93,6 +93,7 @@ export type RecordedRequest = {
   method: string;
   headers: Record<string, string>;
   body: string | Buffer | URLSearchParams | undefined;
+  signal?: AbortSignal;
 };
 
 /**
@@ -110,7 +111,8 @@ export function mockFetchRoutes(
         url: String(url),
         method: init?.method ?? "GET",
         headers: (init?.headers as Record<string, string>) ?? {},
-        body: init?.body as RecordedRequest["body"]
+        body: init?.body as RecordedRequest["body"],
+        signal: init?.signal ?? undefined
       };
       requests.push(request);
       const route = routes.find((r) => request.url.includes(r.match));

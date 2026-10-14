@@ -5,9 +5,10 @@ the Uploading Center, until you create a LinkedIn app, paste its two credentials
 in once. Budget 20 minutes for posting as yourself. Posting as a company page needs one
 more approval from LinkedIn (step 3).
 
-The app posts text with a link, one picture, video, and carousels. A carousel is the deck's
-slides rendered into one PDF and posted as a LinkedIn document, which is how LinkedIn
-carousels work.
+The app posts a picture, a video, or a carousel. A carousel is the deck's slides rendered
+into one PDF and posted as a LinkedIn document, which is how LinkedIn carousels work.
+Everything LinkedIn gets is public: a private or unlisted post is never sent to LinkedIn
+(see "Who it posts as, and what it will post").
 
 ## 1. Create the LinkedIn app
 
@@ -30,13 +31,18 @@ Open the app's **Products** tab and press **Request access** on each:
 |---|---|---|
 | **Share on LinkedIn** | `w_member_social`: post as you | Instant |
 | **Sign In with LinkedIn using OpenID Connect** | `openid`, `profile`: tells the app which member signed in | Instant |
-| **Community Management API** | `w_organization_social` and `r_organization_admin`: post as a company page | LinkedIn reviews it |
+| **Community Management API** | `w_organization_social`: post as a company page. `r_organization_admin`: list the pages you administer | LinkedIn reviews it |
 
 Share on LinkedIn and Sign In with LinkedIn using OpenID Connect are all you need to post as
 yourself. Ask for the Community Management API only if you want to post as a company page.
 
 After the products show as added, the **Auth** tab lists the scopes your app may request.
 You should see `openid`, `profile` and `w_member_social`.
+
+Why `r_organization_admin`: it is the permission LinkedIn ties to the "which pages does this
+member administer" lookup the app uses to fill the page list, and `w_organization_social` only
+lets the app post as a page, not find one. If you skip `r_organization_admin`, posting as a page
+still works once you type the page's ID in.
 
 If the Products tab will not let you add the Community Management API next to the other two,
 leave it for later: posting as yourself does not need it, and it can be added when LinkedIn
@@ -86,13 +92,22 @@ with company pages**. The app lists the pages you administer. If a page does not
 type its numeric ID into **Add a page by its ID** (it is the number in the page's admin
 address, `linkedin.com/company/<number>/admin`).
 
-A company page post is always public. A post with visibility other than public is posted
-to your connections only when it is from you, and refused when it is from a page.
+## Who it posts as, and what it will post
+
+LinkedIn posts are always public, from you or from a page. A post whose visibility is
+private or unlisted is never sent to LinkedIn: booking it saves a reminder on the
+LinkedIn leg that says why, and the other platforms on the same post go out as normal.
+Post it by hand, or schedule it again as a public post.
 
 ## 6. Book a post
 
 The LinkedIn tab appears in the **Uploading Center** as soon as LinkedIn is connected. Book
 a clip there like any other platform, or pick **LinkedIn** in a carousel's schedule dialog.
+
+A carousel that is already booked to Instagram and Facebook can have LinkedIn added: open
+its schedule dialog and pick LinkedIn. It becomes a second post of the same deck, on
+LinkedIn's own time, and the deck then shows as booked on all three. Booking LinkedIn
+twice, or Instagram twice, is still refused.
 
 LinkedIn is deliberately not part of **All platforms**, and it is not in the default
 platform list or the YouTube mirror, so connecting it does not start posting every clip to
@@ -111,13 +126,18 @@ What LinkedIn accepts:
 
 | Post | Limits |
 |---|---|
-| Text with a link | 3,000 characters |
+| Caption | 3,000 characters |
 | Picture | JPG, PNG or GIF |
 | Video | MP4, up to 5 GB; LinkedIn's own length limits apply |
 | Carousel | up to 10 slides, rendered to one PDF document (LinkedIn allows 100 MB and 300 pages) |
 
 The app uploads the file to LinkedIn directly, so LinkedIn does not need the Media hosting
-setup that Instagram and Facebook need.
+setup that Instagram and Facebook need. Each upload request has a two-minute deadline, so a
+stalled connection is retried instead of holding the post.
+
+A text post with a link exists in the code (`publishLinkedinText` in
+`src/lib/publisher/adapters/linkedin.ts`) and is tested, but nothing in the app books one
+yet: every post in the queue is a picture, a video or a carousel.
 
 ## When the sign-in runs out
 
@@ -132,6 +152,19 @@ only appears if the refresh token itself is about to lapse.
 If a token is rejected while a post is going out, that LinkedIn account is held like any
 other platform: the banner names it, queued posts wait with their retries intact, and it is
 tried again every half hour until you reconnect.
+
+## When a post may already be live
+
+If LinkedIn does not answer the request that creates a post (a timeout, a 408, a 5xx),
+the post may exist even though the app never saw the answer. The app does not try again on
+its own: it marks the LinkedIn leg failed with "May already be posted. Check the LinkedIn
+feed, then re-arm to post again". Look at your LinkedIn feed; if the post is not there, press
+Retry on the leg to re-arm it. Re-arming keeps the picture or video it already uploaded, so
+only the post itself is sent again. The same message appears if the app stopped between
+sending the request and recording the answer.
+
+If LinkedIn refuses a post as a duplicate and names the post it duplicates, the app records
+the leg as published with that post's ID instead of failing it.
 
 ## Limits
 

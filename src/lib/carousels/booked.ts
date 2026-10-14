@@ -50,7 +50,8 @@ function bookingOf(item: QueueItem): CarouselBooking {
  * One booking per carousel. A post whose every leg failed is not a booking (the
  * same rule the duplicate check uses: re-scheduling it is the point). When a
  * deck has been booked more than once, the next one still to go out wins, else
- * the most recent.
+ * the most recent. Its platforms are everywhere the deck is booked, because
+ * LinkedIn can be added to a deck as a post of its own.
  */
 export function bookingsByCarousel(items: QueueItem[], now: Date = new Date()): Record<string, CarouselBooking> {
   const grouped = new Map<string, QueueItem[]>();
@@ -66,7 +67,8 @@ export function bookingsByCarousel(items: QueueItem[], now: Date = new Date()): 
   for (const [id, list] of grouped) {
     const sorted = [...list].sort((a, b) => a.publishAt.localeCompare(b.publishAt));
     const upcoming = sorted.find((item) => new Date(item.publishAt).getTime() >= now.getTime());
-    result[id] = bookingOf(upcoming ?? sorted[sorted.length - 1]);
+    const chosen = bookingOf(upcoming ?? sorted[sorted.length - 1]);
+    result[id] = { ...chosen, platforms: [...new Set(sorted.flatMap((item) => bookingOf(item).platforms))] };
   }
   return result;
 }

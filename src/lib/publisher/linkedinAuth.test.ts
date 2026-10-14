@@ -137,6 +137,25 @@ describe("the callback", () => {
     await expect(exchangeLinkedinCode({ code: "c", state, redirectUri: REDIRECT })).rejects.toThrow("Click Connect LinkedIn again");
   });
 
+  it("lets only one of two simultaneous callbacks use a state", async () => {
+    const { state } = await startFlow();
+    tokenRoutes();
+    const { exchangeLinkedinCode } = await auth();
+    const attempt = () => exchangeLinkedinCode({ code: "c", state, redirectUri: REDIRECT });
+
+    const results = await Promise.allSettled([attempt(), attempt(), attempt()]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  });
+
+  it("keeps every state when two sign-ins start together", async () => {
+    const [first, second] = await Promise.all([startFlow(), startFlow()]);
+    tokenRoutes();
+    const { exchangeLinkedinCode } = await auth();
+    await exchangeLinkedinCode({ code: "c", state: first.state, redirectUri: REDIRECT });
+    await exchangeLinkedinCode({ code: "c", state: second.state, redirectUri: REDIRECT });
+  });
+
   it("rejects a state it never issued, without calling LinkedIn", async () => {
     await startFlow();
     const requests = tokenRoutes();

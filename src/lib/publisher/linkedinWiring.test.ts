@@ -118,6 +118,7 @@ describe("booking to LinkedIn", () => {
       title: "Deck",
       caption: "A deck",
       hashtags: ["#ai"],
+      visibility: "public",
       allowDuplicate: true
     });
 
@@ -145,6 +146,7 @@ describe("booking to LinkedIn", () => {
       title: "One",
       caption: "One picture",
       hashtags: ["#ai"],
+      visibility: "public",
       allowDuplicate: true
     });
     expect(item.platforms.linkedin?.status).toBe("manual");

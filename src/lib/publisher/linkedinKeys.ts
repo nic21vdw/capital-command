@@ -16,3 +16,19 @@ export const LINKEDIN_PAGE_SCOPE = "w_organization_social";
 export const LINKEDIN_SETUP_DOC = "docs/LINKEDIN_SETUP.md";
 
 export const LINKEDIN_SETUP_DOC_URL = "https://github.com/nic21vdw/capital-command/blob/main/docs/LINKEDIN_SETUP.md";
+
+export const LINKEDIN_POST_ATTEMPT_PREFIX = "posting:";
+
+export function postAttemptHandle(mediaUrn: string | undefined): string {
+  return `${LINKEDIN_POST_ATTEMPT_PREFIX}${mediaUrn ?? ""}`;
+}
+
+export function isPostAttempt(handle: string | undefined): boolean {
+  return Boolean(handle?.startsWith(LINKEDIN_POST_ATTEMPT_PREFIX));
+}
+
+export function mediaOfHandle(handle: string | undefined): string | undefined {
+  if (!handle) return undefined;
+  const media = isPostAttempt(handle) ? handle.slice(LINKEDIN_POST_ATTEMPT_PREFIX.length) : handle;
+  return media || undefined;
+}

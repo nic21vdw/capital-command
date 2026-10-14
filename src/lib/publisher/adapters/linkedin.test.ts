@@ -269,7 +269,7 @@ describe("video", () => {
     expect(post.commentary).toBe(
       `Shipped the new queue \\(finally\\) https://colateralai.com/li?c=${postCode("item1")}\n\n{hashtag|\\#|buildinpublic}`
     );
-    expect(handles).toEqual(["urn:li:video:VID1"]);
+    expect(handles).toEqual(["urn:li:video:VID1", "posting:urn:li:video:VID1"]);
   });
 
   it("keeps the video handle and resumes by polling instead of uploading again", async () => {
@@ -382,16 +382,181 @@ describe("who the post is from", () => {
     expect(requests).toHaveLength(0);
   });
 
-  it("posts a private item to connections only for a member, and refuses it for a page", async () => {
+  it("never posts an item that is not public, as a member or as a page", async () => {
     await connect();
     let requests = imageRoutes();
-    await (await adapter()).publish(imageInput(1, { visibility: "private" }));
-    expect(body(find(requests, "POST", "/rest/posts")!).visibility).toBe("CONNECTIONS");
+    await expect((await adapter()).publish(imageInput(1, { visibility: "private" }))).rejects.toThrow("always public");
+    await expect((await adapter()).publish(imageInput(1, { visibility: "unlisted" }))).rejects.toThrow("always public");
+    expect(requests).toHaveLength(0);
 
     await connect({ author: PAGE, scope: "w_organization_social" });
     requests = imageRoutes();
-    await expect((await adapter()).publish(imageInput(1, { visibility: "private" }))).rejects.toThrow("public");
+    await expect((await adapter()).publish(imageInput(1, { visibility: "private" }))).rejects.toThrow("always public");
     expect(requests).toHaveLength(0);
+  });
+
+  it("always sends a public post as PUBLIC, from a page too", async () => {
+    await connect({ author: PAGE, scope: "w_organization_social" });
+    const requests = imageRoutes();
+    await (await adapter()).publish(imageInput(1));
+    expect(body(find(requests, "POST", "/rest/posts")!).visibility).toBe("PUBLIC");
+  });
+});
+
+describe("a create that may or may not have gone through", () => {
+  async function publishWith(createRoute: Parameters<typeof imageRoutes>[0], input = imageInput(1)) {
+    await connect();
+    const handles: Array<{ handle: string; postRequested: boolean }> = [];
+    const requests = imageRoutes(createRoute);
+    const outcome = await (await adapter())
+      .publish({
+        ...input,
+        onHandle: async (handle) => void handles.push({ handle, postRequested: requests.some((request) => request.url.endsWith("/rest/posts")) })
+      })
+      .then(
+        (value) => ({ value, error: undefined as Error | undefined }),
+        (error: Error) => ({ value: undefined, error })
+      );
+    return { handles, requests, ...outcome };
+  }
+
+  const timedOut = [
+    {
+      match: "/rest/posts",
+      respond: () => {
+        throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+      }
+    }
+  ];
+
+  it("records that it is about to post before it asks LinkedIn to", async () => {
+    const { handles } = await publishWith([]);
+    expect(handles).toEqual([
+      { handle: "urn:li:image:IMG1", postRequested: false },
+      { handle: "posting:urn:li:image:IMG1", postRequested: false }
+    ]);
+  });
+
+  it("will not retry a create that timed out, because the post may exist", async () => {
+    const { error, handles } = await publishWith(timedOut);
+    const { PermanentError } = await http();
+    expect(error).toBeInstanceOf(PermanentError);
+    expect(error?.message).toBe("May already be posted. Check the LinkedIn feed, then re-arm to post again");
+    expect(handles.at(-1)?.handle).toBe("posting:urn:li:image:IMG1");
+  });
+
+  it.each([500, 502, 503, 504, 408])("will not retry a create that answered %i", async (status) => {
+    const { error, handles } = await publishWith([{ match: "/rest/posts", respond: () => new Response("busy", { status }) }]);
+    const { PermanentError } = await http();
+    expect(error).toBeInstanceOf(PermanentError);
+    expect(error?.message).toContain("May already be posted");
+    expect(handles.at(-1)?.handle).toBe("posting:urn:li:image:IMG1");
+  });
+
+  it("refuses to post again when it resumes with the marker set and no post id", async () => {
+    await connect();
+    const requests = mockFetchRoutes([]);
+    const input = imageInput(1);
+    const { PermanentError } = await http();
+    const error = await (await adapter())
+      .publish({
+        ...input,
+        item: { ...input.item, platforms: { linkedin: { status: "pending", attempts: 1, containerId: "posting:urn:li:image:IMG1" } } }
+      })
+      .catch((caught) => caught);
+    expect(error).toBeInstanceOf(PermanentError);
+    expect(error.message).toBe("May already be posted. Check the LinkedIn feed, then re-arm to post again");
+    expect(requests).toHaveLength(0);
+  });
+
+  it("posts from the stored media once the marker has been cleared by a re-arm", async () => {
+    await connect();
+    const requests = imageRoutes();
+    const input = imageInput(1);
+    const result = await (await adapter()).publish({
+      ...input,
+      item: { ...input.item, platforms: { linkedin: { status: "pending", attempts: 0, containerId: "urn:li:image:IMG1" } } }
+    });
+    expect(result.postId).toBe("urn:li:share:7001");
+    expect(requests.some((request) => request.url.includes("initializeUpload"))).toBe(false);
+  });
+
+  it.each([
+    ["share", "urn:li:share:6844785523593134080"],
+    ["ugcPost", "urn:li:ugcPost:6844785523593134081"]
+  ])("records a duplicate-content 422 that names the existing %s as published", async (_kind, urn) => {
+    const { value } = await publishWith([
+      {
+        match: "/rest/posts",
+        respond: () => jsonResponse({ message: `Content is a duplicate of ${urn}`, status: 422 }, { status: 422 })
+      }
+    ]);
+    expect(value).toMatchObject({ status: "published", postId: urn, containerId: "urn:li:image:IMG1" });
+    expect(value?.detail).toContain("already had this post");
+  });
+
+  it("keeps a 422 that names no existing post permanent and clears the marker", async () => {
+    const { error, handles } = await publishWith([
+      { match: "/rest/posts", respond: () => jsonResponse({ message: "Invalid commentary", status: 422 }, { status: 422 }) }
+    ]);
+    const { PermanentError } = await http();
+    expect(error).toBeInstanceOf(PermanentError);
+    expect(error?.message).toContain("HTTP 422");
+    expect(handles.at(-1)?.handle).toBe("urn:li:image:IMG1");
+  });
+
+  it.each([429, 400, 401, 403])("clears the marker when LinkedIn says no with %i, since nothing was created", async (status) => {
+    const { error, handles } = await publishWith([{ match: "/rest/posts", respond: () => jsonResponse({ message: "no" }, { status }) }]);
+    expect(error).toBeDefined();
+    expect(error?.message).not.toContain("May already be posted");
+    expect(handles.at(-1)?.handle).toBe("urn:li:image:IMG1");
+  });
+
+  it("keeps the marker when LinkedIn confirms the create but sends no post id", async () => {
+    const { error, handles } = await publishWith([{ match: "/rest/posts", respond: () => new Response(null, { status: 201 }) }]);
+    expect(error?.message).toContain("no post id");
+    expect(handles.at(-1)?.handle).toBe("posting:urn:li:image:IMG1");
+  });
+
+  it("applies the same rule to a text post with a link", async () => {
+    await connect();
+    mockFetchRoutes([{ match: "/rest/posts", respond: () => new Response("busy", { status: 503 }) }]);
+    const { publishLinkedinText } = await import("@/lib/publisher/adapters/linkedin");
+    await expect(publishLinkedinText({ text: "Hello", link: { url: "https://colateralai.com/li", title: "CoLateral" } })).rejects.toThrow(
+      "May already be posted"
+    );
+  });
+});
+
+describe("a stalled upload", () => {
+  it("gives every upload request a deadline", async () => {
+    await connect();
+    const requests = imageRoutes();
+    await (await adapter()).publish(imageInput(1));
+    const upload = find(requests, "PUT", "dms-uploads/img-1")!;
+    expect(upload.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("gives up on a part that never answers and reports it as retryable", async () => {
+    const { linkedinUpload } = await import("@/lib/publisher/linkedinApi");
+    const { TransientError } = await http();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(init.signal?.reason ?? new Error("aborted")));
+          })
+      )
+    );
+    const error = await linkedinUpload("https://www.linkedin.com/dms-uploads/stuck", {
+      body: Buffer.from("x"),
+      headers: {},
+      label: "LinkedIn video upload (part 1 of 1)",
+      timeoutMs: 20
+    }).catch((caught) => caught);
+    expect(error).toBeInstanceOf(TransientError);
+    expect(error.message).toContain("network error");
   });
 });
 
@@ -409,8 +574,10 @@ describe("errors from LinkedIn", () => {
     expect((error as InstanceType<typeof ThrottledError>).retryAfterMinutes).toBe(30);
   });
 
-  it("treats a 5xx as retryable", async () => {
-    const error = await failPost(503);
+  it("treats a 5xx before the post is created as retryable", async () => {
+    await connect();
+    imageRoutes([{ match: "/rest/images?action=initializeUpload", respond: () => new Response("down", { status: 503 }) }]);
+    const error = await (await adapter()).publish(imageInput(1)).catch((caught) => caught);
     const { PermanentError, TransientError } = await http();
     expect(error).toBeInstanceOf(TransientError);
     expect(error).not.toBeInstanceOf(PermanentError);

@@ -2,19 +2,20 @@ import { open, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { buildCarouselPdf } from "@/lib/carousels/pdf";
 import { publisherConfig } from "@/lib/publisher/config";
-import { PermanentError, StillProcessingError, fetchJson } from "@/lib/publisher/http";
+import { PermanentError, StillProcessingError, ThrottledError, TransientError, fetchJson } from "@/lib/publisher/http";
 import { IMAGE_CONTENT_TYPES, imagePathsOf, isImagePost } from "@/lib/publisher/images";
 import {
   LINKEDIN_API_ORIGIN,
   LINKEDIN_COMMENTARY_LIMIT,
   LINKEDIN_REST,
+  LinkedinPermanentError,
   linkedinCall,
   linkedinJson,
   linkedinUpload,
   littleText
 } from "@/lib/publisher/linkedinApi";
 import { linkedinAccessToken, linkedinSession } from "@/lib/publisher/linkedinAuth";
-import { LINKEDIN_PAGE_SCOPE } from "@/lib/publisher/linkedinKeys";
+import { LINKEDIN_PAGE_SCOPE, isPostAttempt, postAttemptHandle } from "@/lib/publisher/linkedinKeys";
 import { composeCaption } from "@/lib/publisher/metadata";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
 import type { PlatformAdapter, PostResult, PublishInput, PublishPlan, Visibility } from "@/lib/publisher/types";
@@ -47,20 +48,21 @@ function isPage(author: string): boolean {
   return author.startsWith("urn:li:organization:");
 }
 
-function assertCanPost(session: Session, visibility: Visibility): "PUBLIC" | "CONNECTIONS" {
+export const AMBIGUOUS_POST_MESSAGE = "May already be posted. Check the LinkedIn feed, then re-arm to post again";
+
+const NOT_PUBLIC_MESSAGE =
+  "LinkedIn posts are always public, and this post is not. Make it public, or post it by hand on LinkedIn.";
+
+const DUPLICATE_POST = /urn:li:(?:share|ugcPost):\d+/;
+
+function assertCanPost(session: Session, visibility: Visibility): void {
   if (isPage(session.author) && !session.scopes.includes(LINKEDIN_PAGE_SCOPE)) {
     throw new PermanentError(
       `Posting as a LinkedIn page needs the ${LINKEDIN_PAGE_SCOPE} permission, which this sign-in does not have. ` +
         "Add the Community Management API to the LinkedIn app, then reconnect LinkedIn with company pages enabled."
     );
   }
-  if (visibility === "public") return "PUBLIC";
-  if (isPage(session.author)) {
-    throw new PermanentError(
-      "LinkedIn page posts are always public. Set this post's visibility to public and schedule it again."
-    );
-  }
-  return "CONNECTIONS";
+  if (visibility !== "public") throw new PermanentError(NOT_PUBLIC_MESSAGE);
 }
 
 function mediaKindOf(input: PublishInput): MediaKind {
@@ -183,28 +185,54 @@ type PostContent =
   | { media: { title: string; id: string } }
   | { article: { source: string; title: string; description?: string } };
 
-async function createPost(session: Session, commentary: string, visibility: string, content?: PostContent): Promise<string> {
-  const response = await linkedinCall(`${LINKEDIN_REST}/posts`, {
-    method: "POST",
-    token: session.token,
-    label: "LinkedIn post",
-    body: {
-      author: session.author,
-      commentary,
-      visibility,
-      distribution: { feedDistribution: "MAIN_FEED", targetEntities: [], thirdPartyDistributionChannels: [] },
-      ...(content ? { content } : {}),
-      lifecycleState: "PUBLISHED",
-      isReshareDisabledByAuthor: false
+type PostAttempt = { begin(): Promise<void>; clear(): Promise<void> };
+
+const NO_ATTEMPT: PostAttempt = { begin: async () => undefined, clear: async () => undefined };
+
+async function createPost(
+  session: Session,
+  commentary: string,
+  content: PostContent | undefined,
+  attempt: PostAttempt = NO_ATTEMPT
+): Promise<{ id: string; duplicate: boolean }> {
+  await attempt.begin();
+  let response: Response;
+  try {
+    response = await linkedinCall(`${LINKEDIN_REST}/posts`, {
+      method: "POST",
+      token: session.token,
+      label: "LinkedIn post",
+      body: {
+        author: session.author,
+        commentary,
+        visibility: "PUBLIC",
+        distribution: { feedDistribution: "MAIN_FEED", targetEntities: [], thirdPartyDistributionChannels: [] },
+        ...(content ? { content } : {}),
+        lifecycleState: "PUBLISHED",
+        isReshareDisabledByAuthor: false
+      }
+    });
+  } catch (error) {
+    if (error instanceof LinkedinPermanentError) {
+      const existing = error.status === 422 && /duplicate/i.test(error.body) ? DUPLICATE_POST.exec(error.body)?.[0] : undefined;
+      if (existing) return { id: existing, duplicate: true };
+      await attempt.clear();
+      throw error;
     }
-  });
+    if (error instanceof ThrottledError) {
+      await attempt.clear();
+      throw error;
+    }
+    if (error instanceof TransientError) throw new PermanentError(AMBIGUOUS_POST_MESSAGE);
+    throw error;
+  }
   const id = response.headers.get("x-restli-id");
   if (!id) {
     throw new PermanentError(
       "LinkedIn created the post but returned no post id, so it cannot be tracked. Check your LinkedIn feed before scheduling it again."
     );
   }
-  return id;
+  return { id, duplicate: false };
 }
 
 export async function publishLinkedinText(input: {
@@ -213,7 +241,7 @@ export async function publishLinkedinText(input: {
   visibility?: Visibility;
 }): Promise<PostResult> {
   const session = await linkedinSession();
-  const visibility = assertCanPost(session, input.visibility ?? "public");
+  assertCanPost(session, input.visibility ?? "public");
   const content: PostContent | undefined = input.link
     ? {
         article: {
@@ -223,14 +251,17 @@ export async function publishLinkedinText(input: {
         }
       }
     : undefined;
-  const postId = await createPost(session, littleText(input.text), visibility, content);
-  return { status: "published", postId, detail: input.link ? "text post with a link published" : "text post published" };
+  const { id, duplicate } = await createPost(session, littleText(input.text), content);
+  const published = input.link ? "text post with a link published" : "text post published";
+  return { status: "published", postId: id, detail: duplicate ? DUPLICATE_DETAIL : published };
 }
 
 function budgetFor(kind: MediaKind, input: PublishInput): number {
   if (kind === "video") return input.pollBudgetMs ?? VIDEO_POLL_BUDGET_MS;
   return kind === "document" ? DOCUMENT_POLL_BUDGET_MS : IMAGE_POLL_BUDGET_MS;
 }
+
+const DUPLICATE_DETAIL = "LinkedIn already had this post - recorded as published";
 
 const DETAIL: Record<MediaKind, string> = {
   image: "image post published",
@@ -268,7 +299,7 @@ export const linkedinAdapter: PlatformAdapter = {
       payload: {
         author: config.linkedin.authorUrn ?? "<member or page chosen in Settings > Accounts>",
         commentary: composeCaption(input.item, "linkedin", LINKEDIN_COMMENTARY_LIMIT),
-        visibility: input.item.visibility === "public" ? "PUBLIC" : "CONNECTIONS",
+        visibility: input.item.visibility === "public" ? "PUBLIC" : "held - LinkedIn posts are always public",
         media: kind,
         ...(pages ? { pages } : {})
       },
@@ -285,12 +316,14 @@ export const linkedinAdapter: PlatformAdapter = {
   },
 
   async publish(input: PublishInput): Promise<PostResult> {
+    const handle = input.item.platforms.linkedin?.containerId;
+    if (isPostAttempt(handle)) throw new PermanentError(AMBIGUOUS_POST_MESSAGE);
+
     const session = await linkedinSession();
-    const visibility = assertCanPost(session, input.item.visibility);
+    assertCanPost(session, input.item.visibility);
     const commentary = littleText(composeCaption(input.item, "linkedin", LINKEDIN_COMMENTARY_LIMIT) || input.item.title);
     const kind = mediaKindOf(input);
 
-    const handle = input.item.platforms.linkedin?.containerId;
     let mediaUrn = handle?.startsWith(MEDIA_URN_PREFIX[kind]) ? handle : undefined;
     if (!mediaUrn) {
       mediaUrn = await uploadMedia(session, kind, input);
@@ -298,7 +331,16 @@ export const linkedinAdapter: PlatformAdapter = {
     }
     await waitForAsset(session, kind, mediaUrn, budgetFor(kind, input));
 
-    const postId = await createPost(session, commentary, visibility, { media: { title: mediaTitle(input), id: mediaUrn } });
-    return { status: "published", postId, containerId: mediaUrn, detail: DETAIL[kind] };
+    const media = mediaUrn;
+    const { id, duplicate } = await createPost(
+      session,
+      commentary,
+      { media: { title: mediaTitle(input), id: media } },
+      {
+        begin: async () => void (await input.onHandle?.(postAttemptHandle(media))),
+        clear: async () => void (await input.onHandle?.(media))
+      }
+    );
+    return { status: "published", postId: id, containerId: media, detail: duplicate ? DUPLICATE_DETAIL : DETAIL[kind] };
   }
 };

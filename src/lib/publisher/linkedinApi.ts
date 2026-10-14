@@ -5,6 +5,8 @@ export const LINKEDIN_REST = `${LINKEDIN_API_ORIGIN}/rest`;
 export const LINKEDIN_COMMENTARY_LIMIT = 3000;
 export const DEFAULT_LINKEDIN_VERSION = "202604";
 
+export const LINKEDIN_UPLOAD_TIMEOUT_MS = 120_000;
+
 const JSON_TIMEOUT_MS = 30_000;
 const RESET_GRACE_MINUTES = 5;
 const MAX_THROTTLE_MINUTES = 24 * 60 + RESET_GRACE_MINUTES;
@@ -56,6 +58,25 @@ export function throttleMinutes(response: Response, now: Date = new Date()): num
   return minutesUntilUtcReset(now);
 }
 
+export class LinkedinPermanentError extends PermanentError {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly body: string
+  ) {
+    super(message);
+  }
+}
+
+export class LinkedinTransientError extends TransientError {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+  }
+}
+
 export type LinkedinRequest = {
   method?: string;
   token: string;
@@ -82,13 +103,15 @@ async function fail(response: Response, label: string): Promise<never> {
       `${label} was rate limited by LinkedIn (HTTP 429): ${text} LinkedIn's daily limits reset at midnight UTC - trying again in ${minutes} minutes, and the post keeps its place.`
     );
   }
-  if (response.status === 408 || response.status >= 500) throw new TransientError(base);
+  if (response.status === 408 || response.status >= 500) throw new LinkedinTransientError(base, response.status);
   if (response.status === 403) {
-    throw new PermanentError(
-      `${base} LinkedIn refused the request: check that the app has the Share on LinkedIn product and that this account may post as the chosen author.`
+    throw new LinkedinPermanentError(
+      `${base} LinkedIn refused the request: check that the app has the Share on LinkedIn product and that this account may post as the chosen author.`,
+      response.status,
+      text
     );
   }
-  throw new PermanentError(base);
+  throw new LinkedinPermanentError(base, response.status, text);
 }
 
 async function send(url: string, init: RequestInit, label: string): Promise<Response> {
@@ -135,7 +158,16 @@ export async function linkedinJson<T>(url: string, request: LinkedinRequest): Pr
 
 export async function linkedinUpload(
   url: string,
-  request: { body: Buffer; headers: Record<string, string>; label: string }
+  request: { body: Buffer; headers: Record<string, string>; label: string; timeoutMs?: number }
 ): Promise<Response> {
-  return send(url, { method: "PUT", headers: request.headers, body: request.body as unknown as BodyInit }, request.label);
+  return send(
+    url,
+    {
+      method: "PUT",
+      headers: request.headers,
+      body: request.body as unknown as BodyInit,
+      signal: AbortSignal.timeout(request.timeoutMs ?? LINKEDIN_UPLOAD_TIMEOUT_MS)
+    },
+    request.label
+  );
 }

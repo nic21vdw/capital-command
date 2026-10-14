@@ -6,7 +6,7 @@ import { missingCredentialsMessage } from "@/lib/publisher/connectStart";
 import { PermanentError, fetchJson } from "@/lib/publisher/http";
 import { LINKEDIN_API_ORIGIN, LINKEDIN_REST, linkedinJson } from "@/lib/publisher/linkedinApi";
 import { LINKEDIN_KEYS, LINKEDIN_PAGE_SCOPE, LINKEDIN_SETUP_DOC } from "@/lib/publisher/linkedinKeys";
-import { getCachedToken, setCachedTokens } from "@/lib/publisher/tokens";
+import { getCachedToken, setCachedTokens, updateCachedTokens } from "@/lib/publisher/tokens";
 
 const AUTH_URL = "https://www.linkedin.com/oauth/v2/authorization";
 const TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken";
@@ -51,18 +51,16 @@ function scopeList(raw: string | null | undefined): string[] {
   return (raw ?? "").split(/[,\s]+/).filter(Boolean);
 }
 
-async function readPending(): Promise<Pending[]> {
+function parsePending(raw: string | undefined): Pending[] {
   try {
-    const parsed: unknown = JSON.parse((await getCachedToken(LINKEDIN_KEYS.pending)) || "[]");
+    const parsed: unknown = JSON.parse(raw || "[]");
     return Array.isArray(parsed) ? (parsed as Pending[]).filter((entry) => typeof entry?.state === "string") : [];
   } catch {
     return [];
   }
 }
 
-async function writePending(entries: Pending[]): Promise<void> {
-  await setCachedTokens({ [LINKEDIN_KEYS.pending]: JSON.stringify(entries) });
-}
+const stillValid = (entry: Pending, now: number) => now - entry.at < STATE_TTL_MS;
 
 export async function linkedinAuthUrl(redirectUri: string, options: { pages?: boolean } = {}): Promise<string> {
   const { linkedin } = publisherConfig();
@@ -70,8 +68,11 @@ export async function linkedinAuthUrl(redirectUri: string, options: { pages?: bo
   const state = randomBytes(24).toString("hex");
   const verifier = pkceEnabled() ? randomBytes(32).toString("base64url") : undefined;
   const now = Date.now();
-  const fresh = (await readPending()).filter((entry) => now - entry.at < STATE_TTL_MS);
-  await writePending([...fresh, { state, ...(verifier ? { verifier } : {}), at: now }].slice(-MAX_PENDING));
+  await updateCachedTokens((current) => {
+    const fresh = parsePending(current[LINKEDIN_KEYS.pending]).filter((entry) => stillValid(entry, now));
+    const next = [...fresh, { state, ...(verifier ? { verifier } : {}), at: now }].slice(-MAX_PENDING);
+    return { set: { [LINKEDIN_KEYS.pending]: JSON.stringify(next) }, result: undefined };
+  });
   const scopes = [...LINKEDIN_MEMBER_SCOPES, ...(options.pages ? LINKEDIN_PAGE_SCOPES : [])];
   const params = new URLSearchParams({
     response_type: "code",
@@ -89,10 +90,15 @@ export async function linkedinAuthUrl(redirectUri: string, options: { pages?: bo
 
 async function consumePending(state: string): Promise<Pending | null> {
   const now = Date.now();
-  const entries = await readPending();
-  const match = entries.find((entry) => entry.state === state);
-  await writePending(entries.filter((entry) => entry !== match && now - entry.at < STATE_TTL_MS));
-  return match && now - match.at < STATE_TTL_MS ? match : null;
+  return updateCachedTokens((current) => {
+    const entries = parsePending(current[LINKEDIN_KEYS.pending]);
+    const match = entries.find((entry) => entry.state === state);
+    const remaining = entries.filter((entry) => entry !== match && stillValid(entry, now));
+    return {
+      set: { [LINKEDIN_KEYS.pending]: JSON.stringify(remaining) },
+      result: match && stillValid(match, now) ? match : null
+    };
+  });
 }
 
 type TokenResponse = {
@@ -140,9 +146,9 @@ async function organizationAuthor(accessToken: string, urn: string): Promise<Lin
   return { urn, name: detail.localizedName?.trim() || `Page ${id}`, kind: "organization" };
 }
 
-async function storedOrganizations(): Promise<LinkedinAuthor[]> {
+function parseOrganizations(raw: string | undefined): LinkedinAuthor[] {
   try {
-    const parsed: unknown = JSON.parse((await getCachedToken(LINKEDIN_KEYS.organizations)) || "[]");
+    const parsed: unknown = JSON.parse(raw || "[]");
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter((entry): entry is { urn: string; name?: string } => typeof entry?.urn === "string")
@@ -150,6 +156,10 @@ async function storedOrganizations(): Promise<LinkedinAuthor[]> {
   } catch {
     return [];
   }
+}
+
+async function storedOrganizations(): Promise<LinkedinAuthor[]> {
+  return parseOrganizations((await getCachedToken(LINKEDIN_KEYS.organizations)) ?? undefined);
 }
 
 async function storedProfile(): Promise<{ name?: string; picture?: string }> {
@@ -334,10 +344,10 @@ export async function addLinkedinOrganization(input: string): Promise<LinkedinAu
   if (!/^\d+$/.test(id)) throw new Error("A LinkedIn page ID is numeric - it is the number in the page's admin address.");
   const token = await linkedinAccessToken();
   const author = await organizationAuthor(token, `urn:li:organization:${id}`);
-  const existing = await storedOrganizations();
-  await setCachedTokens({
-    [LINKEDIN_KEYS.organizations]: JSON.stringify(mergeOrganizations(existing, [author]))
-  });
+  await updateCachedTokens((current) => ({
+    set: { [LINKEDIN_KEYS.organizations]: JSON.stringify(mergeOrganizations(parseOrganizations(current[LINKEDIN_KEYS.organizations]), [author])) },
+    result: undefined
+  }));
   return author;
 }
 

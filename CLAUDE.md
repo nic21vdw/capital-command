@@ -576,6 +576,21 @@ not in `DEFAULT_PLATFORMS` (`types.ts`), which is what the default platform list
   becomes one PDF (`carousels/pdf.ts`, `@napi-rs/canvas`) posted as a document.
 - Commentary uses LinkedIn's little-text format. `littleText` escapes `| { } @ [ ] ( ) < > # \ * _ ~`
   and turns hashtags into `{hashtag|\#|tag}`; an unescaped `(` cuts the post short.
+- A create that may have gone through is never retried. `adapters/linkedin.ts` writes a
+  `posting:<media urn>` marker into the leg's `containerId` (through `onHandle`) BEFORE
+  `POST /rest/posts`. A timeout, 408 or 5xx of that POST, or a resume that finds the marker
+  and no `postId`, throws `AMBIGUOUS_POST_MESSAGE` (permanent): the user checks the feed and
+  re-arms, and `rearmItem` strips the marker so the stored media is reused. A definite
+  refusal (4xx, 429) clears the marker; a 422 that names `urn:li:share` or `urn:li:ugcPost`
+  is recorded as published with that id.
+- LinkedIn only posts public items. `enqueue`/`enqueueImagePost` hold a non-public LinkedIn
+  leg as `manual` with the reason, the mirror skips it (`PUBLIC_ONLY`), and the adapter
+  refuses it. "Connected" for LinkedIn is `linkedinConfigured` (credentials plus a stored
+  token) and does not depend on `PUBLISH_PLATFORMS`, which only decides what books
+  automatically. The duplicate rule treats LinkedIn as its own audience
+  (`DuplicateCandidate.platforms`), so a deck booked to Instagram and Facebook can also be
+  booked to LinkedIn. Text-with-link (`publishLinkedinText`) is adapter-only: nothing in the
+  queue creates one.
 - Errors: 429 is a `ThrottledError` that waits for the daily reset at midnight UTC (or
   `Retry-After`), 5xx and network errors are transient, 401 is `HTTP 401` so
   `isAuthFailure` trips the account breaker, everything else is permanent. A UTC-day budget
@@ -583,7 +598,8 @@ not in `DEFAULT_PLATFORMS` (`types.ts`), which is what the default platform list
 - The mid-flight handle (`containerId`) is the media URN, stored after the upload finishes;
   a retry polls that asset and posts instead of uploading again.
 - Tokens live in `data/publisher-tokens.json` under `linkedin.*` (`linkedinKeys.ts`),
-  written with `setCachedTokens` (one atomic, serialised write for several keys). The
+  written with `setCachedTokens` / `updateCachedTokens` (one locked, atomic read-modify-write;
+  a read that fails for any reason but ENOENT throws and nothing is written). The
   OAuth state is single-use and expires in ten minutes. Standard apps get a 60 day access
   token and no refresh token: `platform-health/expiry.ts` adds an `expiring` entry to
   `/api/health/platforms` seven days ahead and the banner shows it. A refresh token, when
