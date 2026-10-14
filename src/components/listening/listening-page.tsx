@@ -18,6 +18,7 @@ import {
   HIT_CATEGORIES,
   LISTENING_INTENTS,
   LISTENING_SOURCES,
+  MAX_TERMS_PER_GROUP,
   REPLY_CHECKLIST,
   RESULT_STATUSES,
   SCAN_INTERVAL_MS,
@@ -82,6 +83,7 @@ async function call(method: "POST" | "PATCH", body: unknown): Promise<CallResult
 
 function scanSummary(report: ScanReport | undefined): string {
   if (!report) return "Never scanned";
+  if (report.error) return `Failed: ${report.error}`;
   if (report.sources.length === 0) return "No sources switched on";
   return report.sources
     .map((source) => {
@@ -208,7 +210,7 @@ export function ListeningPage() {
   }, [results, statusFilter]);
   const leads = useMemo(() => leadSummary(results, 10), [results]);
   const lastScan = store?.lastScan;
-  const failedSources = lastScan?.sources.filter((source) => !source.ok && !source.skipped) ?? [];
+  const failedSources = lastScan?.error ? [] : (lastScan?.sources.filter((source) => !source.ok && !source.skipped) ?? []);
   const skippedSources = lastScan?.sources.filter((source) => source.skipped || source.note) ?? [];
 
   const surfaceResults = visible.slice(0, 40);
@@ -327,6 +329,10 @@ export function ListeningPage() {
       toast.message(`"${term}" is already in ${group.name}`);
       return;
     }
+    if (group.terms.length >= MAX_TERMS_PER_GROUP) {
+      toast.error(`${group.name} already has ${MAX_TERMS_PER_GROUP} terms. Remove one or start another topic.`);
+      return;
+    }
     void saveGroups(groups.map((entry) => (entry.id === group.id ? { ...entry, terms: [...entry.terms, term] } : entry))).then((ok) => {
       if (ok) setTermDrafts((current) => ({ ...current, [group.id]: "" }));
     });
@@ -338,7 +344,7 @@ export function ListeningPage() {
   const addGroup = () => {
     const name = newGroup.name.trim();
     if (!name) return;
-    const group: KeywordGroup = { id: `group-${crypto.randomUUID()}`, name, intent: newGroup.intent, terms: [] };
+    const group: KeywordGroup = { id: `group-${crypto.randomUUID()}`, name, intent: newGroup.intent, canLead: true, terms: [] };
     void saveGroups([...groups, group], "Group added").then((ok) => {
       if (ok) setNewGroup({ name: "", intent: newGroup.intent });
     });
@@ -361,6 +367,19 @@ export function ListeningPage() {
       {loadError ? (
         <Card className="tone-danger tone-edge tone-soft mb-5">
           <p className="text-sm text-white">Could not load Listening: {loadError}</p>
+        </Card>
+      ) : null}
+
+      {lastScan?.error ? (
+        <Card className="tone-warning tone-edge tone-soft mb-5">
+          <div className="flex gap-3">
+            <TriangleAlert className="tone-text mt-0.5 h-5 w-5 shrink-0" />
+            <div className="space-y-1 text-sm text-white">
+              <p className="font-medium">The last scan did not finish.</p>
+              <p>{lastScan.error}</p>
+              <p className="text-[var(--muted-foreground)]">The next automatic attempt is two hours after that one.</p>
+            </div>
+          </div>
         </Card>
       ) : null}
 
@@ -558,7 +577,7 @@ export function ListeningPage() {
         <Card>
           <h2 className="text-lg font-semibold text-white">Keywords and topics</h2>
           <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-            Every term is searched on each source. A hit is kept only when its text contains the phrase or all of its words. Saved in data/listening/config.json.
+            A hit is kept only when its text contains the phrase or all of its words. A topic holds up to {MAX_TERMS_PER_GROUP} terms. Reddit searches a few terms each scan and carries on from where it stopped, so every term is covered within a day. Saved in data/listening/config.json.
           </p>
           <div className="mt-4 space-y-4">
             {groups.map((group) => (
@@ -567,6 +586,7 @@ export function ListeningPage() {
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium text-white">{group.name}</p>
                     <Badge tone={INTENT_TONE[group.intent]}>{INTENT_LABELS[group.intent]}</Badge>
+                    {group.canLead ? null : <Badge>Never a lead</Badge>}
                   </div>
                   <Button
                     variant="ghost"
@@ -665,8 +685,9 @@ export function ListeningPage() {
           </label>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">{store ? nextScanLabel(store) : ""}</p>
           <p className="mt-4 text-xs text-[var(--muted-foreground)]">
-            Reddit allows only a few unauthenticated requests a minute, so its queries are spaced out and a full scan takes about a minute. YouTube costs 100 quota units per search and shares the
-            channel&apos;s daily quota with uploads, so it makes at most two searches per scan and stops at a daily budget. Bluesky search needs no sign-in.
+            Reddit allows only a few unauthenticated requests a minute, so its queries are six seconds apart, it honours any wait Reddit asks for, and a scan searches a few terms. YouTube is off until you
+            switch it on: a search costs 100 quota units and shares the channel&apos;s daily quota with uploads, so it makes one search per scan, spread across the day, and stops at a budget of 100 units a
+            day (set YOUTUBE_LISTENING_DAILY_UNITS to change it). Bluesky search needs no sign-in.
           </p>
           <p className="mt-3 text-xs text-[var(--muted-foreground)]">
             From a terminal: <span className="text-white">npm run listening:scan</span>

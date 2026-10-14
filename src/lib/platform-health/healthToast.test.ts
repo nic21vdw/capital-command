@@ -70,7 +70,7 @@ function run(broken: Broken[], atHours: number, flags: string[] = ["-NoToast"]):
 
 const stored = () => JSON.parse(readFileSync(statePath(), "utf8")) as Decision["state"];
 
-describe.skipIf(process.platform !== "win32")("health-toast.ps1 decides when to toast", () => {
+describe.skipIf(process.platform !== "win32")("health-toast.ps1 decides when to toast", { timeout: 30_000 }, () => {
   beforeAll(() => {
     dir = mkdtempSync(path.join(os.tmpdir(), "health-toast-"));
   });
@@ -171,6 +171,16 @@ describe.skipIf(process.platform !== "win32")("health-toast.ps1 decides when to 
 
     expect(decision.toast?.xml).toContain("&lt;b&gt;&amp;");
     expect(decision.toast?.xml).not.toContain("<b>");
+  });
+
+  it("strips control characters from an account name before it reaches the toast markup", () => {
+    rmSync(statePath(), { force: true });
+
+    const decision = run([{ ...threadsPrimary, displayName: "Threads\u0001 \u001bprimary\n" }], 0);
+
+    expect(decision.toast?.title).toContain("Threads");
+    expect(decision.toast?.xml).toContain("Threads primary");
+    expect(decision.toast?.xml).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/);
   });
 
   it("treats an unreadable state file as empty instead of failing the tick", () => {

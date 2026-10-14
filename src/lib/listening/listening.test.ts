@@ -1,14 +1,16 @@
 import { readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_KEYWORD_GROUPS,
   MAX_RESULTS,
+  MAX_TERMS_PER_GROUP,
   RESULT_STATUSES,
   allTerms,
   contentFingerprint,
   defaultListeningConfig,
+  keywordGroupSchema,
   mergeResults,
   normalizeResultUrl,
   parseHnResponse,
@@ -19,7 +21,7 @@ import {
   type ListeningHit,
   type ListeningResult
 } from "@/lib/listening/model";
-import { applyScan, collectScan, hnSearchUrl, redditSearchUrl, scanFailed, USER_AGENT } from "@/lib/listening/scan";
+import { applyScan, collectScan, hnSearchUrl, REDDIT_TERMS_PER_SCAN, redditSearchUrl, scanFailed, USER_AGENT } from "@/lib/listening/scan";
 import { readListeningConfig, updateListeningConfig } from "@/lib/listening/config";
 import { readListeningStore } from "@/lib/listening/store";
 import { dataPath } from "@/lib/paths";
@@ -33,6 +35,7 @@ vi.mock("@/lib/storage/atomic-json", async (importOriginal) => {
 const fixture = (name: string) => JSON.parse(readFileSync(path.join(__dirname, "fixtures", name), "utf8")) as unknown;
 const TERMS = allTerms(DEFAULT_KEYWORD_GROUPS);
 const HN_AND_REDDIT = { ...defaultListeningConfig, sources: { hn: true, reddit: true, youtube: false, bluesky: false, x: false } };
+const EMPTY_STORE = { results: [], youtube: { day: "", units: 0, cursor: 0 }, redditCursor: 0 };
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -291,9 +294,9 @@ describe("scanning", () => {
       String(input).includes("algolia") ? jsonResponse(fixture("hn-search.json")) : jsonResponse(fixture("reddit-search.json"))
     );
     const collected = await collectScan(HN_AND_REDDIT, { fetch: fetcher as unknown as typeof fetch, sleep, now });
-    const { store, report } = applyScan({ results: [], youtube: { day: "", units: 0, cursor: 0 } }, collected);
+    const { store, report } = applyScan(EMPTY_STORE, collected);
 
-    expect(fetcher).toHaveBeenCalledTimes(TERMS.length * 2);
+    expect(fetcher).toHaveBeenCalledTimes(TERMS.length + REDDIT_TERMS_PER_SCAN);
     const headers = (fetcher.mock.calls[0] as unknown as [string, RequestInit])[1].headers as Record<string, string>;
     expect(headers["User-Agent"]).toBe(USER_AGENT);
     expect(report.sources.map((source) => [source.source, source.ok, source.added])).toEqual([
@@ -309,7 +312,7 @@ describe("scanning", () => {
       String(input).includes("algolia") ? jsonResponse(fixture("hn-search.json")) : jsonResponse({ message: "Too Many Requests" }, 429)
     );
     const collected = await collectScan(HN_AND_REDDIT, { fetch: fetcher as unknown as typeof fetch, sleep, now });
-    const { report, store } = applyScan({ results: [], youtube: { day: "", units: 0, cursor: 0 } }, collected);
+    const { report, store } = applyScan(EMPTY_STORE, collected);
 
     const reddit = report.sources.find((source) => source.source === "reddit")!;
     expect(reddit.ok).toBe(false);
@@ -346,15 +349,28 @@ describe("scanning", () => {
 });
 
 describe("listening config", () => {
-  it("starts from the defaults and saves edits to data/listening/config.json through the shared atomic writer", async () => {
+  beforeEach(async () => {
+    await rm(dataPath("listening"), { recursive: true, force: true });
+    await rm(dataPath("listening.json"), { force: true });
+  });
+
+  const writeConfigFile = async (value: unknown) => {
+    await mkdir(dataPath("listening"), { recursive: true });
+    await writeFile(dataPath("listening", "config.json"), JSON.stringify(value), "utf8");
+  };
+
+  it("starts from the defaults, with YouTube off because it spends the upload quota", async () => {
     const initial = await readListeningConfig();
     expect(initial.groups).toEqual(DEFAULT_KEYWORD_GROUPS);
     expect(initial.autoScan).toBe(true);
-    expect(initial.sources.x).toBe(false);
+    expect(initial.sources).toEqual({ hn: true, reddit: true, youtube: false, bluesky: true, x: false });
+  });
 
+  it("saves edits to data/listening/config.json through the shared atomic writer", async () => {
+    await readListeningConfig();
     await updateListeningConfig((config) => ({
       ...config,
-      groups: [...config.groups, { id: "mine", name: "Mine", intent: "pain", terms: ["my own term"] }],
+      groups: [...config.groups, { id: "mine", name: "Mine", intent: "pain", canLead: true, terms: ["my own term"] }],
       sources: { ...config.sources, reddit: false }
     }));
 
@@ -370,5 +386,71 @@ describe("listening config", () => {
     const store = await readListeningStore();
     expect(store.results).toEqual([]);
     expect(store).not.toHaveProperty("groups");
+  });
+
+  it("limits the terms in a keyword group", () => {
+    const terms = Array.from({ length: MAX_TERMS_PER_GROUP + 1 }, (_, i) => `term ${i}`);
+    expect(keywordGroupSchema.safeParse({ id: "g", name: "G", intent: "pain", terms }).success).toBe(false);
+    expect(keywordGroupSchema.safeParse({ id: "g", name: "G", intent: "pain", terms: terms.slice(0, MAX_TERMS_PER_GROUP) }).success).toBe(true);
+  });
+
+  it("migrates a config saved before these rules: YouTube off, structural AI out of the leads, long groups cut to the limit", async () => {
+    const terms = Array.from({ length: 20 }, (_, i) => `term ${i}`);
+    await writeConfigFile({
+      groups: [
+        { id: "structural-ai", name: "Structural engineering AI", intent: "pain", terms: ["structural engineering AI"] },
+        { id: "long", name: "Long", intent: "pain", terms }
+      ],
+      sources: { hn: true, reddit: false, youtube: true, bluesky: true, x: false },
+      autoScan: true
+    });
+
+    const config = await readListeningConfig();
+
+    expect(config.sources).toEqual({ hn: true, reddit: false, youtube: false, bluesky: true, x: false });
+    expect(config.groups.find((group) => group.id === "structural-ai")?.canLead).toBe(false);
+    expect(config.groups.find((group) => group.id === "long")?.terms).toEqual(terms.slice(0, MAX_TERMS_PER_GROUP));
+    expect(config.version).toBe(2);
+  });
+
+  it("leaves YouTube on when a current config says so", async () => {
+    await updateListeningConfig((config) => ({ ...config, sources: { ...config.sources, youtube: true } }));
+    expect((await readListeningConfig()).sources.youtube).toBe(true);
+  });
+
+  it("builds the first config from the keywords and switches of the old single-file Listening, adding the new default groups", async () => {
+    await mkdir(path.dirname(dataPath("listening.json")), { recursive: true });
+    await writeFile(
+      dataPath("listening.json"),
+      JSON.stringify({
+        groups: [{ id: "pain", name: "My pain", intent: "pain", terms: ["my own pain term"] }],
+        sources: { hn: false, reddit: true },
+        results: [
+          { id: "hn-1", source: "hn", title: "t", url: "https://news.ycombinator.com/item?id=1", createdAt: "2026-10-01T00:00:00.000Z", foundAt: "2026-10-01T00:00:00.000Z", status: "replied" },
+          { id: "hn-2", source: "hn", title: "t", url: "https://news.ycombinator.com/item?id=2", createdAt: "2026-10-01T00:00:00.000Z", foundAt: "2026-10-01T00:00:00.000Z", status: "ignored" }
+        ]
+      }),
+      "utf8"
+    );
+
+    const config = await readListeningConfig();
+
+    expect(config.groups.find((group) => group.id === "pain")).toMatchObject({ name: "My pain", terms: ["my own pain term"] });
+    expect(config.groups.map((group) => group.id)).toEqual(expect.arrayContaining(["brand", "competitors", "structural-ai", "comparison", "pricing"]));
+    expect(config.sources).toEqual({ hn: false, reddit: true, youtube: false, bluesky: true, x: false });
+    expect(JSON.parse(await readFile(dataPath("listening", "config.json"), "utf8")).groups).toHaveLength(config.groups.length);
+
+    const store = await readListeningStore();
+    expect(store.results.map((result) => result.status)).toEqual(["seen", "dismissed"]);
+  });
+
+  it("does not touch a config that already exists when the old file is still there", async () => {
+    await writeConfigFile({ version: 2, groups: [{ id: "only", name: "Only", intent: "pain", terms: ["x"] }], sources: {}, autoScan: false });
+    await writeFile(dataPath("listening.json"), JSON.stringify({ groups: [{ id: "old", name: "Old", intent: "pain", terms: ["y"] }] }), "utf8");
+
+    const config = await readListeningConfig();
+
+    expect(config.groups.map((group) => group.id)).toEqual(["only"]);
+    expect(config.autoScan).toBe(false);
   });
 });

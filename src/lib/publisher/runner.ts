@@ -20,6 +20,7 @@ import { imagePathsOf, isImagePost } from "@/lib/publisher/images";
 import { channelDuplicateMessage, youtubeChannelDuplicate } from "@/lib/publisher/duplicateGuard";
 import { describeMirrorPlan, planMirror } from "@/lib/publisher/mirror";
 import { AbandonedUploadError, PermanentError, StillProcessingError, ThrottledError, isTransient } from "@/lib/publisher/http";
+import { listeningUnitsToday } from "@/lib/listening/ledger";
 import { remainingYoutubeUploads } from "@/lib/publisher/quota";
 import { outstandingTiktokDrafts, usesTiktokInbox } from "@/lib/publisher/tiktokInbox";
 import { PublishQueue, isTerminalStatus, mirroredPlatformState, publishQueue } from "@/lib/publisher/queue";
@@ -401,7 +402,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
   const allItems = await queue.list();
   let youtubeUploadsLeft = options.force
     ? Number.POSITIVE_INFINITY
-    : remainingYoutubeUploads(allItems, now, config);
+    : remainingYoutubeUploads(allItems, now, config, await listeningUnitsToday(now));
   // TikTok's ceiling counts drafts waiting in the inbox, and only a tap in the
   // app clears one — so unlike YouTube's allowance it does not reset overnight.
   const tiktokDraftsWaiting = outstandingTiktokDrafts(allItems);

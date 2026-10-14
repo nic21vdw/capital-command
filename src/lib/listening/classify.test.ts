@@ -212,3 +212,49 @@ describe("classifying with the model", () => {
     expect(runAi).not.toHaveBeenCalled();
   });
 });
+
+describe("the structural engineering AI group", () => {
+  const structuralOnly = hit({
+    title: "Anyone know a structural engineering AI for beam checks?",
+    excerpt: "Looking for a tool that sanity checks beam sizes. Has anyone tried one?",
+    matchedTerms: ["structural engineering AI"]
+  });
+
+  it("is never a lead, however clearly the author asks: a mention at most", () => {
+    const result = heuristicClassify(structuralOnly, DEFAULT_KEYWORD_GROUPS, NOW);
+    expect(result.category).toBe("mention");
+    expect(result.score).toBeLessThan(HIGH_LEAD_SCORE);
+  });
+
+  it("still lets a post that also matches a group that can lead be a lead", () => {
+    const result = heuristicClassify({ ...structuralOnly, matchedTerms: ["structural engineering AI", "cursor alternative"] }, DEFAULT_KEYWORD_GROUPS, NOW);
+    expect(result.category).toBe("lead");
+  });
+
+  it("turns the model's lead into a mention, with a score under the lead line", async () => {
+    const runAi = vi.fn(allLeads);
+    const out = await classifyHits([structuralOnly], DEFAULT_KEYWORD_GROUPS, { runAi, now: () => NOW });
+
+    expect(out.hits[0].classifiedBy).toBe("ai");
+    expect(out.hits[0].category).toBe("mention");
+    expect(out.hits[0].score).toBeLessThan(HIGH_LEAD_SCORE);
+  });
+
+  it("leaves a model's competitor or noise verdict alone", async () => {
+    const runAi = vi.fn(async (request: AiRequest) => reply(numbersIn(request).map((n) => ({ n, category: "noise", sentiment: 0, score: 3, reason: "ad" }))));
+    const out = await classifyHits([structuralOnly], DEFAULT_KEYWORD_GROUPS, { runAi, now: () => NOW });
+    expect(out.hits[0]).toMatchObject({ category: "noise", score: 3 });
+  });
+});
+
+describe("the prompt", () => {
+  it("describes CoLateral the way docs/colateral-messaging.md does, and makes no engineering claim", async () => {
+    const runAi = vi.fn(allLeads);
+    await classifyHits([asking], DEFAULT_KEYWORD_GROUPS, { runAi, now: () => NOW });
+    const system = runAi.mock.calls[0][0].system ?? "";
+
+    expect(system).toContain("all-in-one agentic workspace");
+    expect(system).toContain("Claude Code, Codex and Gemini");
+    expect(system).not.toMatch(/engineering tools|AI agents and|structural software|design software/i);
+  });
+});

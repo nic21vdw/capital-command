@@ -54,7 +54,7 @@ describe("GET /api/listening", () => {
   it("answers with the keywords, switches and hits together", async () => {
     const body = await (await GET(request("GET"))).json();
     expect(body.groups.length).toBeGreaterThan(0);
-    expect(body.sources).toMatchObject({ hn: true, reddit: true, youtube: true, bluesky: true, x: false });
+    expect(body.sources).toEqual({ hn: true, reddit: true, youtube: false, bluesky: true, x: false });
     expect(body.autoScan).toBe(true);
     expect(body.results).toEqual([]);
   });
@@ -75,13 +75,19 @@ describe("GET /api/listening", () => {
 
 describe("PATCH /api/listening", () => {
   it("saves keyword edits, source switches and the schedule switch to the config", async () => {
-    const groups = [{ id: "mine", name: "Mine", intent: "pain", terms: ["my term"] }];
+    const groups = [{ id: "mine", name: "Mine", intent: "pain", canLead: true, terms: ["my term"] }];
     expect((await (await PATCH(request("PATCH", { groups }))).json()).groups).toEqual(groups);
 
-    const afterSources = await (await PATCH(request("PATCH", { sources: { youtube: false } }))).json();
-    expect(afterSources.sources).toMatchObject({ youtube: false, hn: true, bluesky: true });
+    const afterSources = await (await PATCH(request("PATCH", { sources: { youtube: true } }))).json();
+    expect(afterSources.sources).toMatchObject({ youtube: true, hn: true, bluesky: true });
 
     expect((await (await PATCH(request("PATCH", { autoScan: false }))).json()).autoScan).toBe(false);
+  });
+
+  it("refuses a keyword group with more terms than the limit", async () => {
+    const terms = Array.from({ length: 13 }, (_, i) => `term ${i}`);
+    const response = await PATCH(request("PATCH", { groups: [{ id: "big", name: "Big", intent: "pain", canLead: true, terms }] }));
+    expect(response.status).toBe(400);
   });
 
   it("triages a hit but will not mark one as sent to Outreach by hand", async () => {
@@ -119,7 +125,7 @@ describe("POST /api/listening", () => {
   it("scans on demand and reports what happened", async () => {
     await updateListeningConfig((config) => ({
       ...config,
-      groups: [{ id: "one", name: "One", intent: "pain", terms: ["structural engineering AI"] }],
+      groups: [{ id: "one", name: "One", intent: "pain", canLead: true, terms: ["structural engineering AI"] }],
       sources: { hn: false, reddit: false, youtube: false, bluesky: true, x: false }
     }));
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ posts: [] }), { status: 200 })));

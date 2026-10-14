@@ -17,7 +17,7 @@ import {
   type YoutubeState
 } from "@/lib/listening/model";
 import { parseBlueskyResponse, parseYoutubeComments, parseYoutubeSearch } from "@/lib/listening/parsers";
-import { quotaDate } from "@/lib/publisher/quota";
+import { quotaDate, quotaMinuteOfDay } from "@/lib/publisher/quota";
 
 /**
  * One scan: every term of every keyword group against each enabled source,
@@ -41,14 +41,18 @@ const YOUTUBE_API = "https://www.googleapis.com/youtube/v3";
 const DAY_SECONDS = 24 * 60 * 60;
 const LOOKBACK_SECONDS = 7 * DAY_SECONDS;
 const YOUTUBE_LOOKBACK_SECONDS = 3 * DAY_SECONDS;
-const REDDIT_SPACING_MS = 2500;
 const BLUESKY_SPACING_MS = 250;
 const REQUEST_TIMEOUT_MS = 15_000;
+const MINUTES_PER_DAY = 24 * 60;
 
-export const YOUTUBE_MAX_SEARCHES = 2;
+export const REDDIT_SPACING_MS = 6000;
+export const REDDIT_TERMS_PER_SCAN = 8;
+const REDDIT_MAX_RETRY_WAIT_MS = 30_000;
+
+export const YOUTUBE_MAX_SEARCHES = 1;
 export const YOUTUBE_MAX_COMMENT_CALLS = 3;
 export const YOUTUBE_TERMS_PER_QUERY = 5;
-export const YOUTUBE_DAILY_UNITS_DEFAULT = 400;
+export const YOUTUBE_DAILY_UNITS_DEFAULT = 100;
 const YOUTUBE_SEARCH_UNITS = 100;
 const YOUTUBE_COMMENT_UNITS = 1;
 
@@ -106,7 +110,8 @@ export class SourceHttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
-    readonly reason?: string
+    readonly reason?: string,
+    readonly retryAfterMs?: number
   ) {
     super(message);
     this.name = "SourceHttpError";
@@ -135,7 +140,46 @@ function describeError(error: unknown): string {
   return detail && !error.message.includes(detail) ? `${error.message}: ${detail}` : error.message;
 }
 
+function parseRetryAfter(header: string | null): number | undefined {
+  if (!header) return undefined;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+  const date = Date.parse(header);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined;
+}
+
 export type YoutubeAuth = { key?: string; token?: string };
+
+export interface YoutubeLedger {
+  position(day: string): Promise<{ units: number; cursor: number }>;
+  reserve(units: number, budget: number, day: string): Promise<boolean>;
+  exhaust(budget: number, day: string): Promise<void>;
+  advance(by: number): Promise<void>;
+}
+
+export function memoryLedger(initial: YoutubeState): YoutubeLedger & { state(): YoutubeState } {
+  let state: YoutubeState = { ...initial };
+  const roll = (day: string) => {
+    if (state.day !== day) state = { ...state, day, units: 0 };
+  };
+  return {
+    state: () => ({ ...state }),
+    position: async (day) => ({ units: state.day === day ? state.units : 0, cursor: state.cursor }),
+    reserve: async (units, budget, day) => {
+      roll(day);
+      if (state.units + units > budget) return false;
+      state = { ...state, units: state.units + units };
+      return true;
+    },
+    exhaust: async (budget, day) => {
+      roll(day);
+      state = { ...state, units: Math.max(state.units, budget) };
+    },
+    advance: async (by) => {
+      state = { ...state, cursor: state.cursor + by };
+    }
+  };
+}
 
 export interface ScanDeps {
   fetch?: typeof fetch;
@@ -143,9 +187,10 @@ export interface ScanDeps {
   now?: () => Date;
   youtubeAuth?: () => Promise<YoutubeAuth | null>;
   youtubeDailyUnits?: number;
+  youtubeLedger?: YoutubeLedger;
 }
 
-type SourceScan = { hits: ListeningHit[]; report: Omit<SourceReport, "added">; youtube?: YoutubeState };
+type SourceScan = { hits: ListeningHit[]; report: Omit<SourceReport, "added">; redditQueried?: number };
 
 async function defaultYoutubeAuth(): Promise<YoutubeAuth | null> {
   const key = process.env.YOUTUBE_API_KEY?.trim();
@@ -174,7 +219,7 @@ async function getJson(source: ListeningSource, url: string, fetcher: typeof fet
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: { errors?: { reason?: string }[] } } | null;
     const reason = body?.error?.errors?.[0]?.reason;
-    throw new SourceHttpError(response.status, explainStatus(source, response.status, reason), reason);
+    throw new SourceHttpError(response.status, explainStatus(source, response.status, reason), reason, parseRetryAfter(response.headers.get("Retry-After")));
   }
   try {
     return await response.json();
@@ -218,11 +263,11 @@ async function scanTerms(
 
 /**
  * Run every term against one source. Stops at the first failure: a 429 on the
- * third Reddit query means the next eight would be refused too, and hammering
- * a rate limit is how a scan turns into a ban.
+ * third query means the next eight would be refused too, and hammering a rate
+ * limit is how a scan turns into a ban.
  */
 export async function scanSource(
-  source: "hn" | "reddit" | "bluesky",
+  source: "hn" | "bluesky",
   terms: string[],
   deps: ScanDeps = {}
 ): Promise<{ hits: ListeningHit[]; report: Omit<SourceReport, "added"> }> {
@@ -232,9 +277,6 @@ export async function scanSource(
 
   if (source === "hn") {
     return scanTerms(source, terms, 0, sleep, async (term) => parseHnResponse(await getJson(source, hnSearchUrl(term, now.getTime()), fetcher), terms));
-  }
-  if (source === "reddit") {
-    return scanTerms(source, terms, REDDIT_SPACING_MS, sleep, async (term) => parseRedditResponse(await getJson(source, redditSearchUrl(term), fetcher), terms));
   }
 
   const since = new Date(now.getTime() - LOOKBACK_SECONDS * 1000).toISOString();
@@ -252,6 +294,51 @@ export async function scanSource(
   });
 }
 
+async function scanReddit(terms: string[], cursor: number, deps: ScanDeps): Promise<SourceScan> {
+  const fetcher = deps.fetch ?? fetch;
+  const sleep = deps.sleep ?? realSleep;
+  const count = Math.min(REDDIT_TERMS_PER_SCAN, terms.length);
+  const start = cursor % terms.length;
+  const batch = Array.from({ length: count }, (_, i) => terms[(start + i) % terms.length]);
+  const hits: ListeningHit[] = [];
+  let queries = 0;
+  let searched = 0;
+
+  for (const [index, term] of batch.entries()) {
+    if (index > 0) await sleep(REDDIT_SPACING_MS);
+    let waited = false;
+    for (;;) {
+      queries += 1;
+      try {
+        hits.push(...parseRedditResponse(await getJson("reddit", redditSearchUrl(term), fetcher), terms));
+        searched += 1;
+        break;
+      } catch (error) {
+        const wait = error instanceof SourceHttpError ? error.retryAfterMs : undefined;
+        if (!waited && wait !== undefined && wait <= REDDIT_MAX_RETRY_WAIT_MS) {
+          waited = true;
+          await sleep(wait);
+          continue;
+        }
+        const asked = wait !== undefined ? ` Reddit asked for a wait of ${Math.ceil(wait / 1000)} s.` : "";
+        return {
+          hits,
+          redditQueried: searched,
+          report: {
+            source: "reddit",
+            ok: false,
+            queries,
+            matched: hits.length,
+            httpStatus: error instanceof SourceHttpError ? error.status : undefined,
+            error: `${describeError(error)}${asked} (stopped at "${term}", ${searched} of ${batch.length} terms searched)`
+          }
+        };
+      }
+    }
+  }
+  return { hits, redditQueried: searched, report: { source: "reddit", ok: true, queries, matched: hits.length } };
+}
+
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
@@ -262,7 +349,7 @@ function skippedYoutube(error: string | undefined, note: string | undefined): So
   return { hits: [], report: { source: "youtube", ok: !error, skipped: true, queries: 0, matched: 0, error, note } };
 }
 
-async function scanYoutube(terms: string[], previous: YoutubeState, deps: ScanDeps): Promise<SourceScan> {
+async function scanYoutube(terms: string[], ledger: YoutubeLedger, deps: ScanDeps): Promise<SourceScan> {
   const fetcher = deps.fetch ?? fetch;
   const now = (deps.now ?? (() => new Date()))();
   const auth = await (deps.youtubeAuth ?? defaultYoutubeAuth)();
@@ -272,22 +359,22 @@ async function scanYoutube(terms: string[], previous: YoutubeState, deps: ScanDe
 
   const budget = youtubeDailyUnits(deps);
   const day = quotaDate(now);
-  const state: YoutubeState = { day, units: previous.day === day ? previous.units : 0, cursor: previous.cursor };
   const headers: Record<string, string> = auth.token ? { Authorization: `Bearer ${auth.token}` } : {};
   const chunks = chunk(terms, YOUTUBE_TERMS_PER_QUERY);
-  const wanted = Math.min(YOUTUBE_MAX_SEARCHES, chunks.length);
   const publishedAfter = new Date(now.getTime() - YOUTUBE_LOOKBACK_SECONDS * 1000).toISOString();
-  const start = state.cursor % chunks.length;
+  const budgetNote = `Daily YouTube budget of ${budget} units is used up; it starts again after midnight Pacific.`;
   const hits: ListeningHit[] = [];
   const videos = new Map<string, { id: string; title: string; term: string }>();
   let calls = 0;
   let searched = 0;
+  let stoppedByBudget = false;
 
-  const failure = (error: unknown): SourceScan => {
-    if (error instanceof SourceHttpError && error.reason && QUOTA_REASONS.test(error.reason)) state.units = Math.max(state.units, budget);
+  const failure = async (error: unknown): Promise<SourceScan> => {
+    if (error instanceof SourceHttpError && error.reason && QUOTA_REASONS.test(error.reason)) {
+      await ledger.exhaust(budget, day).catch(() => undefined);
+    }
     return {
       hits,
-      youtube: state,
       report: {
         source: "youtube",
         ok: false,
@@ -299,11 +386,28 @@ async function scanYoutube(terms: string[], previous: YoutubeState, deps: ScanDe
     };
   };
 
-  for (let i = 0; i < wanted; i += 1) {
-    if (state.units + YOUTUBE_SEARCH_UNITS > budget) break;
-    state.units += YOUTUBE_SEARCH_UNITS;
-    calls += 1;
-    try {
+  try {
+    const position = await ledger.position(day);
+    const start = position.cursor % chunks.length;
+    const searchBudget = budget / YOUTUBE_SEARCH_UNITS;
+    const opened = Math.max(1, Math.ceil(searchBudget * (quotaMinuteOfDay(now) / MINUTES_PER_DAY)));
+    const wanted = Math.min(YOUTUBE_MAX_SEARCHES, chunks.length);
+    let units = position.units;
+
+    for (let i = 0; i < wanted; i += 1) {
+      if (units + YOUTUBE_SEARCH_UNITS > budget) {
+        stoppedByBudget = true;
+        break;
+      }
+      if (Math.floor(units / YOUTUBE_SEARCH_UNITS) >= opened) {
+        return skippedYoutube(undefined, `YouTube searches are spread across the day (${budget} units): the next one opens later today.`);
+      }
+      if (!(await ledger.reserve(YOUTUBE_SEARCH_UNITS, budget, day))) {
+        stoppedByBudget = true;
+        break;
+      }
+      units += YOUTUBE_SEARCH_UNITS;
+      calls += 1;
       const url = youtubeSearchUrl(chunks[(start + i) % chunks.length], publishedAfter, auth.key);
       for (const hit of parseYoutubeSearch(await getJson("youtube", url, fetcher, headers), terms)) {
         hits.push(hit);
@@ -311,38 +415,32 @@ async function scanYoutube(terms: string[], previous: YoutubeState, deps: ScanDe
         if (id && !videos.has(id)) videos.set(id, { id, title: hit.title, term: hit.matchedTerms[0] });
       }
       searched += 1;
-    } catch (error) {
-      return failure(error);
     }
+
+    for (const video of [...videos.values()].slice(0, YOUTUBE_MAX_COMMENT_CALLS)) {
+      if (!(await ledger.reserve(YOUTUBE_COMMENT_UNITS, budget, day))) break;
+      calls += 1;
+      try {
+        const json = await getJson("youtube", youtubeCommentsUrl(video.id, video.term, auth.key), fetcher, headers);
+        hits.push(...parseYoutubeComments(json, terms, video));
+      } catch (error) {
+        if (error instanceof SourceHttpError && error.reason && QUOTA_REASONS.test(error.reason)) return await failure(error);
+      }
+    }
+    if (searched > 0) await ledger.advance(searched).catch(() => undefined);
+  } catch (error) {
+    return failure(error);
   }
 
-  const newest = [...videos.values()].slice(0, YOUTUBE_MAX_COMMENT_CALLS);
-  for (const video of newest) {
-    if (state.units + YOUTUBE_COMMENT_UNITS > budget) break;
-    state.units += YOUTUBE_COMMENT_UNITS;
-    calls += 1;
-    try {
-      const json = await getJson("youtube", youtubeCommentsUrl(video.id, video.term, auth.key), fetcher, headers);
-      hits.push(...parseYoutubeComments(json, terms, video));
-    } catch (error) {
-      if (error instanceof SourceHttpError && error.reason && QUOTA_REASONS.test(error.reason)) return failure(error);
-    }
-  }
-
-  if (searched > 0) state.cursor = (start + searched) % chunks.length;
-  const stoppedByBudget = searched < wanted;
-  if (calls === 0) {
-    return { ...skippedYoutube(undefined, `Daily YouTube budget of ${budget} units is used up; it starts again after midnight Pacific.`), youtube: state };
-  }
+  if (calls === 0) return skippedYoutube(undefined, budgetNote);
   return {
     hits,
-    youtube: state,
     report: {
       source: "youtube",
       ok: true,
       queries: calls,
       matched: hits.length,
-      note: stoppedByBudget ? `Stopped early: the daily YouTube budget of ${budget} units was reached.` : undefined
+      note: stoppedByBudget ? `Stopped early: ${budgetNote}` : undefined
     }
   };
 }
@@ -354,20 +452,21 @@ function skippedX(): SourceScan {
 export interface ScanInput {
   groups: KeywordGroup[];
   sources: SourceSwitches;
-  youtube?: YoutubeState;
+  redditCursor?: number;
 }
 
 export interface CollectedScan {
   at: string;
   sources: { hits: ListeningHit[]; report: Omit<SourceReport, "added"> }[];
-  youtube?: YoutubeState;
+  redditQueried?: number;
 }
 
 /**
  * Query every enabled source. Network only - nothing is merged or written
  * here, because a scan takes a while (Reddit is spaced out) and the list may
  * change underneath it; `applyScan` folds the hits into whatever is stored by
- * the time they arrive.
+ * the time they arrive. The YouTube quota ledger is the one exception: it is
+ * debited through `deps.youtubeLedger` before each request, never afterwards.
  */
 export async function collectScan(input: ScanInput, deps: ScanDeps = {}): Promise<CollectedScan> {
   const terms = allTerms(input.groups);
@@ -382,9 +481,11 @@ export async function collectScan(input: ScanInput, deps: ScanDeps = {}): Promis
       }))
     };
   }
+  const ledger = deps.youtubeLedger ?? memoryLedger(EMPTY_YOUTUBE_STATE);
   const scans = await Promise.all(
     enabled.map((source): Promise<SourceScan> => {
-      if (source === "youtube") return scanYoutube(terms, input.youtube ?? EMPTY_YOUTUBE_STATE, deps);
+      if (source === "youtube") return scanYoutube(terms, ledger, deps);
+      if (source === "reddit") return scanReddit(terms, input.redditCursor ?? 0, deps);
       if (source === "x") return Promise.resolve(skippedX());
       return scanSource(source, terms, deps);
     })
@@ -392,7 +493,7 @@ export async function collectScan(input: ScanInput, deps: ScanDeps = {}): Promis
   return {
     at,
     sources: scans.map(({ hits, report }) => ({ hits, report })),
-    youtube: scans.find((scan) => scan.youtube)?.youtube
+    redditQueried: scans.find((scan) => scan.report.source === "reddit")?.redditQueried
   };
 }
 
@@ -410,9 +511,9 @@ export function applyScan(
     reports.push({ ...report, added: merged.added });
   }
   const report: ScanReport = { at: collected.at, sources: reports, classified };
-  return { store: { ...store, results, lastScan: report, youtube: collected.youtube ?? store.youtube }, report };
+  return { store: { ...store, results, lastScan: report, redditCursor: store.redditCursor + (collected.redditQueried ?? 0) }, report };
 }
 
 export function scanFailed(report: ScanReport): boolean {
-  return report.sources.length === 0 || report.sources.some((source) => !source.ok && !source.skipped);
+  return report.error !== undefined || report.sources.length === 0 || report.sources.some((source) => !source.ok && !source.skipped);
 }

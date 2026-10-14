@@ -11,11 +11,12 @@ function contactFor(hit: ListeningResult): OutreachContactInput {
     name: hit.author ? `${hit.author} on ${label}` : `A ${label} post`,
     url: hit.url,
     platform: hit.source === "youtube" ? "youtube" : hit.source === "x" ? "x" : "other",
+    kind: "thread",
+    topic: hit.title.replace(/^Comment on: /, ""),
     fit: hit.reason ? `${hit.reason} (score ${hit.score})` : hit.title,
     angle: ANGLE,
     notes: [hit.title, hit.excerpt, `Matched: ${hit.matchedTerms.join(", ")}`, `Found on ${label}`].filter(Boolean).join("\n"),
-    status: "to-contact",
-    recentVideo: hit.source === "youtube" ? { title: hit.title, url: hit.url } : undefined
+    status: "to-contact"
   };
 }
 

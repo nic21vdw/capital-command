@@ -20,8 +20,10 @@ import {
   dueForFollowUp,
   paceLabel,
   renderOutreachTemplate,
+  templateFor,
   weeklyPace,
   type OutreachContact,
+  type OutreachKind,
   type OutreachPlatform,
   type OutreachStatus,
   type OutreachStore
@@ -169,7 +171,7 @@ export function OutreachPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [templateDraft, setTemplateDraft] = useState<string | null>(null);
+  const [templateDraft, setTemplateDraft] = useState<{ kind: OutreachKind; text: string } | null>(null);
   const [importText, setImportText] = useState("");
   const [importing, setImporting] = useState(false);
 
@@ -211,7 +213,9 @@ export function OutreachPage() {
     return contacts.filter((contact) => contact.status === filter);
   }, [contacts, due, filter]);
   const selected = contacts.find((contact) => contact.id === selectedId) ?? visible[0] ?? null;
-  const template = templateDraft ?? store?.template ?? "";
+  const templateKind: OutreachKind = selected?.kind ?? "creator";
+  const savedTemplate = store ? templateFor(store, { kind: templateKind }) : "";
+  const template = templateDraft?.kind === templateKind ? templateDraft.text : savedTemplate;
   const message = selected ? renderOutreachTemplate(template, selected) : "";
 
   const run = async (action: () => Promise<OutreachStore>, success?: string) => {
@@ -255,8 +259,9 @@ export function OutreachPage() {
   };
 
   const saveTemplate = () => {
-    if (templateDraft === null || templateDraft === store?.template) return;
-    void run(() => send("PATCH", "/api/outreach", { template: templateDraft }), "Template saved").then(() => setTemplateDraft(null));
+    if (templateDraft === null || !store || templateDraft.text === templateFor(store, { kind: templateDraft.kind })) return;
+    const body = templateDraft.kind === "thread" ? { threadTemplate: templateDraft.text } : { template: templateDraft.text };
+    void run(() => send("PATCH", "/api/outreach", body), "Template saved").then(() => setTemplateDraft(null));
   };
 
   const importJson = async () => {
@@ -661,7 +666,15 @@ export function OutreachPage() {
             {selected ? <Badge tone={STATUS_TONE[selected.status]}>{STATUS_LABELS[selected.status]}</Badge> : null}
           </div>
           <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-            {"{name}"} and {"{video}"} are filled in from the selected contact. Edit the template below; it saves when you click away.
+            {templateKind === "thread" ? (
+              <>
+                {"{thread}"} is filled in from the post this contact came from. This is the template for people found in a thread; it claims nothing about a video. Edit it below; it saves when you click away.
+              </>
+            ) : (
+              <>
+                {"{name}"} and {"{video}"} are filled in from the selected contact. Edit the template below; it saves when you click away.
+              </>
+            )}
           </p>
           {selected ? (
             <>
@@ -692,7 +705,7 @@ export function OutreachPage() {
             <Textarea
               className="mt-1.5 min-h-56 font-mono text-xs"
               value={template}
-              onChange={(event) => setTemplateDraft(event.target.value)}
+              onChange={(event) => setTemplateDraft({ kind: templateKind, text: event.target.value })}
               onBlur={saveTemplate}
             />
           </label>

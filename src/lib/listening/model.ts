@@ -37,13 +37,22 @@ export const SOURCE_LABELS: Record<ListeningSource, string> = {
 
 export const SOURCE_NOTES: Partial<Record<ListeningSource, string>> = { x: "Needs X API access" };
 
+export const MAX_TERMS_PER_GROUP = 12;
+
 export const keywordGroupSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
-  terms: z.array(z.string().trim().min(1)).default([]),
-  intent: z.enum(LISTENING_INTENTS)
+  terms: z.array(z.string().trim().min(1)).max(MAX_TERMS_PER_GROUP).default([]),
+  intent: z.enum(LISTENING_INTENTS),
+  canLead: z.boolean().default(true)
 });
 export type KeywordGroup = z.infer<typeof keywordGroupSchema>;
+
+function legacyStatus(value: unknown): unknown {
+  if (value === "replied") return "seen";
+  if (value === "ignored") return "dismissed";
+  return value;
+}
 
 export const sourceReference = z.object({ source: z.enum(LISTENING_SOURCES), url: z.string().min(1) });
 
@@ -58,7 +67,7 @@ export const listeningResultSchema = z.object({
   /** A short plain-text excerpt, so the list can be triaged without opening every link. */
   excerpt: z.string().default(""),
   matchedTerms: z.array(z.string()).default([]),
-  status: z.enum(RESULT_STATUSES).default("new"),
+  status: z.preprocess(legacyStatus, z.enum(RESULT_STATUSES).default("new")),
   note: z.string().default(""),
   /** When a scan first found it (ISO). */
   foundAt: z.string(),
@@ -91,29 +100,58 @@ export type SourceReport = z.infer<typeof sourceReportSchema>;
 export const scanReportSchema = z.object({
   at: z.string(),
   sources: z.array(sourceReportSchema),
-  classified: z.object({ ai: z.number().int().min(0), heuristic: z.number().int().min(0) }).optional()
+  classified: z.object({ ai: z.number().int().min(0), heuristic: z.number().int().min(0) }).optional(),
+  error: z.string().optional()
 });
 export type ScanReport = z.infer<typeof scanReportSchema>;
 
 const sourceSwitchesSchema = z.object({
   hn: z.boolean().default(true),
   reddit: z.boolean().default(true),
-  youtube: z.boolean().default(true),
+  youtube: z.boolean().default(false),
   bluesky: z.boolean().default(true),
   x: z.boolean().default(false)
 });
 export type SourceSwitches = z.infer<typeof sourceSwitchesSchema>;
 
-export const DEFAULT_SOURCE_SWITCHES: SourceSwitches = { hn: true, reddit: true, youtube: true, bluesky: true, x: false };
+export const DEFAULT_SOURCE_SWITCHES: SourceSwitches = { hn: true, reddit: true, youtube: false, bluesky: true, x: false };
 
-export const listeningConfigSchema = z.object({
+export const CONFIG_VERSION = 2;
+const STRUCTURAL_GROUP_ID = "structural-ai";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function withinTermLimit(group: unknown): unknown {
+  return isRecord(group) && Array.isArray(group.terms) ? { ...group, terms: group.terms.slice(0, MAX_TERMS_PER_GROUP) } : group;
+}
+
+export function migrateConfig(raw: unknown): unknown {
+  if (!isRecord(raw)) return raw;
+  const groups = Array.isArray(raw.groups) ? raw.groups.map(withinTermLimit) : raw.groups;
+  const version = typeof raw.version === "number" ? raw.version : 1;
+  if (version >= CONFIG_VERSION) return { ...raw, groups };
+  return {
+    ...raw,
+    version: CONFIG_VERSION,
+    groups: Array.isArray(groups) ? groups.map((group) => (isRecord(group) && group.id === STRUCTURAL_GROUP_ID ? { ...group, canLead: false } : group)) : groups,
+    sources: isRecord(raw.sources) ? { ...raw.sources, youtube: false } : raw.sources
+  };
+}
+
+const listeningConfigShape = z.object({
+  version: z.number().int().default(CONFIG_VERSION),
   groups: z.array(keywordGroupSchema).default(DEFAULT_KEYWORD_GROUPS),
   sources: sourceSwitchesSchema.default(DEFAULT_SOURCE_SWITCHES),
   autoScan: z.boolean().default(true)
 });
-export type ListeningConfig = z.infer<typeof listeningConfigSchema>;
+
+export const listeningConfigSchema = z.preprocess(migrateConfig, listeningConfigShape);
+export type ListeningConfig = z.infer<typeof listeningConfigShape>;
 
 export const defaultListeningConfig: ListeningConfig = {
+  version: CONFIG_VERSION,
   groups: DEFAULT_KEYWORD_GROUPS,
   sources: DEFAULT_SOURCE_SWITCHES,
   autoScan: true
@@ -131,11 +169,12 @@ export const EMPTY_YOUTUBE_STATE: YoutubeState = { day: "", units: 0, cursor: 0 
 export const listeningStoreSchema = z.object({
   results: z.array(listeningResultSchema).default([]),
   lastScan: scanReportSchema.optional(),
-  youtube: youtubeStateSchema.default(EMPTY_YOUTUBE_STATE)
+  youtube: youtubeStateSchema.default(EMPTY_YOUTUBE_STATE),
+  redditCursor: z.number().int().min(0).default(0)
 });
 export type ListeningStore = z.infer<typeof listeningStoreSchema>;
 
-export const defaultListeningStore: ListeningStore = { results: [], youtube: EMPTY_YOUTUBE_STATE };
+export const defaultListeningStore: ListeningStore = { results: [], youtube: EMPTY_YOUTUBE_STATE, redditCursor: 0 };
 
 export type ListeningSnapshot = ListeningConfig & ListeningStore;
 

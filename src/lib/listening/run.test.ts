@@ -6,7 +6,7 @@ import { HIGH_LEAD_SCORE, isHighLead, leadSummary } from "@/lib/listening/leads"
 import { updateListeningConfig, readListeningConfig } from "@/lib/listening/config";
 import type { ListeningResult } from "@/lib/listening/model";
 import { runListeningScan } from "@/lib/listening/run";
-import { SCAN_INTERVAL_MS, isScanDue, scheduledScanOnce } from "@/lib/listening/schedule";
+import { SCAN_INTERVAL_MS, clearScanBackoff, isScanDue, scheduledScanOnce } from "@/lib/listening/schedule";
 import { readListeningStore, updateListeningStore } from "@/lib/listening/store";
 import { dataPath } from "@/lib/paths";
 
@@ -43,14 +43,15 @@ async function configure(sources: Partial<Record<"hn" | "reddit" | "youtube" | "
   await updateListeningConfig((config) => ({
     ...config,
     groups: [
-      { id: "ai", name: "Structural AI", intent: "pain", terms: ["structural engineering AI"] },
-      { id: "comp", name: "Competitors", intent: "competitor", terms: ["Revit"] }
+      { id: "ai", name: "Structural AI", intent: "pain", canLead: true, terms: ["structural engineering AI"] },
+      { id: "comp", name: "Competitors", intent: "competitor", canLead: true, terms: ["Revit"] }
     ],
     sources: { hn: false, reddit: false, youtube: false, bluesky: false, x: false, ...sources }
   }));
 }
 
 beforeEach(async () => {
+  clearScanBackoff();
   await rm(dataPath("listening.json"), { force: true });
   await rm(dataPath("listening"), { recursive: true, force: true });
 });

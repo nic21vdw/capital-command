@@ -80,13 +80,15 @@ function splitClears(body: unknown): { body: unknown; cleared: string[] } {
 const patchSchema = z.union([
   z.object({ id: z.string().min(1), status: z.enum(OUTREACH_STATUSES) }),
   z.object({ id: z.string().min(1), patch: outreachContactInputSchema.partial() }),
-  z.object({ template: z.string().min(1) })
+  z.object({ template: z.string().min(1) }),
+  z.object({ threadTemplate: z.string().min(1) })
 ]);
 
 /**
  * PATCH { id, status }    — move a contact (stamps dates, see applyStatus)
  * PATCH { id, patch }     — edit any of a contact's fields (null or "" clears a date, the code or the video)
  * PATCH { template }      — replace the outreach template
+ * PATCH { threadTemplate } - replace the template for people found in a thread
  */
 export async function PATCH(request: NextRequest) {
   const refused = refuseForeignOrigin(request);
@@ -94,13 +96,14 @@ export async function PATCH(request: NextRequest) {
   const { body: raw, cleared } = splitClears(await request.json().catch(() => null));
   const parsed = patchSchema.safeParse(raw);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Send { id, status }, { id, patch } or { template }." }, { status: 400 });
+    return NextResponse.json({ error: "Send { id, status }, { id, patch }, { template } or { threadTemplate }." }, { status: 400 });
   }
   const body = parsed.data;
   try {
     let found = true;
     const store = await updateOutreachStore((current) => {
       if ("template" in body) return { ...current, template: body.template };
+      if ("threadTemplate" in body) return { ...current, threadTemplate: body.threadTemplate };
       found = current.contacts.some((contact) => contact.id === body.id);
       const now = new Date().toISOString();
       return {

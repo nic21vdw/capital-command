@@ -60,6 +60,11 @@ function Get-ToastDecision {
   return [pscustomobject]@{ Due = $due; NextState = $next }
 }
 
+function ConvertTo-ToastText([string]$Text) {
+  $spaced = [regex]::Replace($Text, '[\t\r\n]+', ' ')
+  return [regex]::Replace($spaced, '[\x00-\x1F\x7F]', '')
+}
+
 function Format-SinceDate([string]$Since) {
   try {
     return (ConvertTo-UtcDate $Since).ToString("MMM d, yyyy", [System.Globalization.CultureInfo]::InvariantCulture)
@@ -73,14 +78,14 @@ function New-ToastContent {
 
   $entries = @($Due)
   if ($entries.Count -eq 1) {
-    $title = "$($entries[0].displayName) has stopped posting"
-    $body = "It broke on $(Format-SinceDate $entries[0].since). Reconnect it in Settings > Accounts."
+    $title = ConvertTo-ToastText "$($entries[0].displayName) has stopped posting"
+    $body = ConvertTo-ToastText "It broke on $(Format-SinceDate $entries[0].since). Reconnect it in Settings > Accounts."
   } else {
-    $title = "$($entries.Count) accounts have stopped posting"
-    $body = (($entries | ForEach-Object { "$($_.displayName) (since $(Format-SinceDate $_.since))" }) -join "; ") + ". Reconnect them in Settings > Accounts."
+    $title = ConvertTo-ToastText "$($entries.Count) accounts have stopped posting"
+    $body = ConvertTo-ToastText ((($entries | ForEach-Object { "$($_.displayName) (since $(Format-SinceDate $_.since))" }) -join "; ") + ". Reconnect them in Settings > Accounts.")
   }
   $launch = "$($BaseUrl.TrimEnd('/'))/settings#accounts"
-  $escape = { param($Text) [System.Security.SecurityElement]::Escape($Text) }
+  $escape = { param($Text) [System.Security.SecurityElement]::Escape((ConvertTo-ToastText $Text)) }
   $xml = "<toast activationType=`"protocol`" launch=`"$(& $escape $launch)`"><visual><binding template=`"ToastGeneric`">" +
     "<text>$(& $escape $title)</text><text>$(& $escape $body)</text></binding></visual></toast>"
   return [ordered]@{
@@ -237,12 +242,12 @@ function New-LeadToastContent {
 
   $entries = @($Due)
   $title = if ($entries.Count -eq 1) { "1 new lead" } else { "$($entries.Count) new leads" }
-  $first = [string]$entries[0].title
+  $first = ConvertTo-ToastText ([string]$entries[0].title)
   if ($first.Length -gt 90) { $first = $first.Substring(0, 87) + "..." }
   $more = if ($entries.Count -gt 1) { " and $($entries.Count - 1) more" } else { "" }
   $body = "`"$first`"$more. Open Listening to send them to Outreach."
   $launch = "$($BaseUrl.TrimEnd('/'))/listening"
-  $escape = { param($Text) [System.Security.SecurityElement]::Escape($Text) }
+  $escape = { param($Text) [System.Security.SecurityElement]::Escape((ConvertTo-ToastText $Text)) }
   $xml = "<toast activationType=`"protocol`" launch=`"$(& $escape $launch)`"><visual><binding template=`"ToastGeneric`">" +
     "<text>$(& $escape $title)</text><text>$(& $escape $body)</text></binding></visual></toast>"
   return [ordered]@{
@@ -259,10 +264,7 @@ function Invoke-LeadToast {
   $statePath = if ($LeadsStatePath) { $LeadsStatePath } else { Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) "data") "listening-notified.json" }
 
   $summary = Read-LeadSummary $LeadsJson $BaseUrl
-  if (-not $summary -or $null -eq $summary.leads) {
-    Write-HealthLog "Lead toast: the app did not answer /api/listening - nothing to do."
-    return $null
-  }
+  if (-not $summary -or $null -eq $summary.leads) { return $null }
 
   $state = Read-LeadState $statePath
   $decision = Get-LeadToastDecision -Summary $summary -State $state -Now $nowUtc -RepeatHours $LeadsRepeatHours

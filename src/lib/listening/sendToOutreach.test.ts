@@ -2,6 +2,7 @@ import { rm } from "node:fs/promises";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ListeningResult } from "@/lib/listening/model";
 import { sendHitToOutreach } from "@/lib/listening/outreach";
+import { DEFAULT_THREAD_TEMPLATE, renderOutreachTemplate } from "@/lib/outreach/model";
 import { readListeningStore, updateListeningStore } from "@/lib/listening/store";
 import { readOutreachStore, updateOutreachStore } from "@/lib/outreach/store";
 import { dataPath } from "@/lib/paths";
@@ -51,8 +52,11 @@ describe("Send to Outreach", () => {
       name: "dana on Reddit",
       url: "https://www.reddit.com/r/StructuralEngineering/comments/zzz111/revit_model_checking/",
       platform: "other",
+      kind: "thread",
+      topic: "r/StructuralEngineering: Revit model checking",
       status: "to-contact"
     });
+    expect(contact.recentVideo).toBeUndefined();
     expect(contact.fit).toContain("Asks for a tool that checks Revit models");
     expect(contact.angle).toMatch(/built CoLateral/i);
     expect(contact.notes).toContain("Revit model checking");
@@ -63,7 +67,7 @@ describe("Send to Outreach", () => {
     expect(stored.outreachContactId).toBe(contact.id);
   });
 
-  it("files a YouTube hit as a YouTube contact with the video attached", async () => {
+  it("files a YouTube hit as a YouTube thread contact, with no recent video for the template to claim to have watched", async () => {
     await seed(
       hit({
         id: "youtube-1",
@@ -77,8 +81,17 @@ describe("Send to Outreach", () => {
     await sendHitToOutreach("youtube-1");
 
     const [contact] = (await readOutreachStore()).contacts;
-    expect(contact).toMatchObject({ name: "Struct Dev on YouTube", platform: "youtube" });
-    expect(contact.recentVideo).toEqual({ title: "ETABS vs SAP2000 for a 12 storey frame", url: "https://www.youtube.com/watch?v=vid0001" });
+    expect(contact).toMatchObject({ name: "Struct Dev on YouTube", platform: "youtube", kind: "thread" });
+    expect(contact.recentVideo).toBeUndefined();
+    expect(renderOutreachTemplate(DEFAULT_THREAD_TEMPLATE, contact)).not.toMatch(/watch|your recent video/i);
+  });
+
+  it("strips the comment prefix from the topic of a YouTube comment", async () => {
+    await seed(hit({ id: "youtube-2", source: "youtube", title: "Comment on: ETABS vs SAP2000", url: "https://www.youtube.com/watch?v=vid0001&lc=UgxAAA", author: "Dana" }));
+    await sendHitToOutreach("youtube-2");
+    const [contact] = (await readOutreachStore()).contacts;
+    expect(contact.topic).toBe("ETABS vs SAP2000");
+    expect(renderOutreachTemplate(DEFAULT_THREAD_TEMPLATE, contact)).toContain('"ETABS vs SAP2000"');
   });
 
   it("names a hit with no author by its source", async () => {
@@ -113,6 +126,8 @@ describe("Send to Outreach", () => {
           name: "Dana (met at conf)",
           url: "HTTPS://WWW.REDDIT.COM/r/StructuralEngineering/comments/zzz111/revit_model_checking",
           platform: "other",
+          kind: "creator",
+          topic: "",
           approxAudience: "",
           fit: "",
           angle: "",

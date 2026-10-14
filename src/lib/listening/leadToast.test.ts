@@ -64,7 +64,7 @@ function run(leads: Lead[], atHours: number, flags: string[] = ["-NoToast"]): De
   return (JSON.parse(readFileSync(outPath, "utf8")) as Decision).leads;
 }
 
-describe.skipIf(process.platform !== "win32")("health-toast.ps1 decides when to toast new leads", () => {
+describe.skipIf(process.platform !== "win32")("health-toast.ps1 decides when to toast new leads", { timeout: 30_000 }, () => {
   beforeAll(() => {
     dir = mkdtempSync(path.join(os.tmpdir(), "lead-toast-"));
   });
@@ -164,6 +164,35 @@ describe.skipIf(process.platform !== "win32")("health-toast.ps1 decides when to 
 
     expect(decision.toast?.xml).toContain("&lt;b&gt;&amp;");
     expect(decision.toast?.xml).not.toContain("<b>");
+  });
+
+  it("strips control characters from a title before it reaches the toast markup, so the markup still parses", () => {
+    rmSync(statePath(), { force: true });
+
+    const decision = run([lead("a", "Need\u0001 help\u001b with\nETABS\u007f")], 0);
+
+    expect(decision.toast?.xml).toContain("Need help with ETABS");
+    expect(decision.toast?.xml).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/);
+    const xmlPath = path.join(dir, "toast.xml");
+    writeFileSync(xmlPath, decision.toast!.xml, "utf8");
+    expect(() =>
+      execFileSync("powershell.exe", ["-NoProfile", "-Command", `[xml](Get-Content -Raw -LiteralPath '${xmlPath}' -Encoding UTF8) | Out-Null`], { timeout: 30_000 })
+    ).not.toThrow();
+  });
+
+  it("writes nothing to the runner log on a tick that has nothing to say: no leads, or no answer from the app", () => {
+    const log = path.join(dir, "runner.log");
+    rmSync(log, { force: true });
+    rmSync(statePath(), { force: true });
+
+    run([], 0, ["-NoToast", "-Log", log]);
+    execFileSync(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SCRIPT, "-SkipHealth", "-BaseUrl", "http://127.0.0.1:9", "-LeadsStatePath", statePath(), "-Log", log, "-NoToast"],
+      { timeout: 60_000 }
+    );
+
+    expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe("");
   });
 
   it("treats an unreadable state file as empty instead of failing the tick", () => {

@@ -508,16 +508,26 @@ pauses the others.
 Public posts where someone describes a problem CoLateral solves, found on Hacker
 News, Reddit, YouTube and Bluesky. It reads and classifies; it never posts.
 
-- THE APP SCANS ITSELF. `schedule.ts` is started from `instrumentation.ts`,
-  checks every 10 minutes, and scans when the last scan is two hours old (so a
-  restart does not rescan). `runListeningScan` in `run.ts` is single-flight on a
+- THE APP SCANS ITSELF, IN PRODUCTION ONLY. `startListeningSchedule()` (called
+  from `instrumentation.ts`) does nothing unless `NODE_ENV === "production"` or
+  `LISTENING_SCHEDULE=1`, so `next dev` sandboxes never poll the real sources.
+  It checks every 10 minutes and scans when the last scan is two hours old, so a
+  restart does not rescan. `runListeningScan` in `run.ts` is single-flight on a
   `globalThis` promise: the page's "Scan now", the schedule and a CLI in the same
   process all join the scan already running. The CLI is a separate process and
   does not share that lock.
+- A FAILED SCAN STILL COUNTS AS A SCAN. A scan that throws writes
+  `lastScan = { at, sources: [], error }`, and the schedule also keeps the time
+  of the failure in memory for when the store itself is what broke, so the next
+  attempt is two hours later and not ten minutes later.
 - TWO FILES. Keywords, source switches and the schedule switch live in
-  `data/listening/config.json`; hits, the last scan and the YouTube quota ledger
-  live in `data/listening.json`. Defaults are in `defaults.ts`; if a brand-kit
-  module ever lands, derive them from it there, not by copying.
+  `data/listening/config.json` (versioned: `migrateConfig` switches YouTube off,
+  cuts groups to `MAX_TERMS_PER_GROUP` and keeps the structural group out of the
+  leads for a file saved before those rules; the first read also builds the file
+  from the keywords and switches of the old single-file Listening if
+  `data/listening.json` still holds them). Hits, the last scan, the YouTube
+  ledger and the Reddit cursor live in `data/listening.json`. Defaults are in
+  `defaults.ts`; if a brand-kit module ever lands, derive them from it there.
 - DEDUPE IS BY URL AND BY TEXT. `mergeResults` keeps one result for the same
   words posted on two sources (or two subreddits) and records the other places in
   `alsoOn`. A scan never resets a status, so a dismissed hit stays dismissed.
@@ -526,22 +536,37 @@ News, Reddit, YouTube and Bluesky. It reads and classifies; it never posts.
   heuristic for anything the model did not answer, so a dead model never stops a
   scan. A "high" lead is `category === "lead" && score >= 70 && status === "new"`
   (`leads.ts`), and the sidebar badge, the toast and the page all use that one
-  definition.
-- YOUTUBE COSTS QUOTA. `search.list` is 100 units and the daily 10,000 is shared
-  with uploads (1,600 each), so a scan makes at most two searches (terms batched
-  five to a query with `|`, rotating through them across scans) and three
-  comment lookups, and stops at `YOUTUBE_LISTENING_DAILY_UNITS` (default 400) per
-  Pacific day. Not connected, a spent budget and X are reported as `skipped`, which
-  is not a failed scan.
+  definition. A group with `canLead: false` (the structural engineering AI group)
+  can only produce a mention or a competitor hit: CoLateral does not market
+  itself as engineering software (`docs/colateral-messaging.md`), and the
+  classifier prompt follows that file.
+- YOUTUBE SPENDS THE UPLOAD QUOTA, SO IT IS OFF BY DEFAULT. `search.list` is 100
+  units out of the daily 10,000 that uploads share (about 1,700 each, and
+  `YOUTUBE_DAILY_UPLOAD_BUDGET` is 6). When switched on it makes one search per
+  scan, spread over the Pacific day, and stops at `YOUTUBE_LISTENING_DAILY_UNITS`
+  (default 100, which is one search and no comment lookups). The ledger in
+  `data/listening.json` is debited BEFORE each request, by a change applied to
+  the stored value inside the store lock (`ledger.ts`), never by writing back a
+  copy read when the scan began, so a crash after the fetch still counts and a
+  second writer is not overwritten. The publish runner subtracts the ledger from
+  the day's upload budget (`remainingYoutubeUploads`, rounding up to whole uploads
+  at about 1,700 units). Not connected, a spent budget, pacing and X are reported
+  as `skipped`, which is not a failed scan.
+- REDDIT IS SLOW ON PURPOSE. Requests are 6 seconds apart, a scan searches 8
+  terms and carries on from where the last scan stopped (`redditCursor`, advanced
+  by a delta), and a `Retry-After` of 30 seconds or less is waited out once;
+  longer, or a second refusal, ends Reddit's part of the scan.
 - BLUESKY needs no sign-in, but `public.api.bsky.app` answered 403 from this
   network while `api.bsky.app` answered 200, so the scan tries `api.bsky.app` first
   and moves to the other host on a 401 or 403. Authors who set `!no-unauthenticated`
   are skipped.
 - X has no code: its search needs a paid API. The source exists so the page can
   say so.
-- "Send to Outreach" (`outreach.ts`) files the hit as an Outreach contact and sets
-  the hit to `sent-to-outreach`. It reuses a contact already on that url instead
-  of overwriting what was written on it.
+- "Send to Outreach" (`outreach.ts`) files the hit as an Outreach contact of kind
+  `thread`, with the post's title as `topic` and no `recentVideo`, so it uses the
+  thread template (which claims to have watched nothing) rather than the creator
+  template. It reuses a contact already on that url instead of overwriting what
+  was written on it.
 
 ## Launch Pad (`src/lib/launch`)
 
