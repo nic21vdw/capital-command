@@ -137,10 +137,11 @@ describe("tiktok consent", () => {
     expect(consentProblem({ ...unagreed, consentedAt: CONSENTED_AT }, CREATOR)).toBeNull();
   });
 
-  it("refuses a video longer than the account may post", () => {
-    expect(consentProblem(ready(), CREATOR, 601)).toBe(
-      "This clip is 601s long and this TikTok account can post videos up to 600s."
+  it("refuses a video longer than the account may post, allowing a second for container rounding", () => {
+    expect(consentProblem(ready(), CREATOR, 602)).toBe(
+      "This clip is 602s long and this TikTok account can post videos up to 600s."
     );
+    expect(consentProblem(ready(), CREATOR, 601)).toBeNull();
     expect(consentProblem(ready(), CREATOR, 600)).toBeNull();
     expect(consentProblem(ready(), { ...CREATOR, maxVideoSeconds: null }, 9999)).toBeNull();
   });
@@ -171,6 +172,7 @@ describe("tiktok consent", () => {
     );
     expect(consentBlocker(answered, { status: "ready", info: CREATOR })).toBeNull();
     expect(consentBlocker(answered, { status: "ready", info: CREATOR }, 700)).toMatch(/up to 600s/);
+    expect(consentBlocker(answered, { status: "ready", info: CREATOR }, 601)).toBeNull();
   });
 
   it("drops an answer the creator's settings no longer allow", () => {
@@ -231,6 +233,52 @@ describe("tiktok consent", () => {
     const banned = await fetchCreatorPostingInfo("tt-at").catch((thrown: unknown) => thrown);
     expect(banned).toBeInstanceOf(CreatorCannotPostError);
     expect((banned as CreatorCannotPostError).retryAfterMinutes).toBeNull();
+  });
+
+  it("reads the same refusals when TikTok sends them as a 4xx instead of a 200", async () => {
+    const refuse = (status: number, code: string) =>
+      mockFetchRoutes([
+        {
+          match: "/v2/post/publish/creator_info/query/",
+          respond: () => jsonResponse({ data: {}, error: { code, message: code } }, { status })
+        }
+      ]);
+    const fail = () => fetchCreatorPostingInfo("tt-at").catch((thrown: unknown) => thrown);
+
+    refuse(400, "reached_active_user_cap");
+    const capped = await fail();
+    expect(capped).toBeInstanceOf(CreatorCannotPostError);
+    expect((capped as CreatorCannotPostError).code).toBe("reached_active_user_cap");
+    expect((capped as CreatorCannotPostError).retryAfterMinutes).toBe(60);
+
+    refuse(403, "spam_risk_user_banned_from_posting");
+    const banned = await fail();
+    expect(banned).toBeInstanceOf(CreatorCannotPostError);
+    expect((banned as CreatorCannotPostError).retryAfterMinutes).toBeNull();
+
+    refuse(429, "rate_limit_exceeded");
+    const limited = await fail();
+    expect(limited).toBeInstanceOf(CreatorCannotPostError);
+    expect((limited as CreatorCannotPostError).retryAfterMinutes).toBe(60);
+    expect((limited as Error).message).toMatch(/try again later/i);
+
+    refuse(400, "something_else_entirely");
+    const unknown = await fail();
+    expect(unknown).not.toBeInstanceOf(CreatorCannotPostError);
+  });
+
+  it("treats a rate limit in a 200 body as a wait, not a failure", async () => {
+    mockFetchRoutes([
+      {
+        match: "/v2/post/publish/creator_info/query/",
+        respond: () => jsonResponse({ data: {}, error: { code: "rate_limit_exceeded", message: "slow down" } })
+      }
+    ]);
+
+    const error = await fetchCreatorPostingInfo("tt-at").catch((thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(CreatorCannotPostError);
+    expect((error as CreatorCannotPostError).retryAfterMinutes).toBe(60);
   });
 
   it("returns the avatar and the longest video the account may post", async () => {

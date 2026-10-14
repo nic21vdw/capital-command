@@ -1,9 +1,10 @@
 import { open, stat } from "node:fs/promises";
+import path from "node:path";
 import { probeVideoStream } from "@/lib/clipping/ffmpeg";
 import { noteRefreshAccepted, noteRefreshRejected } from "@/lib/platform-health/refresh";
 import { itemAccountId, primaryAccountId, tiktokRefreshTokenKey } from "@/lib/publisher/accounts";
 import { publisherConfig } from "@/lib/publisher/config";
-import { PermanentError, StillProcessingError, ThrottledError, fetchJson, fetchRaw } from "@/lib/publisher/http";
+import { PermanentError, StillProcessingError, fetchJson, fetchRaw } from "@/lib/publisher/http";
 import { IMAGE_REFUSALS, isImagePost } from "@/lib/publisher/images";
 import { composeCaption } from "@/lib/publisher/metadata";
 import {
@@ -13,6 +14,7 @@ import {
   fetchCreatorPostingInfo,
   reconcileWithCreator
 } from "@/lib/publisher/tiktokPost";
+import { BANNED_CODE, throttleFor } from "@/lib/publisher/tiktokThrottle";
 import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
 import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/lib/publisher/types";
@@ -49,6 +51,7 @@ import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/l
 const API_BASE = "https://open.tiktokapis.com/v2";
 const POLL_INTERVAL_MS = 10_000;
 const MAX_POLLS_PER_RUN = 24;
+const DURATION_PROBE_TIMEOUT_MS = 10_000;
 
 // FILE_UPLOAD chunking rules: each chunk must be 5 MB – 64 MB, and the final
 // chunk may absorb the trailing remainder (up to 128 MB). Whole files under
@@ -59,45 +62,6 @@ const SINGLE_CHUNK_MAX = 64 * 1024 * 1024;
 const CHUNK_SIZE = 32 * 1024 * 1024;
 
 type TiktokEnvelope<T> = { data?: T; error?: { code?: string; message?: string } };
-
-/**
- * Refusals that mean "not now" rather than "not ever". TikTok returns them as
- * HTTP 400, which the shared classifier reads as a caller mistake and the
- * runner then records as a permanent failure — so a clip that TikTok would
- * have taken the next morning was being thrown away instead. Each maps to how
- * long the wall actually stands for.
- *
- * spam_risk_too_many_pending_share is the one that fires here: the inbox flow
- * leaves every clip waiting for a tap in the TikTok app, and TikTok stops
- * accepting new ones long before the creator clears the backlog.
- */
-const THROTTLE_MINUTES: Record<string, number> = {
-  spam_risk_too_many_pending_share: 360,
-  spam_risk_too_many_posts: 720,
-  rate_limit_exceeded: 60,
-  reached_active_user_cap: 60
-};
-
-const THROTTLE_ADVICE: Record<string, string> = {
-  spam_risk_too_many_pending_share:
-    "TikTok is holding as many unfinished uploads as it will — open the TikTok app and post or discard the clips waiting in your inbox.",
-  spam_risk_too_many_posts: "TikTok's posting limit for the day is spent.",
-  rate_limit_exceeded: "TikTok is rate limiting this app.",
-  reached_active_user_cap: "TikTok's daily cap for this app is spent."
-};
-
-/** A ThrottledError if the refusal was one that time clears, else null. */
-function throttleFor(text: string, label: string): ThrottledError | null {
-  for (const [code, minutes] of Object.entries(THROTTLE_MINUTES)) {
-    if (!text.includes(code)) continue;
-    const hours = minutes / 60;
-    return new ThrottledError(
-      minutes,
-      `${label} refused: ${THROTTLE_ADVICE[code]} Trying again in ${hours} hour${hours === 1 ? "" : "s"} — the clip keeps its place.`
-    );
-  }
-  return null;
-}
 
 function assertOk<T>(payload: TiktokEnvelope<T>, label: string): T {
   const code = payload.error?.code;
@@ -284,7 +248,7 @@ async function uploadChunks(uploadUrl: string, localPath: string, size: number):
   }
 }
 
-async function pollStatus(publishId: string, token: string): Promise<PostResult> {
+async function pollStatus(publishId: string, token: string, direct: boolean): Promise<PostResult> {
   for (let poll = 0; poll < MAX_POLLS_PER_RUN; poll += 1) {
     const payload = await fetchJson<TiktokEnvelope<{ status?: string; publicaly_available_post_id?: number[]; fail_reason?: string }>>(
       `${API_BASE}/post/publish/status/fetch/`,
@@ -313,7 +277,7 @@ async function pollStatus(publishId: string, token: string): Promise<PostResult>
         status: "published",
         postId: postId ? String(postId) : publishId,
         containerId: publishId,
-        detail: `Posted to TikTok. ${PROCESSING_NOTICE}`
+        detail: direct ? `Posted to TikTok. ${PROCESSING_NOTICE}` : "PUBLISH_COMPLETE"
       };
     }
     if (data.status === "FAILED") {
@@ -325,10 +289,19 @@ async function pollStatus(publishId: string, token: string): Promise<PostResult>
 }
 
 async function clipDurationSec(localPath: string): Promise<number | null> {
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), DURATION_PROBE_TIMEOUT_MS);
   try {
-    return (await probeVideoStream(localPath)).durationSec;
-  } catch {
+    return (await probeVideoStream(localPath, { signal: timeout.signal })).durationSec;
+  } catch (error) {
+    console.warn(
+      `[tiktok] could not read the duration of ${path.basename(localPath)}, skipping the duration check: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -340,8 +313,8 @@ async function clipDurationSec(localPath: string): Promise<number | null> {
  */
 async function withCurrentCreatorSettings(input: PublishInput, token: string): Promise<PublishInput> {
   const info = await fetchCreatorPostingInfo(token).catch((error: unknown) => {
-    if (error instanceof CreatorCannotPostError && error.retryAfterMinutes !== null) {
-      throw new ThrottledError(error.retryAfterMinutes, error.message);
+    if (error instanceof CreatorCannotPostError && error.code !== BANNED_CODE) {
+      throw throttleFor(error.code, "TikTok creator info") ?? error;
     }
     throw error;
   });
@@ -394,7 +367,7 @@ export const tiktokAdapter: PlatformAdapter = {
 
     // Resume: if a previous run already initialized/uploaded, just poll.
     const pending = input.item.platforms.tiktok?.containerId;
-    if (pending) return pollStatus(pending, token);
+    if (pending) return pollStatus(pending, token, !inboxFlow(input));
 
     // TikTok requires creator_info immediately before a direct post, and it is
     // the only way to know the creator has not turned an interaction off since
@@ -421,6 +394,6 @@ export const tiktokAdapter: PlatformAdapter = {
       if (!init.upload_url) throw new PermanentError("TikTok publish init returned no upload_url for FILE_UPLOAD.");
       await uploadChunks(init.upload_url, input.localPath, size);
     }
-    return pollStatus(init.publish_id, token);
+    return pollStatus(init.publish_id, token, !inboxFlow(input));
   }
 };

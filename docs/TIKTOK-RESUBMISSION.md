@@ -22,7 +22,9 @@ three say *internal tool* on their own.
 An audit against TikTok's current
 [Content Sharing Guidelines](https://developers.tiktok.com/doc/content-sharing-guidelines)
 (Direct Post, "Required UX Implementation in Your App"), read on 2026-10-13, found
-the consent panel was most of the way there and still short on thirteen of the twenty-one rows below.
+the consent panel was most of the way there and still short on eleven of the eighteen TikTok
+requirements in the table below. Three more rows, marked *ours*, are extras this app adds on its
+own and are not TikTok rules; two of those were short too.
 The earlier claim in this file that all seven rows "hold" was checked against the
 panel and not against the guidelines' own wording, which is how the Music Usage
 Confirmation, the avatar, the duration limit and the explicit-consent step were
@@ -36,25 +38,25 @@ Line numbers in **Before** are at `fcce94ac` (`main` when this work started);
 |---|---|---|---|---|
 | 1 | Latest `creator_info` read when the Post to TikTok panel renders (1a) | `tiktok-consent.tsx:38-59` asked once per account per page load and kept the answer until reload | partial | `use-tiktok-creator-info.ts:11,33` reuses an answer for 30 s only (the endpoint allows 20 calls a minute per token), so each panel render is fresh |
 | 2 | Creator's nickname shown (1a) | `tiktok-consent.tsx:177` "Posting to {nickname} (@handle)"; `account-switcher.tsx:84-91` | done | `tiktok-consent.tsx:166` |
-| 3 | Creator's avatar shown | `creator_avatar_url` was parsed (`tiktokPost.ts:48,75`) and never drawn in the panel; only the switcher showed the mirrored copy | missing | `tiktok-consent.tsx:159-161` draws the link `creator_info` just returned (it expires after 2 hours, hence row 1), with an icon if there is none |
-| 4 | Stop and say "try again later" when the account cannot post right now (1b) | `tiktokPost.ts:63-82` never read `error.code` in the 200 body, so `spam_risk_too_many_posts`, `reached_active_user_cap` and `spam_risk_user_banned_from_posting` read as an empty account | missing | `tiktokPost.ts:34-48,96-108` raise `CreatorCannotPostError`; `adapters/tiktok.ts:341-346` defers 12 h or 1 h, or fails for good when banned; `creator-info/route.ts:26-31` answers 429 or 403; the panel says so at `tiktok-consent.tsx:152` |
-| 5 | Clip length held to `max_video_post_duration_sec` (1c) | read into `maxVideoSeconds` (`tiktokPost.ts:80`) and used nowhere | missing | `tiktokPost.ts:165` for the panel and Schedule (`clip-card.tsx:347`, using the clip's length); `adapters/tiktok.ts:327-349` measures the real file with ffmpeg at post time |
+| 3 | Creator's avatar shown (*ours*, not a TikTok rule) | `creator_avatar_url` was parsed (`tiktokPost.ts:48,75`) and never drawn in the panel; only the switcher showed the mirrored copy | missing | `tiktok-consent.tsx:159-161` draws the link `creator_info` just returned (it expires after 2 hours, hence row 1), with an icon if there is none |
+| 4 | Stop and say "try again later" when the account cannot post right now (1b) | `tiktokPost.ts:63-82` never read `error.code` in the 200 body, so `spam_risk_too_many_posts`, `reached_active_user_cap` and `spam_risk_user_banned_from_posting` read as an empty account | missing | `tiktokPost.ts:36-51,97-105` raise `CreatorCannotPostError` for the three codes and for `rate_limit_exceeded`, whether TikTok sends them in a 200 body or as a 4xx; the wait times come from the one table in `tiktokThrottle.ts`, shared with the inbox flow; `adapters/tiktok.ts:314-319` turns them into the runner's deferral (12 h, or 1 h for the quota and the rate limit) through `throttleFor`, and fails for good when banned; `creator-info/route.ts:26-31` answers 429 or 403; the panel says so at `tiktok-consent.tsx:152` |
+| 5 | Clip length held to `max_video_post_duration_sec` (1c) | read into `maxVideoSeconds` (`tiktokPost.ts:80`) and used nowhere | missing | `tiktokPost.ts:163` for the panel and Schedule (`clip-card.tsx:347`, using the clip's length), allowing 1 s for container rounding; `adapters/tiktok.ts:291-308` measures the real file with ffmpeg at post time, gives the probe 10 s, and logs and skips the check if it fails or times out |
 | 6 | A title the user can enter or edit (2a) | `clip-card.tsx:450-463` title box and `:525` caption box; sent as the TikTok title by `adapters/tiktok.ts:221-238` | done | unchanged |
-| 7 | Privacy dropdown from `privacy_level_options`, no default (2b) | `tiktok-consent.tsx:181-195` opens on "Who can see this post…" | partial: with an empty list from TikTok it fell back to all four audiences (`:125-128`) and the offered-audience check was skipped (`tiktokPost.ts:104`) | the dropdown lists only what TikTok returned (`tiktok-consent.tsx:181`); an empty list is a blocker (`tiktokPost.ts:153`) |
+| 7 | Privacy dropdown from `privacy_level_options`, no default (2b) | `tiktok-consent.tsx:181-195` opens on "Who can see this post…" | partial: with an empty list from TikTok it fell back to all four audiences (`:125-128`) and the offered-audience check was skipped (`tiktokPost.ts:104`) | the dropdown lists only what TikTok returned (`tiktok-consent.tsx:181`); an empty list is a blocker (`tiktokPost.ts:151`) |
 | 8 | Comment, Duet, Stitch off by default; greyed out where `creator_info` disables them (2c) | `tiktok-consent.tsx:197-219`; defaults in `tiktokPost.ts:85-94`; `disable_*` sent unless ticked, `adapters/tiktok.ts:233-235`; stale answers dropped by `reconcileWithCreator` | done | unchanged |
 | 9 | Content disclosure switch off by default; "Your brand" and "Branded content" tick boxes, either or both (3a) | `tiktok-consent.tsx:221-239` | partial: switching it on ticked "Your brand" for the creator (`:224`), so "on with nothing chosen" could not exist | new `disclosure` flag (`types.ts:129`); `tiktok-consent.tsx:215-240` switching on ticks nothing |
-| 10 | Label text: 'Promotional content', 'Paid partnership', both gives 'Paid partnership' (3a) | `tiktok-consent.tsx:242` "Your post will be labelled …" | partial: wording | `tiktokPost.ts:213` returns TikTok's sentence; shown at `tiktok-consent.tsx:242` |
-| 11 | Publish disabled while the switch is on and nothing is ticked, hover text "You need to indicate if your content promotes yourself, a third party, or both." (3a) | not expressible, see row 9 | missing | `tiktokPost.ts:168`, so Schedule's tooltip (`clip-card.tsx:598-603`), `route.ts:179` (400) and the adapter all carry it |
-| 12 | Branded content cannot be private: disable "Only you" with hover text, or switch the audience (3b) | `tiktokPost.ts:107` returned a message; nothing was disabled | partial | `tiktokPost.ts:189` disables "Only you" with "Branded content visibility cannot be set to private." (`tiktok-consent.tsx:181-188`); `:193` disables "Branded content" while "Only you" is chosen |
-| 13 | Declaration before the publish button: Music Usage Confirmation always, plus Branded Content Policy when Branded content is ticked (2, 4) | `tiktokPost.ts:120-126` returned nothing unless a disclosure was on | partial: absent on an undisclosed post | `tiktokPost.ts:202` always returns one; `tiktok-consent.tsx:76-89,244` shows it with links to TikTok's two pages |
+| 10 | Label text: 'Promotional content', 'Paid partnership', both gives 'Paid partnership' (3a) | `tiktok-consent.tsx:242` "Your post will be labelled …" | partial: wording | `tiktokPost.ts:211` returns TikTok's sentence; shown at `tiktok-consent.tsx:242` |
+| 11 | Publish disabled while the switch is on and nothing is ticked, hover text "You need to indicate if your content promotes yourself, a third party, or both." (3a) | not expressible, see row 9 | missing | `tiktokPost.ts:166`, so Schedule's tooltip (`clip-card.tsx:598-603`), `route.ts:179` (400) and the adapter all carry it |
+| 12 | Branded content cannot be private: disable "Only you" with hover text, or switch the audience (3b) | `tiktokPost.ts:107` returned a message; nothing was disabled | partial | `tiktokPost.ts:187` disables "Only you" with "Branded content visibility cannot be set to private." (`tiktok-consent.tsx:181-188`); `:191` disables "Branded content" while "Only you" is chosen |
+| 13 | Declaration before the publish button: Music Usage Confirmation always, plus Branded Content Policy when Branded content is ticked (2, 4) | `tiktokPost.ts:120-126` returned nothing unless a disclosure was on | partial: absent on an undisclosed post | `tiktokPost.ts:200` always returns one; `tiktok-consent.tsx:76-89,244` shows it with links to TikTok's two pages |
 | 14 | Preview of the content to be posted (5a) | `clip-card.tsx:437-443` with `clip-preview.tsx:23`: plays on hover, opens a player on click | done | unchanged |
 | 15 | No promotional watermark; preset text editable (5b) | Clip Editor watermark is opt-in, off by default (`clipping/export.ts:196`, `clipping/types.ts:55`); title and caption editable | done | unchanged. Leave the Clip Editor's Watermark off on any clip bound for Direct Post |
-| 16 | Nothing sent to TikTok until the user explicitly consents (5c) | `tiktok-consent.tsx:152` stamped `consentedAt` when the radio was selected, and nothing read it (`route.ts:178`, `adapters/tiktok.ts:329`) | partial: a timestamp for a click on a radio button | `tiktok-consent.tsx:246-258` an unticked box stamps `consentedAt`; changing any answer clears it (`:114`); refused without it by `tiktokPost.ts:169`, by `route.ts:179` and by the adapter before it reads `creator_info` or uploads a byte |
-| 17 | Tell the user it can take a few minutes to appear on their profile (5d) | nothing | missing | `tiktokPost.ts:29`, shown at `tiktok-consent.tsx:260` and in the published result (`adapters/tiktok.ts:316`) |
+| 16 | Nothing sent to TikTok until the user explicitly consents (5c) | `tiktok-consent.tsx:152` stamped `consentedAt` when the radio was selected, and nothing read it (`route.ts:178`, `adapters/tiktok.ts:329`) | partial: a timestamp for a click on a radio button | `tiktok-consent.tsx:246-258` an unticked box stamps `consentedAt`; changing any answer clears it (`:114`); refused without it by `tiktokPost.ts:167`, by `route.ts:179` (400) and by the adapter. The adapter reads `creator_info` and measures the clip first (`adapters/tiktok.ts:314-322`), then refuses before the init call, so no video byte leaves |
+| 17 | Tell the user it can take a few minutes to appear on their profile (5d) | nothing | missing | `tiktokPost.ts:31`, shown at `tiktok-consent.tsx:260` and in a direct post's published result (`adapters/tiktok.ts:280`); the inbox flow's status line is unchanged |
 | 18 | Status polled so the user can follow the post (5e) | `adapters/tiktok.ts:280-318`: 24 polls ten seconds apart, then resumes on the next run | done | unchanged |
-| 19 | Schedule stays disabled until every answer is in | `clip-card.tsx:344,588` checked the answers without `creator_info`, so it was enabled while the lookup was loading or had failed | partial | `tiktokPost.ts:178` holds the button until `creator_info` has answered; `clip-card.tsx:346-347` |
-| 20 | `creator_info` queried before every direct post | `adapters/tiktok.ts:326-337`, called at `:383` | done | `adapters/tiktok.ts:341-349`, called at `:403` |
-| 21 | Inbox draft route under the sandbox key keeps working | `adapters/tiktok.ts:190-196` | done | untouched; `adapters/tiktok.test.ts` "leaves the inbox flow exactly as it was" asserts no `creator_info` call, no duration probe and no consent needed |
+| 19 | Schedule stays disabled until every answer is in (*ours*, not a TikTok rule) | `clip-card.tsx:344,588` checked the answers without `creator_info`, so it was enabled while the lookup was loading or had failed | partial | `tiktokPost.ts:176` holds the button until `creator_info` has answered; `clip-card.tsx:346-347` |
+| 20 | `creator_info` queried before every direct post | `adapters/tiktok.ts:326-337`, called at `:383` | done | `adapters/tiktok.ts:314-322`, called at `:376` |
+| 21 | Inbox draft route under the sandbox key keeps working (*ours*, not a TikTok rule) | `adapters/tiktok.ts:190-196` | done | untouched; `adapters/tiktok.test.ts` "leaves the inbox flow exactly as it was" asserts no `creator_info` call, no duration probe and no consent needed |
 
 Rules that are enforced three times on purpose (panel, `/api/publish`, adapter),
 because the browser may not be the only place TikTok's rules hold: audience must
@@ -78,7 +80,7 @@ Still open, and not fixable in code:
 - The panel's amber line says a wider-than-private audience goes to the inbox
   until the app is approved. The Schedule button does not enforce that: a post
   booked wider than "Only you" is refused by the adapter at its slot
-  (`adapters/tiktok.ts:351-355`). The demo script books "Only you" for that
+  (`adapters/tiktok.ts:324-328`). The demo script books "Only you" for that
   reason.
 - Under the sandbox key, TikTok refuses Direct Post unless the target account is
   itself private, whatever the panel does. Shot 12 of the demo script films that
@@ -137,7 +139,7 @@ column that is not true yet.**
 | "Creators connect their accounts" (plural, one install) | **yes** | Each account has its own `tiktok.refreshToken.<accountId>` entry, its own cached profile and its own mirrored avatar; the adapter refreshes with the token belonging to the account the clip is booked to. Connecting a second profile leaves the first alone. |
 | "The creator picks privacy, interactions and disclosure before posting" | **yes** | The consent panel, and enforced again server-side. |
 | "We query `creator_info` before every direct post" | **yes** | `withCurrentCreatorSettings()` in the adapter. |
-| "Nothing is sent to TikTok until the creator ticks a consent box" | **yes** | The panel's consent box; refused without it by the panel, `/api/publish` and the adapter. Row 16 of the gap table. |
+| "Nothing is posted to the creator's profile until they tick a consent box" | **yes** | Direct posts only: the panel's consent box, refused without it by the panel, `/api/publish` and the adapter (row 16 of the gap table). A clip sent to the inbox is a draft and needs no box; the creator finishes it in TikTok. |
 | "Clips post automatically at a scheduled time" | **yes** | The publish runner does this today for YouTube, Instagram, Facebook and Threads; TikTok is inbox-only until approval. |
 | "Open source" | **yes** | `nic21vdw/capital-command` is public, and the product page links straight to it from "Read the source" and the footer, so a reviewer can check the claim in one click instead of taking it on trust. |
 | "Hosted at the registered address" | **yes** | `site/` is served by GitHub Pages at `https://nic21vdw.github.io/capital-command/`, deployed by `.github/workflows/pages.yml` on every push that touches `site/`. |
@@ -161,8 +163,8 @@ column that is not true yet.**
    only one. Under the self-hosted framing that is consistent rather than
    suspicious: the callback runs on the creator's own machine.
 4. ~~**The Direct Post consent panel built.**~~ Done, and then audited against
-   TikTok's own guideline wording on 2026-10-13: thirteen of twenty-one rows were
-   short and are fixed. See the gap table above.
+   TikTok's own guideline wording on 2026-10-13: eleven of eighteen TikTok
+   requirements were short and are fixed. See the gap table above.
 5. ~~**Decide the open-source claim.**~~ Done — the repository is public, so
    "Open source · self-hosted" is true, and the page links to the source. What
    made this safe to do: `.env` was never committed, `data/` tracks only

@@ -425,10 +425,12 @@ gap table; keep it true when the panel changes.
 - `creator_info` is limited to 20 calls a minute per token, so the panel reuses
   an answer for 30 seconds (`use-tiktok-creator-info.ts`) and no longer. Its
   avatar link expires after two hours.
-- A 200 response with an `error.code` in the body is a refusal. `creator_info`
-  answers `spam_risk_too_many_posts`, `reached_active_user_cap` and
-  `spam_risk_user_banned_from_posting` that way; they surface as
-  `CreatorCannotPostError` and the adapter defers or fails instead of posting.
+- A refusal can arrive as a 200 with an `error.code` in the body or as a 4xx;
+  `creator_info` does both for `spam_risk_too_many_posts`,
+  `reached_active_user_cap`, `rate_limit_exceeded` and
+  `spam_risk_user_banned_from_posting`. All surface as `CreatorCannotPostError`;
+  the adapter defers through `throttleFor` or, for the ban, fails. The wait times
+  live once, in `tiktokThrottle.ts`, shared with the inbox flow.
 - The inbox flow (no `item.tiktok`) must stay byte-for-byte what it was: no
   `creator_info` call, no duration probe, no consent. It is the only route open
   to the sandbox key.

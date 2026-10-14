@@ -1,4 +1,5 @@
 import { PermanentError, fetchJson } from "@/lib/publisher/http";
+import { BANNED_CODE, THROTTLE_ADVICE, THROTTLE_MINUTES, throttleCode } from "@/lib/publisher/tiktokThrottle";
 import type { TiktokPostOptions, TiktokPrivacyLevel } from "@/lib/publisher/types";
 
 /**
@@ -18,6 +19,7 @@ import type { TiktokPostOptions, TiktokPrivacyLevel } from "@/lib/publisher/type
  * an unaudited app is allowed to use it at all.
  */
 
+const DURATION_TOLERANCE_SEC = 1;
 const CREATOR_INFO_URL = "https://open.tiktokapis.com/v2/post/publish/creator_info/query/";
 
 export const MUSIC_USAGE_DECLARATION = "By posting, you agree to TikTok's Music Usage Confirmation.";
@@ -31,20 +33,21 @@ export const PROCESSING_NOTICE =
 export const TIKTOK_MUSIC_USAGE_URL = "https://www.tiktok.com/legal/page/global/music-usage-confirmation/en";
 export const TIKTOK_BRANDED_CONTENT_URL = "https://www.tiktok.com/legal/page/global/bc-policy/en";
 
-const CANNOT_POST_NOW: Record<string, { minutes: number | null; reason: string }> = {
-  spam_risk_too_many_posts: { minutes: 720, reason: "it has reached TikTok's daily post limit" },
-  reached_active_user_cap: { minutes: 60, reason: "this app has used up its TikTok quota for the day" },
-  spam_risk_user_banned_from_posting: { minutes: null, reason: "TikTok has banned it from posting" }
-};
-
 export class CreatorCannotPostError extends PermanentError {
-  constructor(
-    readonly code: string,
-    readonly retryAfterMinutes: number | null,
-    message: string
-  ) {
-    super(message);
+  readonly retryAfterMinutes: number | null;
+
+  constructor(readonly code: string) {
+    super(
+      code === BANNED_CODE
+        ? "TikTok will not let this account post: it has been banned from posting."
+        : `This account cannot post to TikTok right now: ${THROTTLE_ADVICE[code]} Try again later.`
+    );
+    this.retryAfterMinutes = THROTTLE_MINUTES[code] ?? null;
   }
+}
+
+function cannotPostCode(text: string): string | null {
+  return text.includes(BANNED_CODE) ? BANNED_CODE : throttleCode(text);
 }
 
 export const TIKTOK_PRIVACY_LABELS: Record<TiktokPrivacyLevel, string> = {
@@ -91,19 +94,14 @@ export async function fetchCreatorPostingInfo(accessToken: string): Promise<Tikt
   const payload = await fetchJson<CreatorInfoResponse>(CREATOR_INFO_URL, {
     label: "TikTok creator info",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json; charset=UTF-8" }
+  }).catch((error: unknown) => {
+    const refused = error instanceof Error ? cannotPostCode(error.message) : null;
+    throw refused ? new CreatorCannotPostError(refused) : error;
   });
   const code = payload.error?.code;
   if (code && code !== "ok") {
-    const blocked = CANNOT_POST_NOW[code];
-    if (blocked) {
-      throw new CreatorCannotPostError(
-        code,
-        blocked.minutes,
-        blocked.minutes === null
-          ? `TikTok will not let this account post: ${blocked.reason}.`
-          : `This account cannot post to TikTok right now: ${blocked.reason}. Try again later.`
-      );
-    }
+    const refused = cannotPostCode(code);
+    if (refused) throw new CreatorCannotPostError(refused);
     throw new PermanentError(`TikTok creator info returned error ${code}: ${payload.error?.message ?? ""}`.trim());
   }
   const data = payload.data ?? {};
@@ -162,7 +160,7 @@ export function consentProblem(
   if (info?.commentDisabled && options.allowComment) return "This account has comments turned off in TikTok.";
   if (info?.duetDisabled && options.allowDuet) return "This account has Duet turned off in TikTok.";
   if (info?.stitchDisabled && options.allowStitch) return "This account has Stitch turned off in TikTok.";
-  if (info?.maxVideoSeconds && clipDurationSec && clipDurationSec > info.maxVideoSeconds) {
+  if (info?.maxVideoSeconds && clipDurationSec && clipDurationSec > info.maxVideoSeconds + DURATION_TOLERANCE_SEC) {
     return `This clip is ${Math.round(clipDurationSec)}s long and this TikTok account can post videos up to ${info.maxVideoSeconds}s.`;
   }
   if (disclosureOn(options) && !options.brandOrganic && !options.brandedContent) return DISCLOSURE_REQUIRED_HINT;

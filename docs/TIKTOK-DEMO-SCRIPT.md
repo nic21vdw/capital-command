@@ -200,9 +200,9 @@ The calendar with clips in future slots.
 
 | TikTok guideline | Shot |
 |---|---|
-| 1a Latest creator info; creator's nickname (and avatar) shown | 5 |
-| 1b Stop if the creator cannot post right now | not filmable; the panel says "…cannot post to TikTok right now… Try again later." (`tiktokPost.ts:96-108`), covered by `tiktokPost.test.ts` |
-| 1c Video length against `max_video_post_duration_sec` | 5 shows the limit; enforcement is in `tiktokPost.ts:165` and `adapters/tiktok.ts:327-349` |
+| 1a Latest creator info; creator's nickname shown | 5 |
+| 1b Stop if the creator cannot post right now | not filmable; the panel says "…cannot post to TikTok right now… Try again later." (`tiktokPost.ts:95-105`), covered by `tiktokPost.test.ts` |
+| 1c Video length against `max_video_post_duration_sec` | 5 shows the limit; enforcement is in `tiktokPost.ts:163` and `adapters/tiktok.ts:291-322` |
 | 2a Title can be entered or edited | 4 |
 | 2b Privacy options from creator_info, no default | 6, 7 |
 | 2c Comment, Duet, Stitch off, greyed out where disabled | 6, 8 |
@@ -215,7 +215,12 @@ The calendar with clips in future slots.
 | 5c Nothing sent until explicit consent | 10, 11 |
 | 5d Processing-time notice | 10 |
 | 5e Status polling | 12 |
-| `user.info.basic`, `video.publish`, `video.upload` | 3, 5 to 12, 13 |
+| `user.info.basic`, `video.publish`, `video.upload` (app review, not the Direct Post guidelines) | 3, 5 to 12, 13 |
+
+These are on screen too, but they are this app's own choices and not TikTok rules, so
+do not describe them to the reviewer as requirements: the creator's avatar beside the
+nickname (shot 5), Schedule held until `creator_info` has answered (shot 5), and the
+inbox draft route (shot 13).
 
 ## After the take
 

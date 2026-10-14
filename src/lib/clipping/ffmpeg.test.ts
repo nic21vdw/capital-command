@@ -1,5 +1,25 @@
-import { describe, expect, it } from "vitest";
-import { parseVideoStreamInfo } from "@/lib/clipping/ffmpeg";
+import { EventEmitter } from "node:events";
+import { describe, expect, it, vi } from "vitest";
+import { RenderCanceledError, parseVideoStreamInfo, probeVideoStream } from "@/lib/clipping/ffmpeg";
+
+const spawned = vi.hoisted(() => ({ calls: 0, kills: 0, child: null as null | { emit: (event: string, ...args: unknown[]) => boolean } }));
+
+vi.mock("node:child_process", () => ({
+  spawn: () => {
+    spawned.calls += 1;
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new EventEmitter(),
+      stderr: new EventEmitter(),
+      kill: () => {
+        spawned.kills += 1;
+        child.emit("close", null);
+        return true;
+      }
+    });
+    spawned.child = child;
+    return child;
+  }
+}));
 
 /** Parsing of `ffmpeg -i` stderr into display dimensions and duration. */
 
@@ -42,5 +62,36 @@ describe("parseVideoStreamInfo", () => {
   it("reads fractional source cadence rather than the nominal tbr", () => {
     const info = parseVideoStreamInfo(LANDSCAPE.replace("30 fps, 30 tbr", "59.94 fps, 60 tbr"));
     expect(info?.fps).toBe(59.94);
+  });
+});
+
+describe("probeVideoStream with a signal", () => {
+  it("does not start ffmpeg once the signal has already fired", async () => {
+    spawned.calls = 0;
+
+    await expect(probeVideoStream("clip.mp4", { signal: AbortSignal.abort() })).rejects.toBeInstanceOf(
+      RenderCanceledError
+    );
+    expect(spawned.calls).toBe(0);
+  });
+
+  it("kills the ffmpeg it started when the signal fires, instead of waiting on a file that never answers", async () => {
+    spawned.calls = 0;
+    spawned.kills = 0;
+    const controller = new AbortController();
+
+    const probing = probeVideoStream("clip.mp4", { signal: controller.signal });
+    controller.abort();
+
+    await expect(probing).rejects.toBeInstanceOf(RenderCanceledError);
+    expect(spawned.calls).toBe(1);
+    expect(spawned.kills).toBe(1);
+  });
+
+  it("still reads the stream when no signal is given", async () => {
+    const probing = probeVideoStream("clip.mp4");
+    spawned.child?.emit("close", 0);
+
+    await expect(probing).rejects.toThrow(/could not read the video dimensions/i);
   });
 });
