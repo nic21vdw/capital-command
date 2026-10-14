@@ -11,6 +11,7 @@ export default defineConfig({
     include: ["src/**/*.test.ts"],
     setupFiles: ["./vitest.setup.ts"],
     pool: "threads",
+    poolMatchGlobs: [["**/carousels/pdf.test.ts", "forks"]],
     maxWorkers: 1
   }
 });

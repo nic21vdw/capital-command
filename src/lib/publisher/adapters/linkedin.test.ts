@@ -1,7 +1,6 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createCanvas } from "@napi-rs/canvas";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { isAuthFailure } from "@/lib/platform-health/auth";
 import { dataPath } from "@/lib/paths";
@@ -13,6 +12,7 @@ import type { PublishInput } from "@/lib/publisher/types";
 const MEMBER = "urn:li:person:abc123";
 const PAGE = "urn:li:organization:99";
 const DAY = 86_400_000;
+const ONE_PIXEL_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
 let dir: string;
 let videoPath: string;
@@ -24,13 +24,9 @@ beforeAll(async () => {
   videoPath = path.join(dir, "clip.mp4");
   await writeFile(videoPath, Buffer.from("0123456789"));
   imagePaths = [];
-  for (const [index, color] of ["#112233", "#445566", "#778899"].entries()) {
-    const canvas = createCanvas(108, 135);
-    const context = canvas.getContext("2d");
-    context.fillStyle = color;
-    context.fillRect(0, 0, 108, 135);
-    const file = path.join(dir, `slide-${index + 1}.png`);
-    await writeFile(file, canvas.toBuffer("image/png"));
+  for (const index of [1, 2, 3]) {
+    const file = path.join(dir, `slide-${index}.png`);
+    await writeFile(file, Buffer.from(ONE_PIXEL_PNG, "base64"));
     imagePaths.push(file);
   }
 });
@@ -44,6 +40,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.doUnmock("@/lib/carousels/pdf");
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
@@ -321,6 +318,8 @@ describe("video", () => {
 describe("a carousel as a PDF document", () => {
   it("renders the slides into one PDF and posts it as a document", async () => {
     await connect();
+    const build = vi.fn<(paths: string[], options?: { title?: string }) => Promise<Buffer>>(async () => Buffer.from("%PDF-1.4 stub deck"));
+    vi.doMock("@/lib/carousels/pdf", () => ({ buildCarouselPdf: build }));
     const requests = mockFetchRoutes([
       {
         match: "/rest/documents?action=initializeUpload",
@@ -335,12 +334,12 @@ describe("a carousel as a PDF document", () => {
     const result = await (await adapter()).publish(imageInput(3));
 
     expect(result).toMatchObject({ status: "published", postId: "urn:li:share:8001", containerId: "urn:li:document:DOC1" });
+    expect(build).toHaveBeenCalledWith(imagePaths, { title: "Deck title" });
     expect(body(find(requests, "POST", "/rest/documents?action=initializeUpload")!)).toEqual({
       initializeUploadRequest: { owner: MEMBER }
     });
     const upload = find(requests, "PUT", "dms-uploads/doc-1")!;
-    expect((upload.body as Buffer).subarray(0, 5).toString("latin1")).toBe("%PDF-");
-    expect(((upload.body as Buffer).toString("latin1").match(/\/Type\s*\/Page\b(?!s)/g) ?? []).length).toBe(3);
+    expect((upload.body as Buffer).toString()).toBe("%PDF-1.4 stub deck");
     expect(upload.headers["Content-Type"]).toBe("application/pdf");
     expect(body(find(requests, "POST", "/rest/posts")!).content).toEqual({
       media: { title: "Deck title", id: "urn:li:document:DOC1" }
