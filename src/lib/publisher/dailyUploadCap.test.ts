@@ -1,9 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { updateListeningStore } from "@/lib/listening/store";
 import { PublishQueue } from "@/lib/publisher/queue";
-import { remainingYoutubeUploads } from "@/lib/publisher/quota";
+import { quotaDate, remainingYoutubeUploads } from "@/lib/publisher/quota";
 import { runDue } from "@/lib/publisher/runner";
 import { MemoryQueueStore, testConfig, testItem } from "@/lib/publisher/test-helpers";
 import type { PlatformAdapter, PlatformId, PublishInput } from "@/lib/publisher/types";
@@ -48,6 +49,10 @@ function countingAdapter(id: PlatformId): PlatformAdapter & { calls: PublishInpu
   };
 }
 
+afterEach(async () => {
+  await updateListeningStore((store) => ({ ...store, youtube: { day: "", units: 0, cursor: 0 } }));
+});
+
 const config = testConfig({
   platforms: ["youtube"],
   youtube: { ...testConfig().youtube, dailyUploadBudget: 3 }
@@ -84,6 +89,29 @@ describe("the day's YouTube upload allowance", () => {
     expect(untouched!.platforms.youtube).toMatchObject({ status: "pending", attempts: 0 });
     expect(untouched!.platforms.youtube!.claimedAt).toBeUndefined();
     expect(untouched!.platforms.youtube!.error).toBeUndefined();
+  });
+
+  it("gives up uploads for the quota Listening spent today, and not for another day's spend", async () => {
+    const queue = new PublishQueue(new MemoryQueueStore(), config);
+    for (let i = 0; i < 6; i += 1) {
+      await queue.add(testItem({ id: `clip-${i}`, clipPath, publishAt: `2026-08-${12 + i}T11:30:00.000Z`, platformIds: ["youtube"] }));
+    }
+    await updateListeningStore((store) => ({ ...store, youtube: { day: "2026-08-10", units: 5000, cursor: 0 } }));
+    const yesterdays = countingAdapter("youtube");
+    await runDue(NOW, { config, queue, log: () => {}, adapters: { youtube: yesterdays } });
+    expect(yesterdays.calls).toHaveLength(3);
+
+    const fresh = new PublishQueue(new MemoryQueueStore(), config);
+    for (let i = 0; i < 6; i += 1) {
+      await fresh.add(testItem({ id: `clip-${i}`, clipPath, publishAt: `2026-08-${12 + i}T11:30:00.000Z`, platformIds: ["youtube"] }));
+    }
+    await updateListeningStore((store) => ({ ...store, youtube: { day: quotaDate(NOW), units: 100, cursor: 0 } }));
+    const todays = countingAdapter("youtube");
+    const report = await runDue(NOW, { config, queue: fresh, log: () => {}, adapters: { youtube: todays } });
+    expect(todays.calls).toHaveLength(2);
+    const deferral = report.outcomes.find((outcome) => outcome.outcome === "deferred");
+    expect(deferral?.detail).toContain("YouTube's 2 uploads for today are used");
+    expect(deferral?.detail).not.toContain("YouTube's 3 uploads");
   });
 
   it("counts what today already sent, so a second run does not top the day up", async () => {

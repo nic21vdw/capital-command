@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_OUTREACH_TEMPLATE,
+  DEFAULT_THREAD_TEMPLATE,
   applyStatus,
+  hasUnfilledPlaceholder,
   countByStatus,
   dueForFollowUp,
   mergeContacts,
   normalizeContactUrl,
   outreachContactSchema,
   renderOutreachTemplate,
+  templateFor,
   weeklyPace,
   type OutreachContact
 } from "@/lib/outreach/model";
@@ -129,6 +132,40 @@ describe("outreach template", () => {
     const text = renderOutreachTemplate(DEFAULT_OUTREACH_TEMPLATE, contact());
     expect(text).not.toMatch(/\{name\}|\{video\}/);
     expect(text).toContain("your recent video");
+  });
+
+  it("has a separate template for people found in a thread, which claims to have watched nothing", () => {
+    expect(DEFAULT_THREAD_TEMPLATE).not.toMatch(/watch|video|channel/i);
+    expect(DEFAULT_THREAD_TEMPLATE).toContain("the all-in-one agentic workspace");
+    expect(DEFAULT_THREAD_TEMPLATE).not.toMatch(/engineer|structural|beam|column|code check/i);
+    const text = renderOutreachTemplate(DEFAULT_THREAD_TEMPLATE, contact({ kind: "thread", topic: "Need a Cursor alternative" }));
+    expect(text).toContain('"Need a Cursor alternative"');
+    expect(text).not.toMatch(/\{thread\}|\{name\}|\{video\}/);
+  });
+
+  it("is not ready to send while the bracketed line in the thread template is still there", () => {
+    const untouched = renderOutreachTemplate(DEFAULT_THREAD_TEMPLATE, contact({ kind: "thread", topic: "Need a Cursor alternative" }));
+    expect(hasUnfilledPlaceholder(untouched)).toBe(true);
+
+    const answered = untouched.replace(/\[Answer[^\]]*\]/, "Worktrees plus a canvas of cards would do it.");
+    expect(answered).not.toBe(untouched);
+    expect(hasUnfilledPlaceholder(answered)).toBe(false);
+  });
+
+  it("does not mistake brackets in an ordinary message, or the creator template, for the placeholder", () => {
+    expect(hasUnfilledPlaceholder("See [1] and [the docs] for more.")).toBe(false);
+    expect(hasUnfilledPlaceholder(renderOutreachTemplate(DEFAULT_OUTREACH_TEMPLATE, contact()))).toBe(false);
+  });
+
+  it("says 'your post' when a thread contact has no topic", () => {
+    expect(renderOutreachTemplate(DEFAULT_THREAD_TEMPLATE, contact({ kind: "thread" }))).toContain("I came across your post");
+  });
+
+  it("picks the thread template for a thread contact and the creator template for anyone else", () => {
+    const store = { template: "creator", threadTemplate: "thread" };
+    expect(templateFor(store, contact({ kind: "thread" }))).toBe("thread");
+    expect(templateFor(store, contact())).toBe("creator");
+    expect(contact().kind).toBe("creator");
   });
 
   it("describes CoLateral as the all-in-one agentic workspace and nothing else", () => {
