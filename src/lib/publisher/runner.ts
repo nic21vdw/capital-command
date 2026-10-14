@@ -313,7 +313,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
     if (!config.buffer.enabled) return;
     if (!options.itemId && await isAutomationPaused("publisher")) return;
     try {
-      const bufferOutcomes = await syncDueToBuffer(now, { queue, config, log, itemId: options.itemId });
+      const bufferOutcomes = await syncDueToBuffer(now, { queue, config, log, itemId: options.itemId, force: options.force });
       if (bufferOutcomes.length > 0) report.bufferOutcomes = bufferOutcomes;
     } catch (error) {
       report.bufferError = "The Buffer pass failed. Check the publisher log and queue failures.";
@@ -366,6 +366,11 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
     } catch (error) {
       log(`[publisher]   mirror pass failed: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  if (!options.itemId) {
+    const heldBack = await queue.heldForApproval(now);
+    if (heldBack > 0) log(`[publisher]   held for approval ${heldBack}`);
   }
 
   let due = await queue.dueItems(now);

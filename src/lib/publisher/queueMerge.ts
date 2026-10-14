@@ -4,7 +4,7 @@ type Fields = Record<string, unknown>;
 
 type Clash = (key: string, ours: unknown, other: unknown, base: unknown) => unknown;
 
-const CARRIED_FIELDS = ["postId", "publishedAt", "uploadedAt", "updateIds"] as const;
+const CARRIED_FIELDS = ["postId", "publishedAt", "uploadedAt", "updateIds", "approvedAt"] as const;
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 

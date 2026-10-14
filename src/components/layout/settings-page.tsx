@@ -8,6 +8,7 @@ import { overnightConsequence } from "@/lib/automations/overnight";
 import { ConnectionsSettings } from "@/components/layout/connections-settings";
 import { OAuthLandingBanner, useOAuthLanding } from "@/components/layout/oauth-landing";
 import { ProfileSettings } from "@/components/layout/profile-settings";
+import { ReviewPolicySettings } from "@/components/layout/review-policy-settings";
 import { ThemePicker } from "@/components/finance/theme-picker";
 import { useAppData } from "@/components/providers/app-provider";
 import { useThemePreset } from "@/components/providers/theme-preset-provider";
@@ -153,6 +154,7 @@ export function SettingsPage() {
             void mutate("updateSettings", { ...data.settings, autoScheduleOvernight: true }, { successMessage: "Overnight streams will be auto-booked." });
           }}
         />
+        <ReviewPolicySettings />
         {apiStatus.bookingBlockers?.length ? (
           <p className="mt-3 text-xs text-amber-200">{apiStatus.bookingBlockers[0]}</p>
         ) : null}

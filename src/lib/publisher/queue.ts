@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { DEFAULT_REVIEW_POLICY, legAwaitingApproval, legUnsent, type ReviewPolicy } from "@/lib/publisher/approval";
+import { readReviewPolicy } from "@/lib/publisher/approvalStore";
 import { recordQueueMutations, type QueueWriter } from "@/lib/publisher/audit";
 import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
@@ -305,11 +307,14 @@ export class PublishQueue {
    *    can verify the platform really made them public (and force it if not);
    *  - a scheduled long-form YouTube upload is due immediately, so the runner
    *    can clear its go-live time and leave it private;
-   *  - respects retry backoff (nextAttemptAt) and soft claims.
+   *  - respects retry backoff (nextAttemptAt) and soft claims;
+   *  - leaves a leg alone while its channel is set to hold and nobody has
+   *    approved it (approval.ts).
    */
-  duePlatforms(item: QueueItem, now: Date): PlatformId[] {
+  duePlatforms(item: QueueItem, now: Date, policy: ReviewPolicy = readReviewPolicy()): PlatformId[] {
     const due: PlatformId[] = [];
     for (const [platform, state] of Object.entries(item.platforms) as [PlatformId, PlatformState][]) {
+      if (legAwaitingApproval(state, platform, policy)) continue;
       const heldReview =
         platform === "youtube" && state.status === "scheduled" && youtubeHoldsForReview(item);
       const awaitingFlip = state.status === "scheduled" && !heldReview;
@@ -332,12 +337,55 @@ export class PublishQueue {
 
   async dueItems(now: Date): Promise<Array<{ item: QueueItem; platforms: PlatformId[] }>> {
     await this.load();
+    const policy = readReviewPolicy();
     const due: Array<{ item: QueueItem; platforms: PlatformId[] }> = [];
     for (const item of this.items.values()) {
-      const platforms = this.duePlatforms(item, now);
+      const platforms = this.duePlatforms(item, now, policy);
       if (platforms.length > 0) due.push({ item, platforms });
     }
     return due.sort((a, b) => a.item.publishAt.localeCompare(b.item.publishAt));
+  }
+
+  async heldForApproval(now: Date): Promise<number> {
+    await this.load();
+    const policy = readReviewPolicy();
+    let held = 0;
+    for (const item of this.items.values()) {
+      held += this.duePlatforms(item, now, DEFAULT_REVIEW_POLICY).length - this.duePlatforms(item, now, policy).length;
+    }
+    return held;
+  }
+
+  async awaitingApproval(policy: ReviewPolicy = readReviewPolicy()): Promise<Array<{ item: QueueItem; platform: PlatformId }>> {
+    await this.load();
+    const waiting: Array<{ item: QueueItem; platform: PlatformId }> = [];
+    for (const item of sortedByPublishAt(this.items.values())) {
+      for (const [platform, leg] of Object.entries(item.platforms) as [PlatformId, PlatformState][]) {
+        if (legAwaitingApproval(leg, platform, policy)) waiting.push({ item, platform });
+      }
+    }
+    return waiting;
+  }
+
+  async approveLegs(targets: Array<{ id: string; platform: PlatformId }>, now: Date): Promise<number> {
+    await this.load();
+    let approved = 0;
+    for (const target of targets) {
+      const leg = this.items.get(target.id)?.platforms[target.platform];
+      if (!leg || leg.approvedAt || !legUnsent(leg)) continue;
+      leg.approvedAt = now.toISOString();
+      approved += 1;
+    }
+    if (approved > 0) await this.save();
+    return approved;
+  }
+
+  async approveAwaiting(now: Date, platform?: PlatformId, policy: ReviewPolicy = readReviewPolicy()): Promise<number> {
+    const waiting = await this.awaitingApproval(policy);
+    return this.approveLegs(
+      waiting.filter((entry) => !platform || entry.platform === platform).map((entry) => ({ id: entry.item.id, platform: entry.platform })),
+      now
+    );
   }
 
   /** Marks a platform as being processed right now (soft lease). */

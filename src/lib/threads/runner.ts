@@ -2,6 +2,8 @@ import { authFailureReason, isAuthFailure } from "@/lib/platform-health/auth";
 import { threadsAccountFingerprint } from "@/lib/platform-health/fingerprint";
 import { accountAuthBlocked, clearAuthState, readAuthStates, recordAuthFailure } from "@/lib/platform-health/store";
 import { authStateKey } from "@/lib/platform-health/types";
+import { threadsAwaitingApproval } from "@/lib/publisher/approval";
+import { readReviewPolicy } from "@/lib/publisher/approvalStore";
 import { isTransient } from "@/lib/publisher/http";
 import { formatInTimezone } from "@/lib/publisher/time";
 import { ContainerPendingError, ContainerRejectedError, ThreadsPublishPausedError, postToThreads, type ThreadsPublishInput } from "@/lib/threads/api";
@@ -130,6 +132,7 @@ async function runDueInternal(
   const outcomes: ThreadsOutcome[] = [];
   const replyOutcomes: ThreadsOutcome[] = [];
   let note: string | undefined;
+  let heldForApproval = 0;
   let persistenceError: string | undefined;
   const authFailures: Array<{ accountId: string; reason: string }> = [];
   const heldAccounts = new Set<string>();
@@ -146,6 +149,7 @@ async function runDueInternal(
       skipped: replyOutcomes.filter((outcome) => outcome.outcome === "skipped").length,
       outcomes: replyOutcomes
     } } : {}),
+    ...(heldForApproval ? { heldForApproval } : {}),
     ...(note ? { note } : {}),
     ...(persistenceError ? { persistenceError } : {}),
     ...(authFailures.length ? { authFailures } : {}),
@@ -176,6 +180,7 @@ async function runDueInternal(
     }
   }
 
+  const reviewPolicy = readReviewPolicy();
   const deps = options.deps ?? defaultDeps(config);
   const recovery = options.deps
     ? injectedRecovery.get(deps) ?? new Map<string, KnownDelivery>()
@@ -439,6 +444,15 @@ async function runDueInternal(
       if (item.status === "published" && (!currentConfig().plugReplies || !item.plugText || item.plugPostId || item.plugDropped || !item.postId || !item.publishedAt)) continue;
       if (item.status === "pending" && !item.postId && (new Date(item.publishAt).getTime() > now.getTime() || retryWaiting(item.nextAttemptAt) || hasLiveClaim(item.claimedAt))) continue;
       if (item.status === "published" && (retryWaiting(item.plugNextAttemptAt) || hasLiveClaim(item.plugClaimedAt))) continue;
+      if (
+        item.status === "pending" &&
+        !item.postId &&
+        threadsAwaitingApproval(item, reviewPolicy) &&
+        now.getTime() - new Date(item.publishAt).getTime() <= config.lateGraceMinutes * 60_000
+      ) {
+        heldForApproval += 1;
+        continue;
+      }
       const claimed = await claimLatest(item);
       if (claimed === "missing") continue;
       if (item.status === "published") {
@@ -461,8 +475,12 @@ async function runDueInternal(
       if (dueAt > now.getTime()) continue;
       const lateMinutes = (now.getTime() - dueAt) / 60_000;
       if (lateMinutes > config.lateGraceMinutes) {
+        const slotAt = formatInTimezone(new Date(item.publishAt), config.timezone);
+        const lead = threadsAwaitingApproval(item, reviewPolicy)
+          ? `Not approved before its slot at ${slotAt}`
+          : `Missed its ${slotAt} slot by ${Math.round(lateMinutes)} min`;
         item.status = "skipped";
-        item.note = `Missed its ${formatInTimezone(new Date(item.publishAt), config.timezone)} slot by ${Math.round(lateMinutes)} min — skipped so the feed doesn't get a backlog all at once.`;
+        item.note = `${lead} — skipped so the feed doesn't get a backlog all at once.`;
         delete item.claimedAt;
         await persist();
         await record(item, "skipped", item.note);
@@ -550,5 +568,6 @@ async function runDueInternal(
     persistenceError = error.message;
     log(`[threads] ${note}`);
   }
+  if (heldForApproval > 0) log(`[threads] held for approval ${heldForApproval}`);
   return report();
 }

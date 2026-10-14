@@ -5,7 +5,10 @@ import { AppShell } from "@/components/layout/app-shell";
 import { SettingsPage } from "@/components/layout/settings-page";
 import { useAppData } from "@/components/providers/app-provider";
 import { useThemePreset } from "@/components/providers/theme-preset-provider";
+import { changeReviewPolicy, useReviewPolicy } from "@/components/layout/review-policy";
+import { parseReviewField, reviewPolicySurface } from "@/components/layout/review-policy-surface";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
+import { reviewChange } from "@/lib/publisher/approval";
 import { themePresets } from "@/lib/themes";
 import { CONNECTIONS } from "@/lib/publisher/connections";
 
@@ -22,6 +25,8 @@ export default function Page() {
   const { data, apiStatus, mutate } = useAppData();
   const { theme, setTheme, hosted } = useThemePreset();
   const [connected, setConnected] = useState<{ ready: number; total: number } | null>(null);
+  const reviewPolicy = useReviewPolicy();
+  const reviewParts = reviewPolicySurface(reviewPolicy.policy);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,7 +97,8 @@ export default function Page() {
         value: data.settings.clipDescription ?? "",
         kind: "longtext",
         hint: "Appended under every clip this app uploads."
-      }
+      },
+      ...reviewParts.fields
     ],
     // Never a credential/token here: connections stay a read-only count below.
     controls: [
@@ -101,9 +107,15 @@ export default function Page() {
     ],
     readings: [
       { label: "Connected accounts", value: connected ? `${connected.ready} of ${connected.total}` : "Checking…" },
-      { label: "Booking blocker", value: apiStatus.bookingBlockers?.[0] ?? "None" }
+      { label: "Booking blocker", value: apiStatus.bookingBlockers?.[0] ?? "None" },
+      ...reviewParts.readings
     ],
     setField: (id, value) => {
+      const review = parseReviewField(id, value);
+      if (review !== undefined) {
+        if (review === null) return false;
+        return changeReviewPolicy(reviewChange(review.channel, review.mode));
+      }
       switch (id) {
         case "displayName": {
           if (typeof value !== "string") return false;

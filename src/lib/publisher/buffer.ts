@@ -1,5 +1,7 @@
 import { isAutomationPaused } from "@/lib/automations/store";
 import { recordAutomationEventSafely } from "@/lib/automations/history";
+import { itemAwaitingApproval } from "@/lib/publisher/approval";
+import { readReviewPolicy } from "@/lib/publisher/approvalStore";
 import { bufferConfigured, publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
 import { PermanentError, fetchJson, isTransient } from "@/lib/publisher/http";
@@ -174,6 +176,8 @@ export async function syncDueToBuffer(
     log?: (line: string) => void;
     /** Restrict to one queue item (the UI's per-post action). */
     itemId?: string;
+    /** The owner's explicit Publish now, which also releases a post held for approval. */
+    force?: boolean;
   } = {}
 ): Promise<BufferOutcome[]> {
   const config = options.config ?? publisherConfig();
@@ -184,6 +188,7 @@ export async function syncDueToBuffer(
   const log = options.log ?? ((line: string) => console.log(line));
   const configured = bufferConfigured(config);
 
+  const policy = readReviewPolicy();
   let items = await queue.list();
   if (options.itemId) items = items.filter((item) => item.id === options.itemId);
 
@@ -191,6 +196,7 @@ export async function syncDueToBuffer(
     if (!options.itemId && await isAutomationPaused("publisher")) break;
     const action = bufferAction(item, now, config);
     if (!action) continue;
+    if (action === "schedule" && !options.force && itemAwaitingApproval(item, policy)) continue;
 
     const record = async (outcome: BufferOutcome["outcome"], detail: string) => {
       outcomes.push({ itemId: item.id, clip: item.clipPath, outcome, detail });
