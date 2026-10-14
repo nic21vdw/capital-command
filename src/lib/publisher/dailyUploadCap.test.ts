@@ -1,13 +1,13 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { updateListeningStore } from "@/lib/listening/store";
 import { PublishQueue } from "@/lib/publisher/queue";
-import { quotaDate, remainingYoutubeUploads } from "@/lib/publisher/quota";
+import { remainingYoutubeUploads } from "@/lib/publisher/quota";
 import { runDue } from "@/lib/publisher/runner";
 import { MemoryQueueStore, testConfig, testItem } from "@/lib/publisher/test-helpers";
 import type { PlatformAdapter, PlatformId, PublishInput } from "@/lib/publisher/types";
+import { createQuotaLedger, quotaLedgerFile } from "@/lib/youtube/quotaLedger";
 
 /**
  * The lockout this exists to prevent: a YouTube item is due the moment it is
@@ -50,8 +50,10 @@ function countingAdapter(id: PlatformId): PlatformAdapter & { calls: PublishInpu
 }
 
 afterEach(async () => {
-  await updateListeningStore((store) => ({ ...store, youtube: { day: "", units: 0, cursor: 0 } }));
+  await rm(quotaLedgerFile(), { force: true });
 });
+
+const ledgerAt = (instant: Date) => createQuotaLedger({ now: () => instant });
 
 const config = testConfig({
   platforms: ["youtube"],
@@ -91,27 +93,56 @@ describe("the day's YouTube upload allowance", () => {
     expect(untouched!.platforms.youtube!.error).toBeUndefined();
   });
 
-  it("gives up uploads for the quota Listening spent today, and not for another day's spend", async () => {
+  it("defers the uploads the ledger says the day cannot afford, and ignores another day's spend", async () => {
     const queue = new PublishQueue(new MemoryQueueStore(), config);
     for (let i = 0; i < 6; i += 1) {
       await queue.add(testItem({ id: `clip-${i}`, clipPath, publishAt: `2026-08-${12 + i}T11:30:00.000Z`, platformIds: ["youtube"] }));
     }
-    await updateListeningStore((store) => ({ ...store, youtube: { day: "2026-08-10", units: 5000, cursor: 0 } }));
+    await ledgerAt(new Date("2026-08-10T13:00:00.000Z")).debit(9_000, "upload");
     const yesterdays = countingAdapter("youtube");
-    await runDue(NOW, { config, queue, log: () => {}, adapters: { youtube: yesterdays } });
+    await runDue(NOW, { config, queue, log: () => {}, adapters: { youtube: yesterdays }, quota: ledgerAt(NOW) });
     expect(yesterdays.calls).toHaveLength(3);
 
     const fresh = new PublishQueue(new MemoryQueueStore(), config);
     for (let i = 0; i < 6; i += 1) {
       await fresh.add(testItem({ id: `clip-${i}`, clipPath, publishAt: `2026-08-${12 + i}T11:30:00.000Z`, platformIds: ["youtube"] }));
     }
-    await updateListeningStore((store) => ({ ...store, youtube: { day: quotaDate(NOW), units: 100, cursor: 0 } }));
+    await ledgerAt(NOW).debit(6_700, "upload");
     const todays = countingAdapter("youtube");
-    const report = await runDue(NOW, { config, queue: fresh, log: () => {}, adapters: { youtube: todays } });
+    const report = await runDue(NOW, { config, queue: fresh, log: () => {}, adapters: { youtube: todays }, quota: ledgerAt(NOW) });
     expect(todays.calls).toHaveLength(2);
     const deferral = report.outcomes.find((outcome) => outcome.outcome === "deferred");
-    expect(deferral?.detail).toContain("YouTube's 2 uploads for today are used");
-    expect(deferral?.detail).not.toContain("YouTube's 3 uploads");
+    expect(deferral?.detail).toContain("quota for today is nearly spent");
+    expect(deferral?.detail).toContain("6700 of 10000 units");
+  });
+
+  it("does not take upload slots for what the non-upload allowance holds", async () => {
+    const queue = new PublishQueue(new MemoryQueueStore(), config);
+    for (let i = 0; i < 5; i += 1) {
+      await queue.add(testItem({ id: `clip-${i}`, clipPath, publishAt: `2026-08-${12 + i}T11:30:00.000Z`, platformIds: ["youtube"] }));
+    }
+    const quota = ledgerAt(NOW);
+    await quota.debit(200, "inbox");
+    await quota.debit(100, "listening");
+    const youtube = countingAdapter("youtube");
+
+    await runDue(NOW, { config, queue, log: () => {}, adapters: { youtube }, quota });
+
+    expect(youtube.calls).toHaveLength(3);
+  });
+
+  it("uploads on the queue's own count when the ledger cannot be read", async () => {
+    const queue = new PublishQueue(new MemoryQueueStore(), config);
+    for (let i = 0; i < 6; i += 1) {
+      await queue.add(testItem({ id: `clip-${i}`, clipPath, publishAt: `2026-08-${12 + i}T11:30:00.000Z`, platformIds: ["youtube"] }));
+    }
+    await mkdir(path.dirname(quotaLedgerFile()), { recursive: true });
+    await writeFile(quotaLedgerFile(), "{ not json");
+    const youtube = countingAdapter("youtube");
+
+    await runDue(NOW, { config, queue, log: () => {}, adapters: { youtube }, quota: ledgerAt(NOW) });
+
+    expect(youtube.calls).toHaveLength(3);
   });
 
   it("counts what today already sent, so a second run does not top the day up", async () => {

@@ -22,7 +22,7 @@ afterEach(() => {
 describe("ledgerConfig", () => {
   it("defaults to 6 uploads at the publisher's 1,600 units each and 300 units for everything else", () => {
     expect(YOUTUBE_UNITS_PER_UPLOAD).toBe(1600);
-    expect(ledgerConfig({})).toEqual({ dailyUnits: 10_000, uploadsPerDay: 6, unitsPerUpload: YOUTUBE_UNITS_PER_UPLOAD, nonUploadUnits: 300 });
+    expect(ledgerConfig({})).toMatchObject({ dailyUnits: 10_000, uploadsPerDay: 6, unitsPerUpload: YOUTUBE_UNITS_PER_UPLOAD, nonUploadUnits: 300 });
   });
 
   it("reads the non-upload allowance and the upload budget from the environment, ignoring nonsense", () => {
@@ -107,7 +107,7 @@ describe("the allowance", () => {
 
   it("never lets other purposes starve uploads: with the allowance spent, an upload still goes through", async () => {
     const quota = ledger();
-    await quota.debit(300, "listening");
+    await quota.debit(300, "outliers");
 
     expect(await quota.debit(1, "analytics")).toMatchObject({ ok: false });
     expect(await quota.debit(1600, "upload")).toMatchObject({ ok: true, remaining: 8_100 });
@@ -139,6 +139,87 @@ describe("the allowance", () => {
     expect(await quota.debit(300, "analytics")).toMatchObject({ ok: true });
     expect(await quota.debit(1, "analytics")).toMatchObject({ ok: false, reason: "budget" });
     expect(await quota.debit(600, "upload")).toMatchObject({ ok: true });
+  });
+});
+
+describe("per-purpose sub-caps inside the allowance", () => {
+  it("defaults to 200 units for the inbox and 100 for Listening, read from the environment the old counters used", () => {
+    expect(ledgerConfig({}).purposeCaps).toEqual({ inbox: 200, listening: 100 });
+    expect(ledgerConfig({ INBOX_YOUTUBE_DAILY_UNITS: "40", YOUTUBE_LISTENING_DAILY_UNITS: "20" }).purposeCaps).toEqual({ inbox: 40, listening: 20 });
+    expect(ledgerConfig({ INBOX_YOUTUBE_DAILY_UNITS: "lots", YOUTUBE_LISTENING_DAILY_UNITS: "-1" }).purposeCaps).toEqual({ inbox: 200, listening: 100 });
+  });
+
+  it("turns the inbox away at its 200 units even though the allowance has 100 left", async () => {
+    const quota = ledger();
+
+    expect(await quota.debit(200, "inbox")).toEqual({ ok: true, remaining: 0 });
+    expect(await quota.debit(1, "inbox")).toMatchObject({ ok: false, reason: "budget", remaining: 0 });
+    expect(await quota.remaining("inbox")).toBe(0);
+    expect(await quota.remaining("analytics")).toBe(100);
+    expect(await quota.debit(100, "analytics")).toMatchObject({ ok: true });
+  });
+
+  it("turns Listening away at its 100 units, leaving the rest of the allowance to everyone else", async () => {
+    const quota = ledger();
+
+    expect(await quota.debit(100, "listening")).toEqual({ ok: true, remaining: 0 });
+    expect(await quota.debit(1, "listening")).toMatchObject({ ok: false, reason: "budget", remaining: 0 });
+    expect(await quota.remaining("listening")).toBe(0);
+    expect(await quota.remaining("outliers")).toBe(200);
+  });
+
+  it("applies the smaller of the sub-cap and what the allowance has left", async () => {
+    const quota = ledger();
+    await quota.debit(250, "analytics");
+
+    expect(await quota.remaining("inbox")).toBe(50);
+    expect(await quota.debit(51, "inbox")).toMatchObject({ ok: false, reason: "budget", remaining: 50 });
+    expect(await quota.debit(50, "inbox")).toEqual({ ok: true, remaining: 0 });
+  });
+
+  it("reports the caps next to the split so a meter can draw them", async () => {
+    const quota = ledger();
+    await quota.debit(40, "inbox");
+
+    expect(await quota.snapshot()).toMatchObject({ byPurpose: { inbox: 40 }, purposeCaps: { inbox: 200, listening: 100 } });
+  });
+
+  it("holds a configured cap of zero as nothing to spend", async () => {
+    const quota = ledger(() => NOON, ledgerConfig({ INBOX_YOUTUBE_DAILY_UNITS: "0" }));
+
+    expect(await quota.debit(1, "inbox")).toMatchObject({ ok: false, reason: "budget" });
+    expect(await quota.debit(1, "analytics")).toMatchObject({ ok: true });
+  });
+});
+
+describe("inbox replies", () => {
+  it("are never refused by the read budget or the allowance, but are counted against the allowance", async () => {
+    const quota = ledger();
+    await quota.debit(200, "inbox");
+    await quota.debit(100, "listening");
+    expect((await quota.snapshot()).nonUploadRemaining).toBe(0);
+
+    expect(await quota.debit(50, "inbox-reply")).toEqual({ ok: true, remaining: 0 });
+
+    const state = await quota.snapshot();
+    expect(state.byPurpose).toEqual({ inbox: 200, listening: 100, "inbox-reply": 50 });
+    expect(state.nonUploadSpent).toBe(350);
+    expect(await quota.debit(1, "analytics")).toMatchObject({ ok: false, reason: "budget" });
+  });
+
+  it("takes from the allowance first, so readers give way to a reply", async () => {
+    const quota = ledger();
+
+    await quota.debit(50, "inbox-reply");
+
+    expect(await quota.remaining("analytics")).toBe(250);
+  });
+
+  it("go through unrecorded when the ledger cannot be read, like an upload", async () => {
+    await mkdir(path.dirname(quotaLedgerFile()), { recursive: true });
+    await writeFile(quotaLedgerFile(), "{ not json");
+
+    expect(await ledger().debit(50, "inbox-reply")).toMatchObject({ ok: true, unmetered: true });
   });
 });
 

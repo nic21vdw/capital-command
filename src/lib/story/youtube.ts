@@ -1,10 +1,13 @@
 import { open, readFile, stat } from "node:fs/promises";
 import { youtubeDescription } from "@/lib/publisher/attribution";
+import { YOUTUBE_READ_UNITS, YOUTUBE_UNITS_PER_UPLOAD } from "@/lib/publisher/quota";
 import { assertPrivate, STORY_PRIVACY, storyStatus } from "@/lib/story/privacy";
+import { debitUpload } from "@/lib/youtube/quotaSpend";
 
 const UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status";
 const VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos";
 const CAPTIONS_URL = "https://www.googleapis.com/upload/youtube/v3/captions?uploadType=multipart&part=snippet";
+const CAPTION_INSERT_UNITS = 400;
 const CHUNK_BYTES = 32 * 1024 * 1024;
 const MAX_ATTEMPTS = 8;
 
@@ -78,6 +81,7 @@ function retriable(status: number): boolean {
 
 async function startSession(input: StoryUploadInput, size: number, fetcher: Fetcher): Promise<string> {
   const body = storyVideoBody(input);
+  await debitUpload(YOUTUBE_UNITS_PER_UPLOAD);
   const response = await fetcher(UPLOAD_URL, {
     method: "POST",
     headers: {
@@ -200,6 +204,7 @@ export async function uploadCaptions(input: {
   ].join("\r\n");
   let attempt = 0;
   while (true) {
+    await debitUpload(CAPTION_INSERT_UNITS);
     const response = await fetcher(CAPTIONS_URL, {
       method: "POST",
       headers: { Authorization: `Bearer ${await input.accessToken()}`, "Content-Type": `multipart/related; boundary=${boundary}` },
@@ -214,6 +219,7 @@ export async function uploadCaptions(input: {
 export type VideoReadback = { id: string; privacyStatus: string; title: string; description: string; processingStatus?: string };
 
 export async function readBackVideo(videoId: string, accessToken: () => Promise<string>, fetcher: Fetcher = fetch): Promise<VideoReadback> {
+  await debitUpload(YOUTUBE_READ_UNITS);
   const response = await fetcher(`${VIDEOS_URL}?part=status,snippet,processingDetails&id=${encodeURIComponent(videoId)}`, {
     headers: { Authorization: `Bearer ${await accessToken()}` }
   });

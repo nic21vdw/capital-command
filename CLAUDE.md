@@ -476,11 +476,14 @@ atomic write and lock). Items run `new` -> `seen` -> `replied` -> `done`.
   first 6 hours of effective age, 2 hours to 2 days, 12 hours to a week, daily
   after that.
 - YouTube reads spend the same 10,000 daily units uploads use (1,600 each, six a
-  day), so the inbox is capped at `INBOX_YOUTUBE_DAILY_UNITS` (default 200) per
-  Pacific day. `youtubeUnits.ts` reserves one unit before EVERY request (failed
-  ones count) and saves it to the store at once, so the CLI and the server share
-  one count; a reply charges 50 and is never blocked by a spent read budget. A
-  spent budget reports `deferred`, never an error.
+  day), so the inbox debits the shared quota ledger as `inbox`, one unit before
+  EVERY request (failed ones count), under a sub-cap of `INBOX_YOUTUBE_DAILY_UNITS`
+  (default 200) inside the ledger's non-upload allowance. A reply is debited as
+  `inbox-reply` (50 units): it is never refused, whatever the read budget or the
+  allowance holds, but it is counted, so readers give way to it. A spent budget
+  reports `deferred` ("YouTube quota saved for uploads"), never an error. The old
+  `youtubeUnits` field in `data/inbox.json` is still readable (the ledger carries
+  today's count over on first use) and is no longer written.
 - A missing permission is not an outage. `failures.ts` sorts an error into
   `auth` (trips the platform-health breaker through `recordAuthRejection`),
   `scope` (the platform state says "Reconnect <platform> with comment
@@ -609,14 +612,14 @@ News, Reddit, YouTube and Bluesky. It reads and classifies; it never posts.
   units out of the daily 10,000 that uploads share (about 1,700 each, and
   `YOUTUBE_DAILY_UPLOAD_BUDGET` is 6). When switched on it makes one search per
   scan, spread over the Pacific day, and stops at `YOUTUBE_LISTENING_DAILY_UNITS`
-  (default 100, which is one search and no comment lookups). The ledger in
-  `data/listening.json` is debited BEFORE each request, by a change applied to
-  the stored value inside the store lock (`ledger.ts`), never by writing back a
-  copy read when the scan began, so a crash after the fetch still counts and a
-  second writer is not overwritten. The publish runner subtracts the ledger from
-  the day's upload budget (`remainingYoutubeUploads`, rounding up to whole uploads
-  at about 1,700 units). Not connected, a spent budget, pacing and X are reported
-  as `skipped`, which is not a failed scan.
+  (default 100, which is one search and no comment lookups). Every unit is debited
+  as `listening` in the shared quota ledger BEFORE each request (`ledger.ts` keeps
+  only the term-rotation cursor in `data/listening.json`; its old `youtube.day` and
+  `units` are still readable, carried over on first use, and no longer written),
+  under a 100-unit sub-cap inside the non-upload allowance, so a crash after the
+  fetch still counts. Listening no longer takes anything out of the upload budget:
+  the allowance is reserved outside the six uploads. Not connected, a spent
+  budget, pacing and X are reported as `skipped`, which is not a failed scan.
 - REDDIT IS SLOW ON PURPOSE. Requests are 6 seconds apart, a scan searches 8
   terms and carries on from where the last scan stopped (`redditCursor`, advanced
   by a delta), and a `Retry-After` of 30 seconds or less is waited out once;
@@ -706,8 +709,20 @@ capped at 90 (`metrics.ts`). Numbers a platform did not report are absent, never
   the lock is held for over 5 seconds (`remaining("upload")` then says the whole day). Anything else is refused as `budget` (allowance
   spent) or `unavailable` (ledger unusable). Analytics debits 1 unit per `videos.list` batch;
   on `budget` it rests until midnight Pacific (`nextResetAt`, exact across the 23- and 25-hour
-  DST days), on `unavailable` it tries again next cycle. The upload path does not debit the
-  ledger yet; the inbox, listening and outlier scans are meant to move onto it.
+  DST days), on `unavailable` it tries again next cycle. Every other YouTube Data API caller
+  debits it too, before the call: the upload adapter and the story uploader as `upload`
+  (insert 1,600, update 50, status read 1, captions 400), the inbox as `inbox` (sub-cap
+  `INBOX_YOUTUBE_DAILY_UNITS`, 200) and `inbox-reply` (50, never refused), Listening as
+  `listening` (sub-cap `YOUTUBE_LISTENING_DAILY_UNITS`, 100), the outlier scan as `outliers`,
+  video statistics as `stats`, the Uploading Center's channel schedule as `schedule`, the
+  daily channel scan as `ingest` and the channel name lookup as `channel`. A refusal skips the
+  call and says "YouTube quota saved for uploads" (`quotaSpend.ts`, `QuotaSavedError`).
+  `remainingYoutubeUploads` is the smaller of the queue's count of today's uploads and
+  `floor((10,000 - spent) / 1,600)` from the ledger, so uploads fall back to the queue's
+  count alone when the ledger cannot be read; the Uploading Center meter shows the ledger's
+  per-purpose split. The first use of the shared ledger in a process carries today's counts
+  from the old inbox and Listening stores (`quotaLegacy.ts`, `carryOver` raises a purpose to
+  the old count and never adds, so running it again changes nothing).
 - **For later slices**: `queryAnalytics`, `queryRows`, `topRows`, `platformTotals` and
   `getPostMetrics` are exported from `src/lib/analytics/index.ts`; `GET /api/analytics`
   takes `platform` (comma list), `since` (`28d` or a date), `top` and `sort`. The page

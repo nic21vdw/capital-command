@@ -477,7 +477,7 @@ describe("syncAnalytics", () => {
   });
 
   it("stops YouTube when the ledger refuses, calls nothing, and leaves it alone until the quota day turns over", async () => {
-    await ledger.debit(300, "listening");
+    await ledger.debit(300, "outliers");
     const { run, calls } = setup(youtubeRoutes, [target("youtube", "ytvideo0001")]);
 
     const report = await run(NOW, { force: true });
