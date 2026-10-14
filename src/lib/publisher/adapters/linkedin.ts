@@ -6,6 +6,7 @@ import { PermanentError, StillProcessingError, fetchJson } from "@/lib/publisher
 import { IMAGE_CONTENT_TYPES, imagePathsOf, isImagePost } from "@/lib/publisher/images";
 import {
   LINKEDIN_API_ORIGIN,
+  LINKEDIN_COMMENTARY_LIMIT,
   LINKEDIN_REST,
   linkedinCall,
   linkedinJson,
@@ -266,7 +267,7 @@ export const linkedinAdapter: PlatformAdapter = {
       endpoint: `${LINKEDIN_REST}/${MEDIA_ENDPOINT[kind]}?action=initializeUpload → ${LINKEDIN_REST}/posts`,
       payload: {
         author: config.linkedin.authorUrn ?? "<member or page chosen in Settings > Accounts>",
-        commentary: composeCaption(input.item, "linkedin").slice(0, 3000),
+        commentary: composeCaption(input.item, "linkedin", LINKEDIN_COMMENTARY_LIMIT),
         visibility: input.item.visibility === "public" ? "PUBLIC" : "CONNECTIONS",
         media: kind,
         ...(pages ? { pages } : {})
@@ -286,7 +287,7 @@ export const linkedinAdapter: PlatformAdapter = {
   async publish(input: PublishInput): Promise<PostResult> {
     const session = await linkedinSession();
     const visibility = assertCanPost(session, input.item.visibility);
-    const commentary = littleText(composeCaption(input.item, "linkedin") || input.item.title);
+    const commentary = littleText(composeCaption(input.item, "linkedin", LINKEDIN_COMMENTARY_LIMIT) || input.item.title);
     const kind = mediaKindOf(input);
 
     const handle = input.item.platforms.linkedin?.containerId;

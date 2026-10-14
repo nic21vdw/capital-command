@@ -219,7 +219,7 @@ type InitBody = {
 };
 
 function buildInitBody(input: PublishInput, size: number): InitBody {
-  const caption = composeCaption(input.item, "tiktok").slice(0, 2200);
+  const caption = composeCaption(input.item, "tiktok", 2200);
   const consent = input.item.tiktok;
   const post_info = inboxFlow(input)
     ? undefined

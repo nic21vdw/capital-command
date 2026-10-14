@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { postCode } from "@/lib/attribution/code";
 import { attributeLinks, youtubeDescription, YOUTUBE_LEAD_LINE } from "@/lib/publisher/attribution";
 import { composeCaption, composeDescription } from "@/lib/publisher/metadata";
 import { storyVideoBody } from "@/lib/story/youtube";
@@ -86,5 +87,261 @@ describe("composeCaption", () => {
 
   it("leaves the caption alone without a platform", () => {
     expect(composeCaption({ caption: "Try https://colateralai.com", hashtags: [] })).toBe("Try https://colateralai.com");
+  });
+});
+
+describe("per-post codes on attribution links", () => {
+  const code = postCode("clip-1");
+
+  it.each([
+    ["youtube", "yt"],
+    ["instagram", "ig"],
+    ["tiktok", "tt"],
+    ["facebook", "fb"],
+    ["threads", "th"],
+    ["x", "x"]
+  ] as const)("adds the code to the %s link", (platform, path) => {
+    expect(attributeLinks("Try https://colateralai.com", platform, code)).toBe(`Try https://colateralai.com/${path}?c=${code}`);
+  });
+
+  it("keeps trailing punctuation after the coded link", () => {
+    expect(attributeLinks("See https://colateralai.com.", "instagram", code)).toBe(`See https://colateralai.com/ig?c=${code}.`);
+    expect(attributeLinks("(colateralai.com)", "tiktok", code)).toBe(`(colateralai.com/tt?c=${code})`);
+  });
+
+  it("codes every bare link in the text", () => {
+    expect(attributeLinks("a colateralai.com b colateralai.com", "facebook", code)).toBe(
+      `a colateralai.com/fb?c=${code} b colateralai.com/fb?c=${code}`
+    );
+  });
+
+  it("codes a link that already has a path", () => {
+    expect(attributeLinks("Pricing: https://colateralai.com/pricing", "instagram", code)).toBe(`Pricing: https://colateralai.com/pricing?c=${code}`);
+    expect(attributeLinks("https://colateralai.com/yt", "youtube", code)).toBe(`https://colateralai.com/yt?c=${code}`);
+    expect(attributeLinks("colateralai.com/download/", "tiktok", code)).toBe(`colateralai.com/download/?c=${code}`);
+  });
+
+  it("appends to an existing query with an ampersand", () => {
+    expect(attributeLinks("https://colateralai.com/pricing?plan=pro", "facebook", code)).toBe(`https://colateralai.com/pricing?plan=pro&c=${code}`);
+    expect(attributeLinks("https://colateralai.com/?ref=x", "facebook", code)).toBe(`https://colateralai.com/?ref=x&c=${code}`);
+    expect(attributeLinks("https://colateralai.com/a?x=1&", "facebook", code)).toBe(`https://colateralai.com/a?x=1&c=${code}`);
+  });
+
+  it("puts the code before a fragment", () => {
+    expect(attributeLinks("https://colateralai.com/pricing#faq", "facebook", code)).toBe(`https://colateralai.com/pricing?c=${code}#faq`);
+    expect(attributeLinks("https://colateralai.com/pricing?plan=pro#faq", "facebook", code)).toBe(`https://colateralai.com/pricing?plan=pro&c=${code}#faq`);
+  });
+
+  it("keeps punctuation after the link outside it", () => {
+    expect(attributeLinks("See https://colateralai.com/pricing.", "threads", code)).toBe(`See https://colateralai.com/pricing?c=${code}.`);
+    expect(attributeLinks("(https://colateralai.com/pricing?plan=pro)", "threads", code)).toBe(`(https://colateralai.com/pricing?plan=pro&c=${code})`);
+  });
+
+  it("is idempotent and never duplicates or replaces an existing c", () => {
+    const once = attributeLinks("Try https://colateralai.com", "threads", code);
+    expect(attributeLinks(once, "threads", code)).toBe(once);
+    const longer = attributeLinks("https://colateralai.com/pricing?plan=pro#faq", "threads", code);
+    expect(attributeLinks(longer, "threads", code)).toBe(longer);
+    expect(attributeLinks("https://colateralai.com/th?c=abc123", "threads", code)).toBe("https://colateralai.com/th?c=abc123");
+    expect(attributeLinks("https://colateralai.com/th?utm_source=x&c=abc123#top", "threads", code)).toBe("https://colateralai.com/th?utm_source=x&c=abc123#top");
+  });
+
+  it("leaves every other host alone", () => {
+    for (const text of [
+      "https://example.com/colateralai.com",
+      "https://docs.colateralai.com/start",
+      "https://colateralai.com.evil.example/start",
+      "https://notcolateralai.com/start",
+      "hello@colateralai.com",
+      "https://youtube.com/watch?v=1"
+    ]) {
+      expect(attributeLinks(text, "threads", code)).toBe(text);
+    }
+  });
+
+  it("leaves a CoLateral address inside another site's URL byte-identical", () => {
+    for (const text of [
+      "https://evil.com/r?u=colateralai.com/pricing&x=1",
+      "https://www.google.com/search?q=colateralai.com",
+      "https://evil.com/r?u=https://colateralai.com/pricing&x=1",
+      "https://evil.com/r?u=https%3A%2F%2Fcolateralai.com%2Fpricing",
+      "https://evil.com/page#colateralai.com",
+      "https://evil.com/a&colateralai.com/b",
+      "https://evil.com/a+colateralai.com"
+    ]) {
+      expect(attributeLinks(text, "threads", code)).toBe(text);
+      expect(attributeLinks(text, "threads")).toBe(text);
+    }
+  });
+
+  it("stops a link at a comma that starts another URL and leaves that URL byte-identical", () => {
+    const other = "https://other.com/y?u=colateralai.com/pricing&x=1";
+    expect(attributeLinks(`colateralai.com/x,${other}`, "threads", code)).toBe(`colateralai.com/x?c=${code},${other}`);
+    expect(attributeLinks(`colateralai.com/x,${other}`, "threads")).toBe(`colateralai.com/x,${other}`);
+    expect(attributeLinks("colateralai.com/x,https://colateralai.com/y", "threads", code)).toBe(
+      `colateralai.com/x?c=${code},https://colateralai.com/y?c=${code}`
+    );
+  });
+
+  it("still codes a link that follows a label or an opening bracket", () => {
+    expect(attributeLinks("Try:https://colateralai.com/pricing", "threads", code)).toBe(`Try:https://colateralai.com/pricing?c=${code}`);
+    expect(attributeLinks("[colateralai.com/pricing]", "threads", code)).toBe(`[colateralai.com/pricing?c=${code}]`);
+    expect(attributeLinks("a,colateralai.com/pricing", "threads", code)).toBe(`a,colateralai.com/pricing?c=${code}`);
+  });
+
+  it("keeps curly quotes, ellipses and unbalanced closing brackets outside the link", () => {
+    expect(attributeLinks("“https://colateralai.com/pricing”", "threads", code)).toBe(`“https://colateralai.com/pricing?c=${code}”`);
+    expect(attributeLinks("it’s colateralai.com/pricing’", "threads", code)).toBe(`it’s colateralai.com/pricing?c=${code}’`);
+    expect(attributeLinks("see colateralai.com/pricing…", "threads", code)).toBe(`see colateralai.com/pricing?c=${code}…`);
+    expect(attributeLinks("(see https://colateralai.com/pricing)", "threads", code)).toBe(`(see https://colateralai.com/pricing?c=${code})`);
+    expect(attributeLinks("[https://colateralai.com/pricing].", "threads", code)).toBe(`[https://colateralai.com/pricing?c=${code}].`);
+  });
+
+  it("keeps a closing bracket that has its opener inside the link, and a trailing slash", () => {
+    expect(attributeLinks("https://colateralai.com/wiki/Foo_(bar)", "threads", code)).toBe(`https://colateralai.com/wiki/Foo_(bar)?c=${code}`);
+    expect(attributeLinks("(https://colateralai.com/wiki/Foo_(bar))", "threads", code)).toBe(`(https://colateralai.com/wiki/Foo_(bar)?c=${code})`);
+    expect(attributeLinks("https://colateralai.com/a/b/", "threads", code)).toBe(`https://colateralai.com/a/b/?c=${code}`);
+  });
+
+  it("treats an existing c as present whatever its case", () => {
+    for (const text of ["https://colateralai.com/th?C=abc123", "https://colateralai.com/a?x=1&C=abc123#top", "https://colateralai.com/a?c"]) {
+      expect(attributeLinks(text, "threads", code)).toBe(text);
+    }
+  });
+
+  it("codes every CoLateral link in a mixed text and nothing else", () => {
+    expect(attributeLinks("a colateralai.com/pricing b https://example.com c https://colateralai.com", "threads", code)).toBe(
+      `a colateralai.com/pricing?c=${code} b https://example.com c https://colateralai.com/th?c=${code}`
+    );
+  });
+
+  it("changes nothing about paths and queries when there is no code", () => {
+    const untouched = ["https://colateralai.com/pricing?plan=pro#faq", "https://colateralai.com/?ref=x", "colateralai.com/pricing."];
+    for (const text of untouched) expect(attributeLinks(text, "threads")).toBe(text);
+  });
+
+  it("falls back to the plain platform link for a missing or malformed code", () => {
+    for (const bad of [undefined, "", "ABC123", "a b", "abc123&x=1", "toolongcode1"]) {
+      expect(attributeLinks("colateralai.com", "tiktok", bad)).toBe("colateralai.com/tt");
+    }
+  });
+});
+
+describe("YouTube lead line with a post code", () => {
+  const code = postCode("clip-1");
+  const coded = `${YOUTUBE_LEAD_LINE}?c=${code}`;
+
+  it("leads with the coded line and codes the body", () => {
+    expect(youtubeDescription("Watch.\nTry https://colateralai.com", code)).toBe(
+      `${coded}\n\nWatch.\nTry https://colateralai.com/yt?c=${code}`
+    );
+  });
+
+  it("does not repeat a coded lead line", () => {
+    const already = `${coded}\n\nBody`;
+    expect(youtubeDescription(already, code)).toBe(already);
+    expect(youtubeDescription(already)).toBe(already);
+  });
+
+  it("codes an uncoded lead line instead of stacking a second one", () => {
+    expect(youtubeDescription(`${YOUTUBE_LEAD_LINE}\n\nBody`, code)).toBe(`${coded}\n\nBody`);
+  });
+
+  it("is just the coded line for an empty description", () => {
+    expect(youtubeDescription("", code)).toBe(coded);
+  });
+
+  it("still prepends when the first line only looks similar", () => {
+    const lookalike = "Try CoLateral: https://colateralai.com/ytx";
+    expect(youtubeDescription(lookalike, code).startsWith(coded)).toBe(true);
+  });
+});
+
+describe("queue posts carry their own code", () => {
+  const item = { id: "clip-1", caption: "Clip. https://colateralai.com", hashtags: ["ai"] };
+  const code = postCode("clip-1");
+
+  it("codes the caption for each platform from the item id", () => {
+    expect(composeCaption(item, "instagram")).toBe(`Clip. https://colateralai.com/ig?c=${code}\n\n#ai`);
+    expect(composeCaption(item, "facebook")).toBe(`Clip. https://colateralai.com/fb?c=${code}\n\n#ai`);
+    expect(composeCaption(item, "tiktok")).toBe(`Clip. https://colateralai.com/tt?c=${code}\n\n#ai`);
+  });
+
+  it("codes the YouTube description", () => {
+    expect(composeDescription(item)).toBe(`${YOUTUBE_LEAD_LINE}?c=${code}\n\nClip. https://colateralai.com/yt?c=${code}\n\n#ai`);
+  });
+
+  it("gives different posts different codes", () => {
+    expect(composeCaption({ ...item, id: "clip-2" }, "instagram")).not.toBe(composeCaption(item, "instagram"));
+  });
+
+  it("leaves Buffer text without a platform untouched", () => {
+    expect(composeCaption(item)).toBe("Clip. https://colateralai.com\n\n#ai");
+  });
+});
+
+describe("captions with a platform length limit", () => {
+  const code = postCode("clip-1");
+  const limit = 2200;
+  const withLink = (filler: number, hashtags: string[] = []) => ({ id: "clip-1", caption: `${"a".repeat(filler)} colateralai.com`, hashtags });
+
+  it("keeps the code when the coded caption is exactly the limit", () => {
+    const caption = composeCaption(withLink(2172), "instagram", limit);
+    expect(caption).toHaveLength(limit);
+    expect(caption.endsWith(`colateralai.com/ig?c=${code}`)).toBe(true);
+  });
+
+  it("drops the code instead of truncating when the code alone takes it over", () => {
+    const caption = composeCaption(withLink(2173), "tiktok", limit);
+    expect(caption).toBe(`${"a".repeat(2173)} colateralai.com/tt`);
+    expect(caption.length).toBeLessThanOrEqual(limit);
+  });
+
+  it("does not cut a hashtag in half when the code is dropped", () => {
+    const caption = composeCaption(withLink(2160, ["#buildinpublic"]), "instagram", limit);
+    expect(caption.endsWith("#buildinpublic")).toBe(true);
+    expect(caption).not.toContain("?c=");
+  });
+
+  it("still truncates a caption that is over the limit even without its code", () => {
+    const caption = composeCaption(withLink(2190), "instagram", limit);
+    expect(caption).toHaveLength(limit);
+    expect(caption).not.toContain("?c=");
+  });
+
+  it("applies no limit when none is given", () => {
+    expect(composeCaption(withLink(2173), "instagram").endsWith(`?c=${code}`)).toBe(true);
+  });
+});
+
+describe("YouTube descriptions with a length limit", () => {
+  const code = postCode("clip-1");
+  const limit = 5000;
+  const withLink = (filler: number) => ({ id: "clip-1", caption: `${"a".repeat(filler)} colateralai.com`, hashtags: [] });
+  const overhead = composeDescription(withLink(1)).length - 1;
+
+  it("keeps the code when the coded description is exactly the limit", () => {
+    const description = composeDescription(withLink(limit - overhead), limit);
+    expect(description).toHaveLength(limit);
+    expect(description.startsWith(`${YOUTUBE_LEAD_LINE}?c=${code}`)).toBe(true);
+    expect(description.endsWith(`colateralai.com/yt?c=${code}`)).toBe(true);
+  });
+
+  it("drops the code instead of truncating when the code alone takes it over", () => {
+    const description = composeDescription(withLink(limit - overhead + 1), limit);
+    expect(description).not.toContain("?c=");
+    expect(description.startsWith(YOUTUBE_LEAD_LINE)).toBe(true);
+    expect(description.endsWith("colateralai.com/yt")).toBe(true);
+    expect(description.length).toBeLessThanOrEqual(limit);
+  });
+
+  it("still truncates a description that is over the limit without its code", () => {
+    const description = composeDescription(withLink(limit), limit);
+    expect(description).toHaveLength(limit);
+    expect(description).not.toContain("?c=");
+  });
+
+  it("applies no limit when none is given", () => {
+    expect(composeDescription(withLink(limit)).endsWith(`?c=${code}`)).toBe(true);
   });
 });

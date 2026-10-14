@@ -24,6 +24,7 @@ import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { BackupStatusLine, useBackupView } from "@/components/master-calendar/backup-status-line";
+import { AttributionPanel } from "@/components/master-calendar/attribution-panel";
 import { DiskLine } from "@/components/master-calendar/disk-line";
 import { SourceIcon } from "@/components/master-calendar/source-icon";
 import { sourceHrefForDay } from "@/lib/master-calendar/aggregate";
@@ -843,6 +844,8 @@ function DaySummaryBody({
       </Card>
 
       <DiskLine />
+
+      <AttributionPanel />
 
       {dateKey <= todayKey ? (
         <YoutubeDayStrip

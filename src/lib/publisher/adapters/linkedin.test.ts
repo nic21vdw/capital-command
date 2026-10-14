@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { isAuthFailure } from "@/lib/platform-health/auth";
 import { dataPath } from "@/lib/paths";
+import { postCode } from "@/lib/attribution/code";
 import { LINKEDIN_KEYS } from "@/lib/publisher/linkedinKeys";
 import { jsonResponse, mockFetchRoutes, testItem, type RecordedRequest } from "@/lib/publisher/test-helpers";
 import type { PlatformHealthResponse } from "@/lib/platform-health/types";
@@ -266,7 +267,7 @@ describe("video", () => {
     const post = body(find(requests, "POST", "/rest/posts")!);
     expect(post.content).toEqual({ media: { title: "Clip title", id: "urn:li:video:VID1" } });
     expect(post.commentary).toBe(
-      "Shipped the new queue \\(finally\\) https://colateralai.com/li\n\n{hashtag|\\#|buildinpublic}"
+      `Shipped the new queue \\(finally\\) https://colateralai.com/li?c=${postCode("item1")}\n\n{hashtag|\\#|buildinpublic}`
     );
     expect(handles).toEqual(["urn:li:video:VID1"]);
   });
