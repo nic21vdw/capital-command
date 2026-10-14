@@ -88,6 +88,8 @@ export const brandKitSchema = z.object({
   vocabulary: z.object({
     use: z.array(z.string().trim().min(1).max(120)).max(60),
     keywords: z.array(z.string().trim().min(1).max(60)).max(60),
+    fallbackHashtags: z.array(z.string().trim().min(1).max(60)).max(20),
+    properNames: z.array(z.string().trim().min(1).max(60)).max(60),
     titleExamples: z.array(z.string().trim().min(1).max(160)).max(30)
   }),
   voice: z.object({
@@ -187,8 +189,7 @@ const TEXT_POST_RULES = [
   "No wise closing line that restates the post as a law. Real posts just stop.",
   "Plain words over impressive ones: \"use\" not \"leverage\", \"start\" not \"embark\", \"so\" not \"thus\".",
   "Use contractions throughout. Start a sentence with And or But when it reads better. Trailing thoughts are fine.",
-  "Say the specific thing using supported details. Without a supplied real event, use a concrete example someone can try, not a made-up number, hour or thing that broke.",
-  "Take a side, admit something, or ask something you genuinely do not know the answer to. Do not close every post with a neat verdict, because a finished argument gives nobody anything to say back."
+  "Say the specific thing using supported details. Without a supplied real event, use a concrete example someone can try, not a made-up number, hour or thing that broke."
 ];
 
 const NO_HASHTAGS = { target: 0, max: 0, base: [] as string[] };
@@ -277,6 +278,8 @@ export const DEFAULT_BRAND_KIT: BrandKit = brandKitSchema.parse({
       "engineering",
       "automation"
     ],
+    fallbackHashtags: ["AI", "vibecoding", "coding", "buildinpublic", "startup"],
+    properNames: ["Claude", "Claude Code", "Opus", "Codex", "Warp", "Cursor", "Grok", "CoLateral", "Streamer.bot", "Remotion", "Vandewetering"],
     titleExamples: [
       "Vibe Coding a SaaS With Claude in 30 Minutes",
       "This AI Coding Trick Saves Me Hours Every Week",
@@ -294,7 +297,8 @@ export const DEFAULT_BRAND_KIT: BrandKit = brandKitSchema.parse({
       "Be concrete about what the product actually does, so a reader who has never heard of it understands it.",
       "Never invent facts, numbers, users, prices, launch dates, sales, time savings, personal anecdotes or results. A goal is not a shipped feature: write \"I want\" or \"I'm building toward\", never \"you can now\" or \"it does\".",
       "Complete, grammatical sentences. Never a raw transcript fragment and never a thought that trails off.",
-      "Nothing may promise something the app does not do."
+      "Nothing may promise something the app does not do.",
+      "{firstName}'s own story is fine: an engineer by day job who builds software and builds CoLateral in public. That is his background, not a product claim."
     ],
     dashes: "strip",
     dashRule: "Never an em dash or an en dash. Not one, anywhere. Use a comma, a full stop, or a new line. It is the single clearest tell.",
@@ -399,11 +403,25 @@ export const DEFAULT_BRAND_KIT: BrandKit = brandKitSchema.parse({
         "Carousel: the same deck is posted across Instagram, Facebook and TikTok, so keep the copy platform-neutral. No \"Instagram\" or \"IG\"-only references, and nothing that only makes sense on one network.",
       plainTalk: false,
       useKeywords: true,
-      emoji: "none",
+      emoji: "sparing",
       hashtags: NO_HASHTAGS,
       cta: { line: "Try it at colateralai.com", url: SITE },
-      avoid: [],
-      rules: []
+      avoid: [
+        "building in public",
+        "one vibe at a time",
+        "big things coming",
+        "this is only the beginning",
+        "the grind",
+        "follow the journey",
+        "let's go",
+        "game changer",
+        "buckle up"
+      ],
+      rules: [
+        "Write in {firstName}'s own voice, first person: \"I\", \"my\", \"we\" for him and chat together. Never \"he\", \"{firstName}\" or \"the creator\", because the slides are posted from his account.",
+        "Plain, confident, human language: short words, active verbs, the way a sharp friend would retell the night.",
+        "Emojis are optional seasoning: at most one per slide, only where it adds meaning (🚀 ship, 🐛 bug, 💸 money, 🤖 AI agent, ⚠️ problem, ✅ fixed), and never in place of a word. Most slides read better with none."
+      ]
     },
     launch: {
       label: "Product Hunt launch",
@@ -417,6 +435,7 @@ export const DEFAULT_BRAND_KIT: BrandKit = brandKitSchema.parse({
       cta: { line: "", url: SITE },
       avoid: [],
       rules: [
+        "Use the channel keywords in the social posts only.",
         "Never ask anyone to upvote. Product Hunt penalises it.",
         "No emoji in the tagline or description. At most one in a social post, and only if it earns its place."
       ]

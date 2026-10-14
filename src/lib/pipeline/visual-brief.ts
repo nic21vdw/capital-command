@@ -1,3 +1,4 @@
+import { DEFAULT_BRAND_KIT } from "@/lib/brand/defaults";
 import type { CaptionSegment } from "@/types/domain";
 import type { ClipCandidate } from "@/lib/clipping/types";
 
@@ -93,15 +94,16 @@ export function realisticImagePrompt(moment: VisualMoment, streamName: string) {
   const context = moment.transcript
     ? `The selected livestream moment says: "${moment.transcript.slice(0, 700)}"`
     : `The selected livestream is titled "${clean(streamName)}".`;
+  const name = DEFAULT_BRAND_KIT.identity.firstName;
 
   return [
-    "Retouch the attached original livestream screenshot as a high-fidelity visual reference. An original photograph of Nic is required; do not generate a replacement person from text alone.",
+    `Retouch the attached original livestream screenshot as a high-fidelity visual reference. An original photograph of ${name} is required; do not generate a replacement person from text alone.`,
     context,
     `Advertising hook: "${moment.headline}".`,
     "Deliver a restrained photorealistic retouch of the existing photograph, preserving the real creator, workstation, room, clothing, camera angle, and on-screen subject.",
-    "Keep Nic's face, age, facial proportions, hair, facial hair, expression, skin texture, body shape, hands and pose exactly as photographed. Do not beautify, smooth skin, swap faces, or recreate any part of him.",
+    `Keep ${name}'s face, age, facial proportions, hair, facial hair, expression, skin texture, body shape, hands and pose exactly as photographed. Do not beautify, smooth skin, swap faces, or recreate any part of him.`,
     "Improve only exposure, white balance, subtle colour balance and mild noise reduction. Preserve the photographed lighting and every meaningful screen detail. Do not invent studio lighting, fake bokeh or a different setting.",
-    "Keep the complete original frame and its edges. The app places the headline in a separate copy band; do not crop out Nic, his hands or the actual product to make space.",
+    `Keep the complete original frame and its edges. The app places the headline in a separate copy band; do not crop out ${name}, his hands or the actual product to make space.`,
     "Do not render the hook or any other new text inside the generated image. Preserve existing screen text without rewriting it.",
     "No invented logos, products, people, UI copy, or claims.",
     "Avoid cartoons, illustrations, anime, 3D renders, CGI, plastic skin, fantasy interfaces, holograms, exaggerated neon, malformed hands, and illegible text.",

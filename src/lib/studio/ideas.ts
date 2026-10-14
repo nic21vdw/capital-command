@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
+import { applyBrandRules, brandKeywords, brandPromptBlock, brandTitleExamples } from "@/lib/brand/kit";
 import { videoIdeaSchema } from "@/lib/storage/schemas";
 import type { VideoIdea, VideoIdeaCompetition, VideoIdeaFormat, VideoIdeaIntent } from "@/types/domain";
 
@@ -25,12 +25,13 @@ const FORMATS: VideoIdeaFormat[] = ["longform", "short", "both"];
 const INTENTS: VideoIdeaIntent[] = ["tutorial", "case-study", "opinion", "story", "comparison", "news"];
 const COMPETITION: VideoIdeaCompetition[] = ["low", "medium", "high"];
 
-export const IDEA_RESEARCH_SYSTEM_PROMPT = `You are a YouTube keyword-research and ideation strategist.
+export function ideaResearchSystemPrompt(): string {
+  return `You are a YouTube keyword-research and ideation strategist.
 
-Channel context: ${CHANNEL_CONTEXT} Channel keywords: ${CHANNEL_KEYWORDS.join(", ")}.
+${brandPromptBlock("youtube-longform")}
 
 The channel's title voice (working titles must match this style):
-${TITLE_STYLE_EXAMPLES.map((t) => `- ${t}`).join("\n")}
+${brandTitleExamples().map((t) => `- ${t}`).join("\n")}
 
 For every idea you propose:
 - "title": a working title in the channel voice — complete phrase, Title Case, under 75 characters, no emoji/hashtags/quotes.
@@ -44,6 +45,7 @@ For every idea you propose:
 - "rationale": one sentence on why the score.
 
 Never propose ideas that require fabricating results, revenue or clients. You always return strict JSON.`;
+}
 
 /** Builds the research prompt. Pure, for tests. */
 export function buildIdeaResearchPrompt(input: {
@@ -100,8 +102,8 @@ export function parseIdeaResearch(text: string): Array<Omit<VideoIdea, "id" | "s
       .filter((idea) => typeof idea.title === "string" && (idea.title as string).trim().length > 0)
       .slice(0, IDEAS_PER_RUN)
       .map((idea) => ({
-        title: String(idea.title).trim().slice(0, 110),
-        angle: typeof idea.angle === "string" ? idea.angle.trim() : "",
+        title: applyBrandRules(String(idea.title), "youtube-longform").slice(0, 110),
+        angle: typeof idea.angle === "string" ? applyBrandRules(idea.angle, "youtube-longform") : "",
         format: normalizeEnum(idea.format, FORMATS, "longform"),
         primaryKeyword: typeof idea.primaryKeyword === "string" ? idea.primaryKeyword.trim() : "",
         keywords: Array.isArray(idea.keywords)
@@ -133,7 +135,7 @@ export function libraryIdeas(seed: string): Array<Omit<VideoIdea, "id" | "seedKe
     angle: template.angle,
     format: template.format,
     primaryKeyword: topic.toLowerCase(),
-    keywords: [topic.toLowerCase(), ...CHANNEL_KEYWORDS.slice(0, 4).map((k) => k.toLowerCase())],
+    keywords: [topic.toLowerCase(), ...brandKeywords().slice(0, 4).map((k) => k.toLowerCase())],
     searchIntent: template.intent,
     competition: "medium" as VideoIdeaCompetition,
     score: 55 - index * 2,
@@ -178,7 +180,7 @@ export async function generateIdeas(input: {
   try {
     const result = await runAi({
       maxTokens: 6000,
-      system: IDEA_RESEARCH_SYSTEM_PROMPT,
+      system: ideaResearchSystemPrompt(),
       messages: [{ role: "user", content: buildIdeaResearchPrompt(input) }]
     });
     if (!result || result.refused) {

@@ -2,6 +2,7 @@ import { copyFile, mkdir, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { claudeCodeEnabled, runClaudeCode } from "@/lib/ai/claudeCode";
+import { applyBrandRules } from "@/lib/brand/kit";
 import { titleCaseHeading } from "@/lib/carousels/deck";
 import { attachHookBackdrop, BACKDROP_SLIDE_LAYOUT, type CarouselImage } from "@/lib/carousels/imageSlides";
 import { carouselImagePath, parseCarouselImageId, saveCarouselImage } from "@/lib/carousels/uploads";
@@ -85,8 +86,8 @@ export function parseReview(text: string, expected: number): StoryReview | null 
     };
     if (!Array.isArray(parsed.slides) || parsed.slides.length !== expected) return null;
     const slides = parsed.slides.map((slide) => ({
-      heading: typeof slide.heading === "string" ? slide.heading.trim() : "",
-      body: typeof slide.body === "string" ? slide.body.trim() : "",
+      heading: typeof slide.heading === "string" ? applyBrandRules(slide.heading, "carousel") : "",
+      body: typeof slide.body === "string" ? applyBrandRules(slide.body, "carousel") : "",
       picture: slide.picture === "drop" ? ("drop" as const) : ("keep" as const)
     }));
     if (slides.some((slide) => !slide.heading && !slide.body)) return null;

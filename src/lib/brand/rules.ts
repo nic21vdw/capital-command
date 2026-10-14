@@ -33,6 +33,10 @@ function mergeValue(base: unknown, over: unknown): unknown {
   return merged;
 }
 
+export function mergeOverrides(base: BrandKitOverrides, patch: BrandKitOverrides): BrandKitOverrides {
+  return mergeValue(base, patch) as BrandKitOverrides;
+}
+
 function sameValue(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
@@ -197,7 +201,7 @@ export type PromptBlockOptions = { keywords?: boolean };
 
 export function promptBlockFor(kit: BrandKit, channel: BrandChannel, options: PromptBlockOptions = {}): string {
   const config = kit.channels[channel];
-  const products = kit.products.map((product) => `${product.name} (${product.oneLiner})`).join(" and ");
+  const products = kit.products.map((product) => `${product.name} (${product.oneLiner.replace(/\.$/, "")})`).join(" and ");
   const lines: string[] = [
     `Brand kit for this piece (${config.label}). Follow it exactly.`,
     `Who is speaking: ${expandTokens(channelContext(kit), kit)}`,

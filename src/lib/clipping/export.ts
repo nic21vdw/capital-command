@@ -1,5 +1,6 @@
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { brandKit } from "@/lib/brand/kit";
 import { shortsAudioArgs, shortsAudioFilter } from "@/lib/clipping/audio";
 import { containScale, masterVideoArgs, scaleFilter } from "@/lib/clipping/encode";
 import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue } from "@/lib/clipping/captions";
@@ -183,7 +184,7 @@ function buildExportAss(spec: ExportSpec, w: number, h: number): string {
           start: o.start,
           end: o.end > o.start ? o.end : dur,
           fontScale: 0.05 * o.scale,
-          color: o.color ?? "#bd93f9",
+          color: o.color ?? brandKit().palette.purple,
           rotation: o.rotation,
           bold: (o.fontWeight ?? 800) >= 600,
           opacity: o.opacity

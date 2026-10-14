@@ -12,6 +12,7 @@
  * Connect only one account and it simply posts its own version.
  */
 
+import { brandKit } from "@/lib/brand/kit";
 import { effectiveToken, readStoredTokens } from "@/lib/threads/tokens";
 
 export type ThreadsVersion = "text" | "variant";
@@ -189,7 +190,7 @@ export function threadsConfig(): ThreadsConfig {
     catchUpMinShortfall: Math.max(1, num("THREADS_CATCHUP_MIN_SHORTFALL", 2)),
     catchUpCooldownMinutes: Math.max(5, num("THREADS_CATCHUP_COOLDOWN_MINUTES", 60)),
     plugReplies: flag("THREADS_PLUG_REPLY", true),
-    plugUrl: str("THREADS_PLUG_URL") ?? "https://colateralai.com",
+    plugUrl: str("THREADS_PLUG_URL") ?? brandKit().links.site,
     plugDelayMinutes: Math.max(0, num("THREADS_PLUG_DELAY_MINUTES", 2)),
     plugWindowMinutes: Math.max(10, num("THREADS_PLUG_WINDOW_MINUTES", 360))
   };

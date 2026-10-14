@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  BASE_HASHTAGS,
-  MAX_HASHTAGS,
+  baseHashtags,
+  maxHashtags,
   buildHashtagPrompt,
   fallbackHashtags,
   normalizeHashtag,
@@ -24,13 +24,13 @@ describe("normalizeHashtag", () => {
 describe("normalizeHashtags", () => {
   it("dedupes case-insensitively and caps the list", () => {
     expect(normalizeHashtags(["#ai", "#AI", "#agents"])).toEqual(["#ai", "#agents"]);
-    expect(normalizeHashtags(Array.from({ length: 20 }, (_, i) => `#tag${i}`))).toHaveLength(MAX_HASHTAGS);
+    expect(normalizeHashtags(Array.from({ length: 20 }, (_, i) => `#tag${i}`))).toHaveLength(maxHashtags());
   });
 });
 
 describe("fallbackHashtags", () => {
   it("always carries the format tag, even with nothing to go on", () => {
-    expect(fallbackHashtags({})).toEqual(BASE_HASHTAGS);
+    expect(fallbackHashtags({})).toEqual(baseHashtags());
   });
 
   it("tags only the channel keywords the clip actually mentions", () => {

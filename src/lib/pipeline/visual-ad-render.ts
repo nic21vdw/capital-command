@@ -1,3 +1,4 @@
+import { DEFAULT_BRAND_KIT } from "@/lib/brand/defaults";
 import {
   adCanvasSize,
   fitCover,
@@ -25,7 +26,7 @@ export function defaultVisualAdSettings(headline: string): VisualAdSettings {
     focusY: 0.5,
     treatment: "original",
     headline,
-    brand: "Nic Vandewetering",
+    brand: DEFAULT_BRAND_KIT.identity.name,
     callToAction: "Watch the full stream",
   };
 }
@@ -111,7 +112,7 @@ export function visualAdQuality(
     );
   if (layout.croppedPercent > 0)
     warnings.push(
-      `${layout.croppedPercent}% of the source is cropped. Check Nic's face, hands and the screen, or choose Complete frame.`,
+      `${layout.croppedPercent}% of the source is cropped. Check ${DEFAULT_BRAND_KIT.identity.firstName}'s face, hands and the screen, or choose Complete frame.`,
     );
   if (!settings.headline.trim())
     warnings.push("Add a headline grounded in the selected stream moment.");

@@ -27,7 +27,7 @@ describe("buildPlatformCopyPrompt", () => {
     expect(prompt).toContain("here is how I did it");
     expect(prompt).toContain("desktop agentic workspace");
     expect(prompt).toContain("developers, creators and engineers");
-    expect(prompt).not.toMatch(/structural engineer/i);
+    for (const line of prompt.split("\n").filter((row) => /structural/i.test(row))) expect(line).toMatch(/^- Never /);
   });
 });
 

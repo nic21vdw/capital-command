@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
+import { applyBrandRules, brandHashtagPolicy, brandKit, brandPromptBlock } from "@/lib/brand/kit";
 import type { PlatformId } from "@/lib/publisher/types";
 
 /**
@@ -36,33 +36,13 @@ export type CopySource = {
   spokenText?: string;
 };
 
-const MAX_HASHTAGS = 8;
 const MAX_CAPTION_CHARS = 500;
-
-/** How each platform's audience and copy conventions differ. */
-const PLATFORM_GUIDE: Record<PlatformId, string> = {
-  youtube:
-    "YouTube Shorts: a searchable, benefit-led caption (viewers find Shorts via search and suggested). Front-load keywords, 1-2 sentences, then hashtags. Favor discoverability over slang.",
-  tiktok:
-    "TikTok: native, punchy, conversational hook in the first line — write like a creator, not a brand. Short. Mix a couple of broad trend hashtags with niche ones.",
-  instagram:
-    "Instagram Reels: a caption with personality and a light call-to-engage (save/share). A tasteful line break is fine. Hashtags are expected and should blend broad + niche.",
-  facebook:
-    "Facebook Reels: slightly longer, plain-spoken and context-giving for an older audience. Fewer hashtags; clarity over slang."
-};
-
-const PLATFORM_HASHTAG_TARGET: Record<PlatformId, number> = {
-  youtube: 4,
-  tiktok: 5,
-  instagram: 8,
-  facebook: 3
-};
 
 export function platformCopyConfigured(): boolean {
   return aiConfigured();
 }
 
-export function normalizeHashtags(tags: string[], limit = MAX_HASHTAGS): string[] {
+export function normalizeHashtags(tags: string[], limit = 8): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const raw of tags) {
@@ -86,10 +66,7 @@ export function buildPlatformCopyPrompt(
   const lines: string[] = [
     `You are writing the post copy for a single short-form vertical clip being posted to ${platform.toUpperCase()}.`,
     "",
-    PLATFORM_GUIDE[platform],
-    "",
-    `Channel context: ${CHANNEL_CONTEXT}`,
-    `Channel keywords to weave in when they genuinely fit: ${CHANNEL_KEYWORDS.join(", ")}.`,
+    brandPromptBlock(platform),
     ""
   ];
   if (source.title?.trim()) lines.push(`Clip title: ${source.title.trim()}`);
@@ -99,7 +76,7 @@ export function buildPlatformCopyPrompt(
     "",
     `Return ONLY a JSON object: {"caption": string, "hashtags": string[], "bestTime": "HH:mm", "note": string}`,
     `- "caption": tailored for ${platform}, under ${MAX_CAPTION_CHARS} characters, no clickbait lies, no emoji spam.`,
-    `- "hashtags": about ${PLATFORM_HASHTAG_TARGET[platform]} hashtags with the # prefix, ordered strongest first.`,
+    `- "hashtags": about ${brandHashtagPolicy(platform).target} hashtags with the # prefix, ordered strongest first.`,
     `- "bestTime": a strong local time to post on ${platform} in 24h "HH:mm" (timezone ${timezone}).`,
     `- "note": one short sentence on the angle or timing choice.`
   );
@@ -107,21 +84,24 @@ export function buildPlatformCopyPrompt(
 }
 
 /** Pulls the copy object out of the reply, tolerating fences / prose. Pure. */
-export function parsePlatformCopy(text: string): PlatformCopy | null {
+export function parsePlatformCopy(text: string, platform: PlatformId = "youtube"): PlatformCopy | null {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   const candidate = fenced ? fenced[1] : text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
   try {
     const parsed = JSON.parse(candidate) as Record<string, unknown>;
-    const caption = typeof parsed.caption === "string" ? parsed.caption.trim().slice(0, MAX_CAPTION_CHARS) : "";
+    const caption = typeof parsed.caption === "string" ? applyBrandRules(parsed.caption, platform).slice(0, MAX_CAPTION_CHARS) : "";
     if (!caption) return null;
     const hashtags = Array.isArray(parsed.hashtags)
-      ? normalizeHashtags(parsed.hashtags.filter((tag): tag is string => typeof tag === "string"))
+      ? normalizeHashtags(
+          parsed.hashtags.filter((tag): tag is string => typeof tag === "string"),
+          brandHashtagPolicy(platform).max
+        )
       : [];
     const bestTime =
       typeof parsed.bestTime === "string" && /^\d{1,2}:\d{2}$/.test(parsed.bestTime.trim())
         ? parsed.bestTime.trim().padStart(5, "0")
         : undefined;
-    const note = typeof parsed.note === "string" ? parsed.note.trim() : undefined;
+    const note = typeof parsed.note === "string" ? applyBrandRules(parsed.note, platform) : undefined;
     return { caption, hashtags, bestTime, note };
   } catch {
     return null;
@@ -131,11 +111,8 @@ export function parsePlatformCopy(text: string): PlatformCopy | null {
 /** Offline fallback: a usable caption built from what the clip already knows. */
 export function fallbackPlatformCopy(source: CopySource, platform: PlatformId): PlatformCopy {
   const base = source.title?.trim() || source.topic?.trim() || "New clip";
-  const hashtags = normalizeHashtags(
-    ["AI", "vibecoding", "coding", "buildinpublic", "startup"],
-    PLATFORM_HASHTAG_TARGET[platform]
-  );
-  return { caption: base.slice(0, MAX_CAPTION_CHARS), hashtags, source: "fallback" };
+  const hashtags = normalizeHashtags(brandKit().vocabulary.fallbackHashtags, brandHashtagPolicy(platform).target);
+  return { caption: applyBrandRules(base, platform).slice(0, MAX_CAPTION_CHARS), hashtags, source: "fallback" };
 }
 
 /**
@@ -157,7 +134,7 @@ export async function generatePlatformCopy(
       messages: [{ role: "user", content: buildPlatformCopyPrompt(source, platform, timezone) }]
     });
     if (!result || result.refused) return fallback;
-    const parsed = parsePlatformCopy(result.text);
+    const parsed = parsePlatformCopy(result.text, platform);
     return parsed ? { ...parsed, source: "ai" } : fallback;
   } catch {
     return fallback;

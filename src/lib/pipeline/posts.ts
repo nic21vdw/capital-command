@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
+import { applyBrandRules, brandPromptBlock, brandTitleExamples } from "@/lib/brand/kit";
 import type { PipelinePost } from "@/lib/pipeline/types";
 
 /**
@@ -30,16 +30,18 @@ export function pipelinePostsConfigured() {
   return aiConfigured();
 }
 
-export const PIPELINE_POSTS_SYSTEM_PROMPT = `You write social posts for this channel. ${CHANNEL_CONTEXT} Recurring channel keywords to work in when the content genuinely supports them: ${CHANNEL_KEYWORDS.join(", ")}.
+export function pipelinePostsSystemPrompt(): string {
+  return `You write social posts for this channel.
+
+${brandPromptBlock("threads", { keywords: true })}
 
 Voice rules for every post:
-- Complete, grammatical sentences — NEVER a raw transcript fragment and never a thought that trails off.
 - Specific to what actually happened on the stream; no invented facts, numbers, or results.
-- No hashtags, no emoji, no generic openers ("Just wrapped up...", "Excited to share...").
 - Curiosity, stakes, or a concrete lesson up front — the same energy as these titles:
-${TITLE_STYLE_EXAMPLES.map((t) => `  - ${t}`).join("\n")}
+${brandTitleExamples().map((t) => `  - ${t}`).join("\n")}
 
 You always return strict JSON.`;
+}
 
 /** Builds the user prompt from the run's material. Pure, for tests. */
 export function buildPipelinePostsPrompt(input: PipelinePostsInput): string {
@@ -80,9 +82,9 @@ export function parsePipelinePosts(text: string): PipelinePost[] {
     const posts: PipelinePost[] = [];
     for (const entry of parsed) {
       const platform = typeof entry?.platform === "string" ? entry.platform.trim().toLowerCase() : "";
-      const post = typeof entry?.text === "string" ? entry.text.trim() : "";
-      if (!post || post.length > MAX_POST_CHARS) continue;
       if (platform !== "x" && platform !== "threads" && platform !== "facebook") continue;
+      const post = typeof entry?.text === "string" ? applyBrandRules(entry.text, platform) : "";
+      if (!post || post.length > MAX_POST_CHARS) continue;
       posts.push({ id: `post-${posts.length + 1}`, platform, text: post });
     }
     return posts;
@@ -120,7 +122,7 @@ export function fallbackPipelinePosts(input: PipelinePostsInput): PipelinePost[]
       `New session: ${streamTitle}. The full recording, the short clips, and the podcast version are all up now. ` +
       (highlights[0] ? `Start with the best moment: ${highlights[0].title.trim()}.` : `Come watch the build.`)
   });
-  return posts;
+  return posts.map((post) => ({ ...post, text: applyBrandRules(post.text, post.platform) }));
 }
 
 /**
@@ -139,7 +141,7 @@ export async function generatePipelinePosts(
   try {
     const result = await runAi({
       maxTokens: 3000,
-      system: PIPELINE_POSTS_SYSTEM_PROMPT,
+      system: pipelinePostsSystemPrompt(),
       messages: [{ role: "user", content: buildPipelinePostsPrompt(input) }]
     });
     if (!result || result.refused) {

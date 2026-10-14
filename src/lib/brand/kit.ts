@@ -1,7 +1,8 @@
 import { readFileSync, statSync } from "node:fs";
-import { DEFAULT_BRAND_KIT, type BrandChannel, type BrandKit, type BrandKitOverrides } from "@/lib/brand/defaults";
+import { DEFAULT_BRAND_KIT, channelContext, type BrandChannel, type BrandKit, type BrandKitOverrides } from "@/lib/brand/defaults";
 import {
   applyRules,
+  expandTokens,
   findViolations,
   hashtagPolicy,
   promptBlockFor,
@@ -55,6 +56,23 @@ export function brandKitResolution(): KitResolution {
 
 export function brandKit(): BrandKit {
   return brandKitResolution().kit;
+}
+
+export function brandContext(): string {
+  const kit = brandKit();
+  return expandTokens(channelContext(kit), kit);
+}
+
+export function brandKeywords(): string[] {
+  return [...brandKit().vocabulary.keywords];
+}
+
+export function brandProperNames(): string[] {
+  return [...brandKit().vocabulary.properNames];
+}
+
+export function brandTitleExamples(): string[] {
+  return [...brandKit().vocabulary.titleExamples];
 }
 
 export function brandPromptBlock(channel: BrandChannel, options?: PromptBlockOptions): string {

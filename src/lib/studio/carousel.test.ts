@@ -154,7 +154,8 @@ describe("batches", () => {
 
   it("asks Claude Code for the deck, with the story, bold and voice rules", async () => {
     const { runAi } = mockAiWriting();
-    const { generateCarouselBatches, CAROUSEL_SYSTEM_PROMPT } = await import("@/lib/studio/carousel");
+    const { generateCarouselBatches, carouselSystemPrompt } = await import("@/lib/studio/carousel");
+    const CAROUSEL_SYSTEM_PROMPT = carouselSystemPrompt();
     await generateCarouselBatches({ ...input, batchCount: 1 });
     const request = (runAi.mock.calls[0] as unknown as [{ writer?: string; system?: string }])[0];
     expect(request.writer).toBe("claude-code");

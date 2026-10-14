@@ -20,6 +20,7 @@ import {
   slideImageLayers,
   type SlideImage
 } from "@/lib/carousels/render";
+import { brandKit } from "@/lib/brand/kit";
 import { readAppData } from "@/lib/storage/store";
 import { emojiImageKey } from "@/lib/emoji/apple";
 import { carouselImagePath, parseCarouselImageId } from "@/lib/carousels/uploads";
@@ -103,10 +104,8 @@ export async function renderCarouselDeck(carousel: Carousel): Promise<string[]> 
   if (carousel.slides.length === 0) return [];
 
   const data = await readAppData().catch(() => null);
-  if (data) {
-    setSlideSignature({ name: data.creatorProfile.channelName, handle: data.creatorProfile.handle });
-    setSlideTheme(data.settings.carouselTheme);
-  }
+  setSlideSignature(brandKit().carousel.signature);
+  if (data) setSlideTheme(data.settings.carouselTheme);
 
   const dir = deckDir(carousel.id);
   await mkdir(dir, { recursive: true });

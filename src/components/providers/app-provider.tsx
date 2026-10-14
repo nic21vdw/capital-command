@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { routeLabel } from "@/lib/colateral/routes";
 import { derivePortfolioSummary } from "@/lib/derive";
+import { useBrandKit } from "@/lib/brand/client";
 import { setSlideSignature, setSlideTheme } from "@/lib/carousels/render";
 import { setClipDescription } from "@/lib/clipping/editor";
 import { localDateKey } from "@/lib/x-strategy/analytics";
@@ -251,16 +252,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [refresh]);
 
-  // Whose install this is, pushed into the two renderers that sign their
-  // output. Both used to hold one person's name as a constant, so anything
-  // anyone exported went out under it. They default to empty and this is what
-  // fills them - from the document, so it follows what Settings saved.
+  const brandKit = useBrandKit();
+  useEffect(() => {
+    setSlideSignature(brandKit.carousel.signature);
+  }, [brandKit]);
+
   useEffect(() => {
     if (!payload) return;
-    setSlideSignature({
-      name: payload.data.creatorProfile.channelName,
-      handle: payload.data.creatorProfile.handle
-    });
     setClipDescription(payload.data.settings.clipDescription ?? "");
     setSlideTheme(payload.data.settings.carouselTheme);
   }, [payload]);

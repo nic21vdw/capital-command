@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS, COLATERAL_DESCRIPTION, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
+import { applyBrandRules, brandKeywords, brandKit, brandPromptBlock, brandTitleExamples } from "@/lib/brand/kit";
 import { highlightChapters } from "@/lib/longform/highlights";
 import { formatChapterTime } from "@/lib/longform/length";
 import { editedDurationSec, sourceTimeToOutput } from "@/lib/longform/plan";
@@ -97,29 +97,28 @@ export function transcriptLines(transcript: CaptionSegment[], segments: Longform
   return lines.join("\n").slice(0, MAX_TRANSCRIPT_CHARS);
 }
 
-export const LONGFORM_METADATA_SYSTEM_PROMPT = `You are a YouTube growth strategist who writes titles and descriptions for long-form videos.
+export function longformMetadataSystemPrompt(): string {
+  return `You are a YouTube growth strategist who writes titles and descriptions for long-form videos.
 
-Channel context: ${CHANNEL_CONTEXT} Recurring keywords to work in whenever the video genuinely supports them: ${CHANNEL_KEYWORDS.join(", ")}.
+${brandPromptBlock("youtube-longform")}
 
 Title rules — every title must:
-- Be a complete, grammatical phrase — NEVER a transcript fragment.
 - Be under ${MAX_TITLE_CHARS} characters, in Title Case.
 - Lead with curiosity, stakes, or a bold claim; numbers and How/Why/What openers work well.
 - Use the channel keywords naturally when they fit — never force one that doesn't.
 - Contain no quotation marks, hashtags, or emoji.
 
 Examples of the exact title style to match:
-${TITLE_STYLE_EXAMPLES.map((t) => `- ${t}`).join("\n")}
+${brandTitleExamples().map((t) => `- ${t}`).join("\n")}
 
 Description rules:
 - Open with 1-2 hook sentences that would make someone click "more" (the first 120 characters show in search).
 - Then a short paragraph on what the video covers and why it matters, weaving in the channel keywords naturally.
 - Then 3-5 bullet lines ("- ") of the concrete things covered.
 - Close with a one-line call to action to subscribe for more AI/vibe-coding/building-in-public content, then 3-5 hashtags on the final line.
-- When CoLateral is relevant, use the channel description above. Never narrow it to one profession or engineering discipline.
-- No invented facts, links, or timestamps you were not given.
 
 You always return strict JSON.`;
+}
 
 /** Builds the user prompt. Pure, for tests. */
 export function buildLongformMetadataPrompt(input: {
@@ -154,12 +153,15 @@ export function buildLongformMetadataPrompt(input: {
 }
 
 function cleanTitle(raw: string): string {
-  const cleaned = raw
-    .replace(/^["'“”]+|["'“”]+$/g, "")
-    .replace(/#[\w-]+/g, " ")
-    .replace(/[\p{Extended_Pictographic}️]/gu, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const cleaned = applyBrandRules(
+    raw
+      .replace(/^["'“”]+|["'“”]+$/g, "")
+      .replace(/#[\w-]+/g, " ")
+      .replace(/[\p{Extended_Pictographic}️]/gu, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+    "youtube-longform"
+  );
   if (cleaned.split(/\s+/).length < 3 || cleaned.length > MAX_TITLE_CHARS + 10) return "";
   return cleaned;
 }
@@ -209,7 +211,7 @@ export function parseLongformMetadata(text: string): Omit<LongformVideoMetadata,
           .filter(Boolean)
           .slice(0, TITLE_OPTIONS)
       : [];
-    const description = typeof parsed.description === "string" ? parsed.description.trim() : "";
+    const description = typeof parsed.description === "string" ? applyBrandRules(parsed.description, "youtube-longform") : "";
     if (titles.length === 0 || !description) return null;
     return {
       titles,
@@ -228,6 +230,10 @@ export function fallbackLongformMetadata(
 ): LongformVideoMetadata {
   const base = project.name.trim() || "New Video";
   const chapters = fixedChapters(project);
+  const kit = brandKit();
+  const keywords = brandKeywords();
+  const cta = kit.channels["youtube-longform"].cta;
+  const brand = (text: string) => applyBrandRules(text, "youtube-longform");
   const fallback = {
     titles: [
       base,
@@ -235,19 +241,21 @@ export function fallbackLongformMetadata(
       `${base} — Building in Public`,
       `What I Learned Making ${base}`,
       `${base} (Full Walkthrough)`
-    ].map((t) => (t.length > MAX_TITLE_CHARS ? `${t.slice(0, MAX_TITLE_CHARS - 1)}…` : t)),
-    description: [
-      `${base} - building CoLateral in public with AI.`,
-      "",
-      `In this video I work on CoLateral. ${COLATERAL_DESCRIPTION} Expect real ${CHANNEL_KEYWORDS.slice(0, 4).join(", ")} work, including the wins, mistakes and decisions along the way.`,
-      "",
-      "Explore CoLateral: https://colateralai.com",
-      "",
-      "Subscribe for more AI, vibe coding and building-in-public videos.",
-      "",
-      "#AI #VibeCoding #BuildingInPublic"
-    ].join("\n"),
-    tags: [...CHANNEL_KEYWORDS],
+    ].map((t) => brand(t.length > MAX_TITLE_CHARS ? `${t.slice(0, MAX_TITLE_CHARS - 1)}…` : t)),
+    description: brand(
+      [
+        `${base} - building CoLateral in public with AI.`,
+        "",
+        `In this video I work on CoLateral. ${kit.positioning.description} Expect real ${keywords.slice(0, 4).join(", ")} work, including the wins, mistakes and decisions along the way.`,
+        "",
+        `${cta.line}: ${cta.url}`,
+        "",
+        "Subscribe for more AI, vibe coding and building-in-public videos.",
+        "",
+        "#AI #VibeCoding #BuildingInPublic"
+      ].join("\n")
+    ),
+    tags: keywords,
     chapters,
     source: "fallback" as const,
     generatedAt: new Date().toISOString()
@@ -296,7 +304,7 @@ export async function generateLongformMetadata(project: LongformProject): Promis
   try {
     const result = await runAi({
       maxTokens: 2500,
-      system: LONGFORM_METADATA_SYSTEM_PROMPT,
+      system: longformMetadataSystemPrompt(),
       messages: [
         {
           role: "user",

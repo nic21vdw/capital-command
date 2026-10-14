@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
+import { applyBrandRules, brandKeywords, brandPromptBlock, brandTitleExamples } from "@/lib/brand/kit";
 import { resolveThoughtEnd } from "@/lib/clipping/thought-end";
 import type { LongformTopic } from "@/lib/longform/types";
 import { MIN_LONGFORM_SEC } from "@/lib/longform/length";
@@ -339,7 +339,7 @@ export function planTopicSegments(
     const density = clamp(words / duration / 2.5, 0, 1);
     const lengthFit = clamp(1 - Math.abs(duration - targetSec) / targetSec, 0, 1);
     const lower = text.toLowerCase();
-    const channelHits = CHANNEL_KEYWORDS.filter((keyword) => lower.includes(keyword.toLowerCase())).length;
+    const channelHits = brandKeywords().filter((keyword) => lower.includes(keyword.toLowerCase())).length;
     return {
       start: piece.start,
       end: piece.end,
@@ -416,9 +416,10 @@ export function fallbackTopicSummary(keywords: string[]): string {
 const MAX_TOPIC_EXCERPT_CHARS = 2200;
 const MAX_TOPIC_TITLE_CHARS = 95;
 
-export const TOPIC_SEGMENT_SYSTEM_PROMPT = `You are a YouTube strategist who turns one long live stream into several standalone long-form uploads.
+export function topicSegmentSystemPrompt(): string {
+  return `You are a YouTube strategist who turns one long live stream into several standalone long-form uploads.
 
-Channel context: ${CHANNEL_CONTEXT} Recurring keywords to work in whenever a segment genuinely supports them: ${CHANNEL_KEYWORDS.join(", ")}.
+${brandPromptBlock("youtube-longform")}
 
 Each segment below is one subject the stream covered, and it will be published as its own video. For every segment write:
 - "title": a complete, grammatical phrase in Title Case, under ${MAX_TOPIC_TITLE_CHARS} characters. NEVER a transcript fragment and never a thought that trails off. Lead with curiosity, stakes, or a bold claim. No quotation marks, hashtags, or emoji.
@@ -427,9 +428,10 @@ Each segment below is one subject the stream covered, and it will be published a
 Titles must be distinct from each other — they are separate uploads from the same stream, so none of them may read as a duplicate.
 
 Examples of the exact title style to match:
-${TITLE_STYLE_EXAMPLES.map((t) => `- ${t}`).join("\n")}
+${brandTitleExamples().map((t) => `- ${t}`).join("\n")}
 
 You always return strict JSON.`;
+}
 
 export type TopicTitleRequest = {
   id: string;
@@ -460,12 +462,15 @@ export function buildTopicSegmentPrompt(segments: TopicTitleRequest[], context?:
 }
 
 function cleanTopicText(raw: string, maxChars: number, minWords: number): string {
-  const cleaned = raw
-    .replace(/^["'“”]+|["'“”]+$/g, "")
-    .replace(/#[\w-]+/g, " ")
-    .replace(/[\p{Extended_Pictographic}️]/gu, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const cleaned = applyBrandRules(
+    raw
+      .replace(/^["'“”]+|["'“”]+$/g, "")
+      .replace(/#[\w-]+/g, " ")
+      .replace(/[\p{Extended_Pictographic}️]/gu, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+    "youtube-longform"
+  );
   if (cleaned.split(/\s+/).filter(Boolean).length < minWords) return "";
   if (cleaned.length > maxChars) return "";
   return cleaned;
@@ -513,7 +518,7 @@ export async function generateTopicMetadata(
   try {
     const result = await runAi({
       maxTokens: 1500,
-      system: TOPIC_SEGMENT_SYSTEM_PROMPT,
+      system: topicSegmentSystemPrompt(),
       messages: [{ role: "user", content: buildTopicSegmentPrompt(withText, context) }]
     });
     if (!result || result.refused) return null;

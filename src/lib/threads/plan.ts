@@ -1,9 +1,9 @@
+import { applyBrandRules } from "@/lib/brand/kit";
 import { localCalendarParts, zonedToUtc } from "@/lib/publisher/time";
 import { MIN_GAP_MINUTES, THREADS_TEXT_LIMIT, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 import { plugReplyFor } from "@/lib/threads/plug";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 import { scheduleWindow } from "@/lib/x-posts/generator";
-import { stripDashes } from "@/lib/x-posts/voice";
 import type { XDailyPack, XSuggestedPost } from "@/types/domain";
 
 /**
@@ -45,7 +45,7 @@ export { MIN_GAP_MINUTES };
  * it runs once, at pack build, or a post would collect a new slip every replan.
  */
 export function fitToThreads(text: string, limit = THREADS_TEXT_LIMIT): string {
-  const clean = stripDashes(text).trim();
+  const clean = applyBrandRules(text, "threads").trim();
   if (clean.length <= limit) return clean;
   const cut = clean.slice(0, limit);
   const lastSpace = cut.lastIndexOf(" ");

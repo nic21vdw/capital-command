@@ -521,9 +521,12 @@ constraint rather than a starting point:
   widescreen still over a blurred bed of itself, high in the slide.
 - The copy sits in the band underneath, **centred**: heading, body and the blue
   accent rule all on the slide's centre axis.
-- Every slide is signed at the foot — the YouTube mark and *Nic Vandewetering*,
-  quiet, low contrast. It is drawn in `render.ts`, not fetched: an external
-  logo taints the canvas and `toBlob` then returns null for the whole slide.
+- Every slide is signed at the foot — the YouTube mark and the brand kit's
+  carousel signature (*Nic Vandewetering* by default), quiet, low contrast. It
+  is drawn in `render.ts`, not fetched: an external logo taints the canvas and
+  `toBlob` then returns null for the whole slide. The words come from
+  `brandKit().carousel.signature` and are edited in Settings > Brand kit; the
+  layout is not.
 
 The two things he does not want back are ragged-left copy under a centred
 picture, and a deck illustrated with footage of him talking in the car. The
@@ -618,6 +621,47 @@ Podcast delivery uses a durable schedule and the server heartbeat. Feed
 publication and Spotify ingestion are separate outcomes: a browser login does
 not prove the app is connected or that Spotify has claimed the RSS feed.
 Keep the one-time feed setup visible, and retain failed deliveries for retry.
+
+## The brand kit
+
+Who the app speaks for, its voice, the words it never uses, the dash rule, the
+call to action and link per channel, the hashtag policy, the palette and the
+carousel signature live in `src/lib/brand/` and nowhere else. The defaults are
+code, derived from `docs/colateral-messaging.md` (`kit.test.ts` fails if the doc
+and the defaults drift); Settings > Brand kit and `GET`/`PUT /api/brand-kit`
+save overrides to `data/brand-kit.json`.
+
+- A generator puts `brandPromptBlock(channel)` in its prompt and passes what the
+  model wrote through `applyBrandRules(text, channel)`. Both are in
+  `src/lib/brand/kit.ts`, which reads `data/brand-kit.json` on the server. Code
+  that a client component imports takes the pure `defaults.ts` or the
+  `useBrandKit()` hook in `client.ts` instead; `kit.ts` imports `node:fs`.
+- Do not copy a rule into a prompt. `guard.test.ts` fails on the speaker's name
+  or handles, a hand-copied list of banned words, a `runAi` caller with no kit
+  block, and a kit-block caller that never calls `applyBrandRules`. Each
+  exception is in the test's allow-list with its reason.
+- `prompt-parity.test.ts` holds every generator's prompt against
+  `prompt-parity.before.json`, the prompts as they were before the kit. It lists
+  the legacy lines each prompt dropped and checks the prompt differs only by the
+  kit block; when you change a generator's own wording on purpose, update the
+  fixture entry in the same commit.
+- The carousel signature is drawn from `brandKit().carousel.signature`
+  (`renderDeck.ts` on the server, `useBrandKit()` in `app-provider.tsx`). The
+  Profile card's channel name and handle no longer feed it.
+
+## The approval hold
+
+Settings > Publishing sets each channel (YouTube Shorts, Instagram, TikTok,
+Facebook, Threads) to `auto` or `hold`, saved in `data/review-policy.json`. All
+`auto` is today's behaviour exactly. Under `hold`, a post that has not been sent
+(a pending leg with no attempts and no platform id; a pending Threads row) waits
+until someone approves it from the Awaiting approval list on the Uploading
+Center: `PublishQueue.duePlatforms` and the Threads runner skip it, so it is
+never claimed and no attempt or retry is spent. Approving stamps `approvedAt`.
+The board's explicit Publish now counts as approval; a post already on a
+platform is never held; a Threads post nobody approved before its slot plus the
+late grace is skipped, as any missed slot is. The existing long-form YouTube
+private hold (`reviewHold.ts`) is a different thing and is untouched.
 
 ## Tests
 

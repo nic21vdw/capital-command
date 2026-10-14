@@ -94,7 +94,7 @@ export function ProfileSettings() {
         <div>
           <h2 className="text-lg font-semibold text-white">Profile</h2>
           <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-            Your name and photo in the sidebar, and the channel name and handle signed onto rendered carousels.
+            Your name and photo in the sidebar, and your channel name and handle.
           </p>
         </div>
       </div>
@@ -150,7 +150,7 @@ export function ProfileSettings() {
             </label>
           </div>
           <p className="mt-2 text-xs text-[var(--muted-foreground)]">
-            Leave them blank and carousels go out unsigned.
+            The signature on rendered carousels is set in Brand kit.
           </p>
           <div className="mt-3">
             <Button onClick={() => void saveChannel()} disabled={!channelDirty}>

@@ -57,7 +57,7 @@ describe("Threads editorial contract", () => {
     expect(prompt).toContain("agents working inside real files");
     expect(prompt).toContain("one-time licence");
     expect(prompt).toContain("Games, modules and CoLateral Marketing");
-    expect(prompt).toContain("never present CoLateral as engineering, structural or design software");
+    expect(request.system).toContain("Never present CoLateral as engineering, structural or design software");
     expect(prompt).not.toMatch(/names are CoLateral, CoLateral Engineering|engineers inspecting/);
     expect(prompt).toContain("The brief and optional focus provide topics, not automatic proof");
     expect(prompt).toContain('never convert them to "you can now"');

@@ -5,8 +5,10 @@ import { AppShell } from "@/components/layout/app-shell";
 import { SettingsPage } from "@/components/layout/settings-page";
 import { useAppData } from "@/components/providers/app-provider";
 import { useThemePreset } from "@/components/providers/theme-preset-provider";
+import { brandFieldPatch, brandKitSurface, BRAND_RESET_CONTROL } from "@/components/layout/brand-kit-surface";
 import { changeReviewPolicy, useReviewPolicy } from "@/components/layout/review-policy";
 import { parseReviewField, reviewPolicySurface } from "@/components/layout/review-policy-surface";
+import { patchBrandKit, saveBrandKit, useBrandKitState } from "@/lib/brand/client";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { reviewChange } from "@/lib/publisher/approval";
 import { themePresets } from "@/lib/themes";
@@ -27,6 +29,8 @@ export default function Page() {
   const [connected, setConnected] = useState<{ ready: number; total: number } | null>(null);
   const reviewPolicy = useReviewPolicy();
   const reviewParts = reviewPolicySurface(reviewPolicy.policy);
+  const brand = useBrandKitState();
+  const brandParts = brandKitSurface(brand.kit, brand.overrides);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,19 +102,24 @@ export default function Page() {
         kind: "longtext",
         hint: "Appended under every clip this app uploads."
       },
-      ...reviewParts.fields
+      ...reviewParts.fields,
+      ...brandParts.fields
     ],
     // Never a credential/token here: connections stay a read-only count below.
     controls: [
       { id: "load-demo-data", label: "Load demo data", group: "Danger zone", destructive: true },
-      { id: "delete-all-data", label: "Delete all data", group: "Danger zone", destructive: true }
+      { id: "delete-all-data", label: "Delete all data", group: "Danger zone", destructive: true },
+      BRAND_RESET_CONTROL
     ],
     readings: [
       { label: "Connected accounts", value: connected ? `${connected.ready} of ${connected.total}` : "Checking…" },
       { label: "Booking blocker", value: apiStatus.bookingBlockers?.[0] ?? "None" },
-      ...reviewParts.readings
+      ...reviewParts.readings,
+      ...brandParts.readings
     ],
     setField: (id, value) => {
+      const brandPatch = brandFieldPatch(id, value);
+      if (brandPatch !== undefined) return brandPatch === null ? false : patchBrandKit(brandPatch);
       const review = parseReviewField(id, value);
       if (review !== undefined) {
         if (review === null) return false;
@@ -189,6 +198,8 @@ export default function Page() {
         case "load-demo-data":
           void mutate("resetData", undefined, { successMessage: "Demo data loaded." });
           return true;
+        case BRAND_RESET_CONTROL.id:
+          return saveBrandKit({});
         default:
           return false;
       }
