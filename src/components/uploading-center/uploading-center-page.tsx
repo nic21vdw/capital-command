@@ -663,17 +663,22 @@ export function UploadingCenterPage() {
   }, []);
   const health = usePlatformHealth();
   const backup = useBackupView();
-  const bookingContext = (): BookingContext<ReadyClip> => ({
+  const bookingContext = (inFlight: boolean): BookingContext<ReadyClip> => ({
     clips: readyClips,
     timezone,
     now: new Date(),
     publishingOn,
     loaded,
-    busy: bookingRef.current.phase === "booking" ? "booking" : busy,
+    busy: inFlight ? "booking" : busy,
   });
   const scheduleForBooking: BookScheduler<ReadyClip> = (clip, override, hooks) => handleSchedule(clip, override, hooks);
   const pressBook = () => {
-    const started = startBooking(bookDraftRef.current, bookingContext(), scheduleForBooking, reportBooking);
+    const started = startBooking(
+      bookDraftRef.current,
+      bookingContext(bookingRef.current.phase === "booking"),
+      scheduleForBooking,
+      reportBooking,
+    );
     return started.ok ? (true as const) : refuse(started.reason);
   };
 
@@ -1182,7 +1187,7 @@ export function UploadingCenterPage() {
         group: "Queue",
         disabled: !placingClip,
       },
-      bookControl(bookingContext()),
+      bookControl(bookingContext(booking.phase === "booking")),
     ],
     readings: [
       { label: "Schedule data", value: loadError || accountsError ? `Needs retry: ${loadError ?? accountsError}` : loaded ? "Loaded" : "Loading…" },
@@ -1328,7 +1333,7 @@ export function UploadingCenterPage() {
               onDraftChange={updateBookDraft}
               clips={readyClips}
               timezone={timezone}
-              control={bookControl(bookingContext())}
+              control={bookControl(bookingContext(booking.phase === "booking"))}
               record={booking}
               onBook={() => {
                 const result = pressBook();

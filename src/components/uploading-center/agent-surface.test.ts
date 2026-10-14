@@ -10,7 +10,7 @@ describe("the Uploading Center declares the booking form and the readings", () =
 
   it("adds the Book clip fields, the Book control and the new readings to its surface", () => {
     expect(page).toContain("...bookFields(bookDraft, readyClips, timezone)");
-    expect(page).toContain("bookControl(bookingContext())");
+    expect(page).toContain("bookControl(bookingContext(booking.phase === \"booking\"))");
     for (const reading of ["bookingReading(booking)", "queueStatusReadings(", "brokenAccountsReading(health)", "quotaReadings({", "backupReading(backup)"]) {
       expect(page, reading).toContain(reading);
     }
@@ -20,7 +20,7 @@ describe("the Uploading Center declares the booking form and the readings", () =
     expect(page).toContain('if (id === "book") return pressBook();');
     expect(page).toMatch(/scheduleForBooking: BookScheduler<ReadyClip> = \(clip, override, hooks\) => handleSchedule\(clip, override, hooks\)/);
     expect(page).toMatch(/void handleSchedule\(clip, \{ platform, slotUtc \}\)/);
-    expect(page).toContain("startBooking(bookDraftRef.current, bookingContext(), scheduleForBooking, reportBooking)");
+    expect(page).toMatch(/startBooking\(\s*bookDraftRef\.current,\s*bookingContext\(bookingRef\.current\.phase === "booking"\),\s*scheduleForBooking,\s*reportBooking/);
   });
 
   it("never posts to the queue itself, so no guard can be skipped", () => {
