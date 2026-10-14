@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fetchJson } from "@/lib/publisher/http";
 import { dataPath } from "@/lib/paths";
+import { threadsAccountFingerprint } from "@/lib/platform-health/fingerprint";
+import { clearAuthState, recordAuthRejection } from "@/lib/platform-health/store";
 import { atomicWriteJson } from "@/lib/storage/atomic-json";
 import type { ThreadsAccount, ThreadsConfig } from "@/lib/threads/config";
 
@@ -82,6 +84,14 @@ function refreshDays(): number {
   return Number.isFinite(raw) && raw >= 1 ? raw : 7;
 }
 
+function flagRejection(account: ThreadsAccount, error: unknown, at: Date): Promise<boolean> {
+  return recordAuthRejection(
+    { platform: "threads", accountId: account.id, accountLabel: account.label },
+    error,
+    { now: at, fingerprint: threadsAccountFingerprint(account) }
+  ).catch(() => false);
+}
+
 export type TokenRefreshOutcome = { accountId: string; outcome: "refreshed" | "fresh" | "failed"; detail: string };
 
 /**
@@ -112,6 +122,7 @@ export async function refreshThreadsTokens(
       continue;
     }
     if (entry?.lastErrorAt && now.getTime() - Date.parse(entry.lastErrorAt) < RETRY_AFTER_ERROR_MS) {
+      await flagRejection(account, entry.lastError, new Date(entry.lastErrorAt));
       outcomes.push({ accountId: account.id, outcome: "failed", detail: entry.lastError ?? "Token refresh failed recently." });
       continue;
     }
@@ -124,6 +135,7 @@ export async function refreshThreadsTokens(
         refreshedAt: now.toISOString(),
         expiresAt: fresh.expiresInSeconds ? new Date(now.getTime() + fresh.expiresInSeconds * 1000).toISOString() : null
       };
+      await clearAuthState("threads", account.id).catch(() => false);
       outcomes.push({ accountId: account.id, outcome: "refreshed", detail: "Token refreshed for another 60 days." });
     } catch (error) {
       const message = redact(error instanceof Error ? error.message : String(error), [envToken, account.accessToken]);
@@ -132,6 +144,7 @@ export async function refreshThreadsTokens(
         lastErrorAt: now.toISOString(),
         lastError: message.slice(0, 400)
       };
+      await flagRejection(account, message, now);
       outcomes.push({ accountId: account.id, outcome: "failed", detail: message });
     }
     changed = true;

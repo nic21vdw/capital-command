@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { dataPath } from "@/lib/paths";
+import { authFailureReason, isAuthFailure } from "@/lib/platform-health/auth";
 import { atomicWriteJson } from "@/lib/storage/atomic-json";
 import {
   RECONNECT_URL,
@@ -41,31 +42,55 @@ async function writeAuthStates(states: AuthStates): Promise<void> {
   await atomicWriteJson(statePath(), states);
 }
 
+function failureState(
+  previous: PlatformAuthState | undefined,
+  target: AuthTarget,
+  reason: string,
+  now: Date,
+  fingerprint: string | null
+): PlatformAuthState {
+  const sameOutage = previous !== undefined && previous.fingerprint === fingerprint;
+  return {
+    platform: target.platform,
+    accountId: target.accountId,
+    accountLabel: target.accountLabel ?? null,
+    since: sameOutage ? previous.since : now.toISOString(),
+    lastFailureAt: now.toISOString(),
+    reason,
+    fixUrl: RECONNECT_URL,
+    fingerprint,
+    nextProbeAt: new Date(now.getTime() + AUTH_PROBE_MINUTES * 60_000).toISOString(),
+    failures: sameOutage ? previous.failures + 1 : 1
+  };
+}
+
 export function recordAuthFailure(
   target: AuthTarget,
   reason: string,
   options: { now?: Date; fingerprint: string | null }
 ): Promise<PlatformAuthState> {
   return serialized(async () => {
-    const now = options.now ?? new Date();
     const states = await readAuthStates();
     const key = authStateKey(target.platform, target.accountId);
-    const previous = states[key];
-    const sameOutage = previous !== undefined && previous.fingerprint === options.fingerprint;
-    const next: PlatformAuthState = {
-      platform: target.platform,
-      accountId: target.accountId,
-      accountLabel: target.accountLabel ?? null,
-      since: sameOutage ? previous.since : now.toISOString(),
-      lastFailureAt: now.toISOString(),
-      reason,
-      fixUrl: RECONNECT_URL,
-      fingerprint: options.fingerprint,
-      nextProbeAt: new Date(now.getTime() + AUTH_PROBE_MINUTES * 60_000).toISOString(),
-      failures: sameOutage ? previous.failures + 1 : 1
-    };
+    const next = failureState(states[key], target, reason, options.now ?? new Date(), options.fingerprint);
     await writeAuthStates({ ...states, [key]: next });
     return next;
+  });
+}
+
+export function recordAuthRejection(
+  target: AuthTarget,
+  error: unknown,
+  options: { now?: Date; fingerprint: string | null }
+): Promise<boolean> {
+  if (!isAuthFailure(error)) return Promise.resolve(false);
+  return serialized(async () => {
+    const states = await readAuthStates();
+    const key = authStateKey(target.platform, target.accountId);
+    if (states[key]?.fingerprint === options.fingerprint) return false;
+    const next = failureState(states[key], target, authFailureReason(error), options.now ?? new Date(), options.fingerprint);
+    await writeAuthStates({ ...states, [key]: next });
+    return true;
   });
 }
 
