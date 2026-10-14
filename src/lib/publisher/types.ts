@@ -130,6 +130,7 @@ export type TiktokPostOptions = {
   allowComment?: boolean;
   allowDuet?: boolean;
   allowStitch?: boolean;
+  disclosure?: boolean;
   /** "Your brand" — the creator promoting themselves. */
   brandOrganic?: boolean;
   /** "Branded content" — a paid partnership. Cannot be posted privately. */
