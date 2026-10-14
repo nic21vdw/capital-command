@@ -1,12 +1,12 @@
 # Stops the app, whoever started it.
 #
 # The PID file only knows about servers this repo's start-server.ps1 launched.
-# The publish runner starts the app too (`npm run start`, when a tick finds
-# nothing listening), and so does a hand-run `next start` - neither writes the
-# file. Stopping only the recorded PID left that server holding port 3000, the
-# rebuilt one failed to bind, and the release looked like it had worked while
-# the app carried on serving the old build. So: kill the PID file's process if
-# it is alive, then whatever still holds the port.
+# The scheduled runners start the app through it too, but a hand-run
+# `next start` does not write the file, and stopping only the recorded PID
+# left that server holding port 3000, the rebuilt one failed to bind, and the
+# release looked like it had worked while the app carried on serving the old
+# build. So: kill the PID file's process if it is alive, then whatever still
+# holds the port.
 
 # The port is 3000 unless CAPITAL_COMMAND_PORT says otherwise. That is not a
 # knob anyone needs day to day - it exists so a copy of the app can be started,

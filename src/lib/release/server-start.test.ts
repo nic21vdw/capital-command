@@ -22,7 +22,7 @@ describe.skipIf(process.platform !== "win32")("Windows server restart", () => {
     let pid: number | undefined;
     try {
       for (const dir of ["scripts", "src", ".next", "hooks", "node_modules/next/dist/bin"]) mkdirSync(join(root, dir), { recursive: true });
-      for (const file of ["start-server.ps1", "build-lock.ps1", "wait-for-url.ps1", "stamp-build-commit.mjs"]) copyFileSync(join(scripts, file), join(root, "scripts", file));
+      for (const file of ["start-server.ps1", "build-lock.ps1", "log-files.ps1", "wait-for-url.ps1", "stamp-build-commit.mjs"]) copyFileSync(join(scripts, file), join(root, "scripts", file));
       writeFileSync(join(root, "src", "app.js"), "// invented application fixture\n");
       writeFileSync(join(root, ".gitignore"), ".next\nnode_modules\n*.log\nserver.pid\n");
       git(root, "init", "--quiet");

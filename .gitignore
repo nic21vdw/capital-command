@@ -10,6 +10,7 @@ dist
 .test-dist
 *.log
 server.pid
+*.seen
 tsconfig.tsbuildinfo
 data/capital-command.json
 data/capital-command.json.unreadable-*

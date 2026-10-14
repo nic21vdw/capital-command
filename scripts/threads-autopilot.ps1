@@ -23,26 +23,24 @@
 param(
   [ValidateSet("tick", "plan", "run-due", "status", "check")]
   [string]$Mode = "tick",
-  [switch]$DryRun
+  [switch]$DryRun,
+  [string]$ReplayFile
 )
 
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot "build-lock.ps1")
+. (Join-Path $PSScriptRoot "log-files.ps1")
 $log = Join-Path $root "threads-autopilot.log"
 $baseUrl = if ($env:APP_BASE_URL) { $env:APP_BASE_URL } else { "http://localhost:3000" }
 
 Set-Location $root
 
-# Keep the last few runs rather than growing without bound.
-if ((Test-Path $log) -and ((Get-Item $log).Length -gt 2MB)) {
-  Move-Item $log "$log.old" -Force
-}
+Invoke-LogRotation -Path $log
 
 $stamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-Add-Content -Path $log -Value "" -Encoding utf8
-Add-Content -Path $log -Value "=== threads $Mode $stamp ===" -Encoding utf8
+Add-LogText -Path $log -Text "=== threads $Mode $stamp ==="
 
 # curl.exe rather than Invoke-WebRequest: IWR has hung indefinitely here under
 # Task Scheduler despite -TimeoutSec, and one wedged instance blocks every later
@@ -66,15 +64,19 @@ if (-not (Test-App)) {
   # from the build that is about to want it. The tick is skipped, not delayed:
   # the next one is minutes away and the release will be finished by then.
   if (Test-BuildInProgress) {
-    Add-Content -Path $log -Value "A build is in progress - leaving it alone this tick." -Encoding utf8
+    Add-LogText -Path $log -Text "A build is in progress - leaving it alone this tick."
     exit 0
   }
   if (-not (Test-BuildPresent)) {
-    Add-Content -Path $log -Value "There is no build to serve (.next\BUILD_ID is missing) - not starting a server." -Encoding utf8
+    Add-LogText -Path $log -Text "There is no build to serve (.next\BUILD_ID is missing) - not starting a server."
     exit 0
   }
-  Add-Content -Path $log -Value "App not running at $baseUrl - starting it." -Encoding utf8
-  Start-Process -FilePath "npm.cmd" -ArgumentList "run", "start" -WorkingDirectory $root -WindowStyle Hidden
+  Add-LogText -Path $log -Text "App not running at $baseUrl - starting it."
+  try {
+    & (Join-Path $PSScriptRoot "start-server.ps1") -Quiet -NoBuild *>&1 | ForEach-Object { Add-LogText -Path $log -Text "$_" }
+  } catch {
+    Add-LogText -Path $log -Text "start-server.ps1 failed: $($_.Exception.Message)"
+  }
 
   $deadline = (Get-Date).AddMinutes(3)
   while ((Get-Date) -lt $deadline -and -not (Test-App)) {
@@ -82,21 +84,25 @@ if (-not (Test-App)) {
   }
 
   if (-not (Test-App)) {
-    Add-Content -Path $log -Value "App did not come up within 3 minutes. Is it built? Run 'npm run build'." -Encoding utf8
+    Add-LogText -Path $log -Text "App did not come up within 3 minutes. Is it built? Run 'npm run build'."
     exit 1
   }
-  Add-Content -Path $log -Value "App is up." -Encoding utf8
+  Add-LogText -Path $log -Text "App is up."
 }
 
 $cliArgs = @("tsx", "src/lib/threads/cli.ts", $Mode)
 if ($DryRun) { $cliArgs += "--dry-run" }
 
-# Written a line at a time rather than through Tee-Object: Tee writes UTF-16 on
-# Windows PowerShell, which garbles the log the rest of this script appends to.
-& npx.cmd @cliArgs 2>&1 | ForEach-Object {
-  $line = "$_"
-  Write-Host $line
-  Add-Content -Path $log -Value $line -Encoding utf8
+if ($ReplayFile) {
+  $cliLines = @(Get-Content -LiteralPath $ReplayFile -Encoding UTF8)
+  $cliExit = 0
+} else {
+  $previousPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  $cliLines = @(& npx.cmd @cliArgs 2>&1 | ForEach-Object { "$_" })
+  $cliExit = $LASTEXITCODE
+  $ErrorActionPreference = $previousPreference
 }
-exit $LASTEXITCODE
+Write-ThreadsTickSummary -Log $log -Lines $cliLines -ExitCode $cliExit -StatePath (Join-Path $root "threads-autopilot.seen")
+exit $cliExit
 
