@@ -10,6 +10,7 @@ import type { QueueItem } from "@/lib/publisher/types";
  */
 
 export const YOUTUBE_UNITS_PER_UPLOAD = 1600;
+export const YOUTUBE_UNITS_PER_UPLOAD_SAFE = 1700;
 export const YOUTUBE_DAILY_UNITS = 10_000;
 const QUOTA_RESET_TIMEZONE = "America/Los_Angeles";
 
@@ -22,6 +23,7 @@ export type YoutubeQuota = {
   projectedUploads: number;
   budgetUploads: number;
   usedUnits: number;
+  listeningUnits: number;
   unitsPerUpload: number;
   dailyUnits: number;
   overBudget: boolean;
@@ -36,9 +38,14 @@ export type YoutubeQuota = {
  * the channel out of uploading. The runner asks this before each fresh upload
  * and defers the rest to tomorrow; nothing is failed or lost.
  */
-export function remainingYoutubeUploads(items: QueueItem[], now: Date, config: PublisherConfig): number {
-  const { uploadsUsed } = youtubeQuota(items, now, config);
-  return Math.max(0, config.youtube.dailyUploadBudget - uploadsUsed);
+export function remainingYoutubeUploads(items: QueueItem[], now: Date, config: PublisherConfig, listeningUnits = 0): number {
+  const { uploadsUsed } = youtubeQuota(items, now, config, listeningUnits);
+  return Math.max(0, effectiveUploadBudget(config, listeningUnits) - uploadsUsed);
+}
+
+export function effectiveUploadBudget(config: PublisherConfig, listeningUnits = 0): number {
+  const displaced = Math.ceil(Math.max(0, listeningUnits) / YOUTUBE_UNITS_PER_UPLOAD_SAFE);
+  return Math.max(0, config.youtube.dailyUploadBudget - displaced);
 }
 
 export function quotaDate(instant: Date): string {
@@ -50,7 +57,13 @@ export function quotaDate(instant: Date): string {
   }).format(instant);
 }
 
-export function youtubeQuota(items: QueueItem[], now: Date, config: PublisherConfig): YoutubeQuota {
+export function quotaMinuteOfDay(instant: Date): number {
+  const parts = dateTimeFormat("en-US", { timeZone: QUOTA_RESET_TIMEZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(instant);
+  const part = (type: string) => Number(parts.find((entry) => entry.type === type)?.value ?? 0);
+  return part("hour") * 60 + part("minute");
+}
+
+export function youtubeQuota(items: QueueItem[], now: Date, config: PublisherConfig, listeningUnits = 0): YoutubeQuota {
   const today = quotaDate(now);
   let uploadsUsed = 0;
   let uploadsPending = 0;
@@ -61,15 +74,17 @@ export function youtubeQuota(items: QueueItem[], now: Date, config: PublisherCon
     else if (state.status === "pending" || state.status === "uploaded") uploadsPending += 1;
   }
   const projectedUploads = uploadsUsed + uploadsPending;
+  const budget = effectiveUploadBudget(config, listeningUnits);
   return {
     date: today,
     uploadsUsed,
     uploadsPending,
     projectedUploads,
-    budgetUploads: config.youtube.dailyUploadBudget,
-    usedUnits: uploadsUsed * YOUTUBE_UNITS_PER_UPLOAD,
+    budgetUploads: budget,
+    usedUnits: uploadsUsed * YOUTUBE_UNITS_PER_UPLOAD + listeningUnits,
+    listeningUnits,
     unitsPerUpload: YOUTUBE_UNITS_PER_UPLOAD,
     dailyUnits: YOUTUBE_DAILY_UNITS,
-    overBudget: projectedUploads > config.youtube.dailyUploadBudget
+    overBudget: projectedUploads > budget
   };
 }

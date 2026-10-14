@@ -42,6 +42,9 @@ export async function register() {
     const { startAnalyticsSync } = await import("@/lib/analytics/schedule");
     startAnalyticsSync();
 
+    const { startListeningSchedule } = await import("@/lib/listening/schedule");
+    startListeningSchedule();
+
     const { startInboxScheduler } = await import("@/lib/inbox/scheduler");
     startInboxScheduler();
   }

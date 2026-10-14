@@ -1,0 +1,33 @@
+{
+  "kind": "youtube#searchListResponse",
+  "items": [
+    {
+      "id": { "kind": "youtube#video", "videoId": "vid0001" },
+      "snippet": {
+        "publishedAt": "2026-10-12T08:00:00Z",
+        "channelId": "UCstruct",
+        "channelTitle": "Struct Dev",
+        "title": "ETABS vs SAP2000 for a 12 storey frame",
+        "description": "Which one should I learn first? Looking for advice on structural analysis software."
+      }
+    },
+    {
+      "id": { "kind": "youtube#video", "videoId": "vid0002" },
+      "snippet": {
+        "publishedAt": "2026-10-11T08:00:00Z",
+        "channelId": "UCcats",
+        "channelTitle": "Cat Piano",
+        "title": "My cat learns piano",
+        "description": "Nothing relevant here."
+      }
+    },
+    {
+      "id": { "kind": "youtube#channel", "channelId": "UCnotavideo" },
+      "snippet": {
+        "publishedAt": "2026-10-10T08:00:00Z",
+        "title": "ETABS tutorials channel",
+        "description": "A channel result is not a video."
+      }
+    }
+  ]
+}

@@ -53,6 +53,20 @@ describe("/api/outreach", () => {
     expect((await readOutreachStore()).contacts).toHaveLength(1);
   });
 
+  it("saves the thread template apart from the creator template", async () => {
+    const response = await PATCH(
+      new NextRequest("http://localhost:3000/api/outreach", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadTemplate: "Hi, I saw {thread}." })
+      })
+    );
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.threadTemplate).toBe("Hi, I saw {thread}.");
+    expect(body.template).not.toBe("Hi, I saw {thread}.");
+  });
+
   it("refuses a write from another origin", async () => {
     const foreign = new NextRequest("http://localhost:3000/api/outreach", {
       method: "PATCH",
