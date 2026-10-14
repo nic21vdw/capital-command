@@ -23,16 +23,21 @@ async function seed(text = EXISTING) {
   await writeFile(FILE, text, "utf8");
 }
 
-async function failReadsOf(code: string) {
+async function failReadsOf(code: string, times = Number.POSITIVE_INFINITY) {
   const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  let reads = 0;
   vi.doMock("node:fs/promises", () => ({
     ...actual,
     default: actual,
     readFile: vi.fn(async (file: Parameters<typeof actual.readFile>[0], ...rest: unknown[]) => {
-      if (String(file).endsWith("publisher-tokens.json")) throw Object.assign(new Error(`${code}: resource busy or locked`), { code });
+      if (String(file).endsWith("publisher-tokens.json")) {
+        reads += 1;
+        if (reads <= times) throw Object.assign(new Error(`${code}: resource busy or locked`), { code });
+      }
       return (actual.readFile as (...args: unknown[]) => Promise<unknown>)(file, ...rest);
     })
   }));
+  return { reads: () => reads };
 }
 
 describe("the publisher token store", () => {
@@ -108,6 +113,65 @@ describe("a token file that cannot be read", () => {
     expect(await getCachedToken("youtube.refreshToken")).toBe("yt-refresh");
     expect(await getCachedToken("tiktok.refreshToken")).toBe("tt-refresh");
     expect(await getCachedToken("linkedin.accessToken")).toBe("li");
+  });
+});
+
+describe("a token file that is locked for a moment", () => {
+  it.each(["EBUSY", "EPERM", "EACCES"])("is read again after %s, and then the write keeps every token", async (code) => {
+    await seed();
+    const probe = await failReadsOf(code, 2);
+    const { getCachedToken, setCachedTokens } = await import("@/lib/publisher/tokens");
+
+    await setCachedTokens({ "linkedin.accessToken": "li" });
+
+    expect(probe.reads()).toBe(3);
+    expect(await getCachedToken("youtube.refreshToken")).toBe("yt-refresh");
+    expect(await getCachedToken("tiktok.refreshToken")).toBe("tt-refresh");
+    expect(await getCachedToken("linkedin.accessToken")).toBe("li");
+  });
+
+  it("tries five times and then gives up without writing", async () => {
+    await seed();
+    const probe = await failReadsOf("EBUSY");
+    const { setCachedTokens } = await import("@/lib/publisher/tokens");
+
+    await expect(setCachedTokens({ "linkedin.accessToken": "li" })).rejects.toThrow("EBUSY");
+
+    expect(probe.reads()).toBe(5);
+    expect(await readFile(FILE, "utf8")).toBe(EXISTING);
+  });
+
+  it("succeeds on the fifth attempt", async () => {
+    await seed();
+    const probe = await failReadsOf("EBUSY", 4);
+    const { getCachedToken, setCachedTokens } = await import("@/lib/publisher/tokens");
+    await setCachedTokens({ "linkedin.accessToken": "li" });
+    expect(probe.reads()).toBe(5);
+    expect(await getCachedToken("youtube.refreshToken")).toBe("yt-refresh");
+  });
+
+  it("does not wait on an error that is not a lock", async () => {
+    await seed();
+    const probe = await failReadsOf("EIO");
+    const { setCachedTokens } = await import("@/lib/publisher/tokens");
+    await expect(setCachedTokens({ "linkedin.accessToken": "li" })).rejects.toThrow("EIO");
+    expect(probe.reads()).toBe(1);
+    expect(await readFile(FILE, "utf8")).toBe(EXISTING);
+  });
+
+  it("does not retry a file that is simply not there", async () => {
+    const probe = await failReadsOf("ENOENT", 1);
+    const { getCachedToken, setCachedTokens } = await import("@/lib/publisher/tokens");
+    await setCachedTokens({ first: "1" });
+    expect(probe.reads()).toBe(1);
+    expect(await getCachedToken("first")).toBe("1");
+  });
+
+  it("lets a plain read ride out the same lock", async () => {
+    await seed();
+    await failReadsOf("EBUSY", 3);
+    const { getCachedToken } = await import("@/lib/publisher/tokens");
+    expect(await getCachedToken("youtube.refreshToken")).toBe("yt-refresh");
   });
 });
 

@@ -9,13 +9,22 @@ import {
   LINKEDIN_COMMENTARY_LIMIT,
   LINKEDIN_REST,
   LinkedinPermanentError,
+  LinkedinUnsentError,
   linkedinCall,
   linkedinJson,
   linkedinUpload,
+  linkedinUploadTimeoutMs,
   littleText
 } from "@/lib/publisher/linkedinApi";
 import { linkedinAccessToken, linkedinSession } from "@/lib/publisher/linkedinAuth";
-import { LINKEDIN_PAGE_SCOPE, isPostAttempt, postAttemptHandle } from "@/lib/publisher/linkedinKeys";
+import {
+  LINKEDIN_PAGE_SCOPE,
+  isPostAttempt,
+  isRearmedAttempt,
+  mediaOfHandle,
+  postAttemptHandle,
+  rearmedHandle
+} from "@/lib/publisher/linkedinKeys";
 import { composeCaption } from "@/lib/publisher/metadata";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
 import type { PlatformAdapter, PostResult, PublishInput, PublishPlan, Visibility } from "@/lib/publisher/types";
@@ -54,6 +63,12 @@ const NOT_PUBLIC_MESSAGE =
   "LinkedIn posts are always public, and this post is not. Make it public, or post it by hand on LinkedIn.";
 
 const DUPLICATE_POST = /urn:li:(?:share|ugcPost):\d+/;
+
+function duplicateRefusal(existing: string | undefined): PermanentError {
+  return new PermanentError(
+    `LinkedIn refused: same text as an earlier post${existing ? ` (${existing})` : ""}. Change the caption, then schedule it again.`
+  );
+}
 
 function assertCanPost(session: Session, visibility: Visibility): void {
   if (isPage(session.author) && !session.scopes.includes(LINKEDIN_PAGE_SCOPE)) {
@@ -118,7 +133,8 @@ async function uploadSingle(session: Session, kind: "image" | "document", bytes:
   await linkedinUpload(uploadUrl, {
     body: bytes,
     headers: { Authorization: `Bearer ${session.token}`, "Content-Type": contentType },
-    label: `LinkedIn ${kind} upload`
+    label: `LinkedIn ${kind} upload`,
+    timeoutMs: linkedinUploadTimeoutMs(bytes.length)
   });
   return urn;
 }
@@ -193,7 +209,8 @@ async function createPost(
   session: Session,
   commentary: string,
   content: PostContent | undefined,
-  attempt: PostAttempt = NO_ATTEMPT
+  attempt: PostAttempt = NO_ATTEMPT,
+  adoptDuplicate = false
 ): Promise<{ id: string; duplicate: boolean }> {
   await attempt.begin();
   let response: Response;
@@ -214,12 +231,16 @@ async function createPost(
     });
   } catch (error) {
     if (error instanceof LinkedinPermanentError) {
-      const existing = error.status === 422 && /duplicate/i.test(error.body) ? DUPLICATE_POST.exec(error.body)?.[0] : undefined;
-      if (existing) return { id: existing, duplicate: true };
+      if (error.status === 422 && /duplicate/i.test(error.body)) {
+        const existing = DUPLICATE_POST.exec(error.body)?.[0];
+        if (existing && adoptDuplicate) return { id: existing, duplicate: true };
+        await attempt.clear();
+        throw duplicateRefusal(existing);
+      }
       await attempt.clear();
       throw error;
     }
-    if (error instanceof ThrottledError) {
+    if (error instanceof ThrottledError || error instanceof LinkedinUnsentError) {
       await attempt.clear();
       throw error;
     }
@@ -324,7 +345,9 @@ export const linkedinAdapter: PlatformAdapter = {
     const commentary = littleText(composeCaption(input.item, "linkedin", LINKEDIN_COMMENTARY_LIMIT) || input.item.title);
     const kind = mediaKindOf(input);
 
-    let mediaUrn = handle?.startsWith(MEDIA_URN_PREFIX[kind]) ? handle : undefined;
+    const storedMedia = mediaOfHandle(handle);
+    const rearmed = isRearmedAttempt(handle);
+    let mediaUrn = storedMedia?.startsWith(MEDIA_URN_PREFIX[kind]) ? storedMedia : undefined;
     if (!mediaUrn) {
       mediaUrn = await uploadMedia(session, kind, input);
       await input.onHandle?.(mediaUrn);
@@ -338,8 +361,9 @@ export const linkedinAdapter: PlatformAdapter = {
       { media: { title: mediaTitle(input), id: media } },
       {
         begin: async () => void (await input.onHandle?.(postAttemptHandle(media))),
-        clear: async () => void (await input.onHandle?.(media))
-      }
+        clear: async () => void (await input.onHandle?.(rearmed ? rearmedHandle(media) : media))
+      },
+      rearmed
     );
     return { status: "published", postId: id, containerId: media, detail: duplicate ? DUPLICATE_DETAIL : DETAIL[kind] };
   }

@@ -41,6 +41,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.doUnmock("@/lib/storage/atomic-json");
   vi.doUnmock("@/lib/carousels/pdf");
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
@@ -481,19 +482,110 @@ describe("a create that may or may not have gone through", () => {
     expect(requests.some((request) => request.url.includes("initializeUpload"))).toBe(false);
   });
 
+  const rearmedInput = (handle = "rearmed:urn:li:image:IMG1") => {
+    const input = imageInput(1);
+    return { ...input, item: { ...input.item, platforms: { linkedin: { status: "pending" as const, attempts: 0, containerId: handle } } } };
+  };
+
   it.each([
     ["share", "urn:li:share:6844785523593134080"],
     ["ugcPost", "urn:li:ugcPost:6844785523593134081"]
-  ])("records a duplicate-content 422 that names the existing %s as published", async (_kind, urn) => {
-    const { value } = await publishWith([
-      {
-        match: "/rest/posts",
-        respond: () => jsonResponse({ message: `Content is a duplicate of ${urn}`, status: 422 }, { status: 422 })
-      }
-    ]);
+  ])("records a duplicate-content 422 that names the existing %s as published, for a leg re-armed from an ambiguous create", async (_kind, urn) => {
+    const { value } = await publishWith(
+      [{ match: "/rest/posts", respond: () => jsonResponse({ message: `Content is a duplicate of ${urn}`, status: 422 }, { status: 422 }) }],
+      rearmedInput()
+    );
     expect(value).toMatchObject({ status: "published", postId: urn, containerId: "urn:li:image:IMG1" });
     expect(value?.detail).toContain("already had this post");
   });
+
+  it.each([
+    ["names a post", "Content is a duplicate of urn:li:share:6844785523593134080"],
+    ["names none", "Duplicate content"]
+  ])("refuses a duplicate-content 422 on a fresh leg when it %s, and says why", async (_label, message) => {
+    const { error, handles } = await publishWith([
+      { match: "/rest/posts", respond: () => jsonResponse({ message, status: 422 }, { status: 422 }) }
+    ]);
+    const { PermanentError } = await http();
+    expect(error).toBeInstanceOf(PermanentError);
+    expect(error?.message).toContain("LinkedIn refused: same text as an earlier post");
+    expect(isAuthFailure(error)).toBe(false);
+    expect(handles.at(-1)?.handle).toBe("urn:li:image:IMG1");
+  });
+
+  it("refuses a duplicate that names no post on a re-armed leg, and keeps it marked as re-armed", async () => {
+    const { error, handles } = await publishWith(
+      [{ match: "/rest/posts", respond: () => jsonResponse({ message: "Duplicate content", status: 422 }, { status: 422 }) }],
+      rearmedInput()
+    );
+    expect(error?.message).toContain("same text as an earlier post");
+    expect(handles.at(-1)?.handle).toBe("rearmed:urn:li:image:IMG1");
+  });
+
+  it("keeps a re-armed leg marked as re-armed after a refusal that created nothing", async () => {
+    const { handles } = await publishWith([{ match: "/rest/posts", respond: () => jsonResponse({ message: "no" }, { status: 400 }) }], rearmedInput());
+    expect(handles.at(-1)?.handle).toBe("rearmed:urn:li:image:IMG1");
+  });
+
+  it("reuses the stored media of a re-armed leg and records the plain media on success", async () => {
+    const { value, requests } = await publishWith([], rearmedInput());
+    expect(value).toMatchObject({ status: "published", postId: "urn:li:share:7001", containerId: "urn:li:image:IMG1" });
+    expect(requests.some((request) => request.url.includes("initializeUpload"))).toBe(false);
+  });
+
+  it("refuses a duplicate on a text post with a link", async () => {
+    await connect();
+    mockFetchRoutes([
+      {
+        match: "/rest/posts",
+        respond: () => jsonResponse({ message: "Content is a duplicate of urn:li:share:123", status: 422 }, { status: 422 })
+      }
+    ]);
+    const { publishLinkedinText } = await import("@/lib/publisher/adapters/linkedin");
+    await expect(publishLinkedinText({ text: "Hello" })).rejects.toThrow("same text as an earlier post");
+  });
+
+  it.each([
+    ["ENOTFOUND", "getaddrinfo ENOTFOUND api.linkedin.com"],
+    ["EAI_AGAIN", "getaddrinfo EAI_AGAIN api.linkedin.com"],
+    ["ECONNREFUSED", "connect ECONNREFUSED 127.0.0.1:443"],
+    ["UNABLE_TO_VERIFY_LEAF_SIGNATURE", "unable to verify the first certificate"],
+    ["ERR_TLS_CERT_ALTNAME_INVALID", "Hostname/IP does not match certificate's altnames"],
+    ["ERR_SSL_WRONG_VERSION_NUMBER", "wrong version number"]
+  ])("retries a create that never left the machine (%s) and clears the marker", async (code, reason) => {
+    const { error, handles } = await publishWith([
+      {
+        match: "/rest/posts",
+        respond: () => {
+          throw Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error(reason), { code }) });
+        }
+      }
+    ]);
+    const { PermanentError, TransientError } = await http();
+    expect(error).toBeInstanceOf(TransientError);
+    expect(error).not.toBeInstanceOf(PermanentError);
+    expect(error?.message).toContain("nothing was sent");
+    expect(error?.message).not.toContain("May already be posted");
+    expect(handles.at(-1)?.handle).toBe("urn:li:image:IMG1");
+  });
+
+  it.each(["ECONNRESET", "ETIMEDOUT", "UND_ERR_SOCKET", "UND_ERR_BODY_TIMEOUT"])(
+    "still treats %s as a post that may have been created",
+    async (code) => {
+      const { error, handles } = await publishWith([
+        {
+          match: "/rest/posts",
+          respond: () => {
+            throw Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error(code), { code }) });
+          }
+        }
+      ]);
+      const { PermanentError } = await http();
+      expect(error).toBeInstanceOf(PermanentError);
+      expect(error?.message).toContain("May already be posted");
+      expect(handles.at(-1)?.handle).toBe("posting:urn:li:image:IMG1");
+    }
+  );
 
   it("keeps a 422 that names no existing post permanent and clears the marker", async () => {
     const { error, handles } = await publishWith([
@@ -525,6 +617,43 @@ describe("a create that may or may not have gone through", () => {
     await expect(publishLinkedinText({ text: "Hello", link: { url: "https://colateralai.com/li", title: "CoLateral" } })).rejects.toThrow(
       "May already be posted"
     );
+  });
+});
+
+describe("how long an upload may take", () => {
+  it("is two minutes plus thirty seconds for every started 10 MB", async () => {
+    const { linkedinUploadTimeoutMs } = await import("@/lib/publisher/linkedinApi");
+    const MB = 1024 * 1024;
+    expect(linkedinUploadTimeoutMs(0)).toBe(120_000);
+    expect(linkedinUploadTimeoutMs(1)).toBe(150_000);
+    expect(linkedinUploadTimeoutMs(10 * MB)).toBe(150_000);
+    expect(linkedinUploadTimeoutMs(10 * MB + 1)).toBe(180_000);
+    expect(linkedinUploadTimeoutMs(25 * MB)).toBe(210_000);
+  });
+
+  it("gives a 25 MB document that long to go up", async () => {
+    await connect();
+    vi.doMock("@/lib/carousels/pdf", () => ({ buildCarouselPdf: async () => Buffer.alloc(25 * 1024 * 1024) }));
+    const timeouts: number[] = [];
+    const original = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+      timeouts.push(ms);
+      return original(ms);
+    });
+    mockFetchRoutes([
+      {
+        match: "/rest/documents?action=initializeUpload",
+        respond: () => jsonResponse({ value: { uploadUrl: "https://www.linkedin.com/dms-uploads/doc-1", document: "urn:li:document:DOC1" } })
+      },
+      { match: "dms-uploads/doc-1", respond: () => new Response(null, { status: 201 }) },
+      { match: "/rest/documents/urn%3Ali%3Adocument%3ADOC1", respond: () => jsonResponse({ status: "AVAILABLE" }) },
+      { match: "/rest/posts", respond: () => postResponse("urn:li:share:8002") }
+    ]);
+
+    await (await adapter()).publish(imageInput(3));
+
+    expect(timeouts).toContain(210_000);
+    vi.restoreAllMocks();
   });
 });
 
@@ -635,6 +764,29 @@ describe("the access token", () => {
     expect(find(requests, "POST", "/rest/posts")!.headers.Authorization).toBe("Bearer li-access-2");
     const { getCachedToken } = await import("@/lib/publisher/tokens");
     expect(await getCachedToken(LINKEDIN_KEYS.refreshToken)).toBe("li-refresh-2");
+  });
+
+  it("still posts with the new access token when the refreshed tokens cannot be saved", async () => {
+    await connect({ accessExpiresAt: String(Date.now() - 1000), refreshToken: "li-refresh" });
+    const actual = await vi.importActual<typeof import("@/lib/storage/atomic-json")>("@/lib/storage/atomic-json");
+    vi.doMock("@/lib/storage/atomic-json", () => ({
+      ...actual,
+      atomicWriteFile: vi.fn(async () => {
+        throw Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" });
+      })
+    }));
+    vi.resetModules();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const requests = imageRoutes([
+      { match: "/oauth/v2/accessToken", respond: () => jsonResponse({ access_token: "li-access-2", expires_in: 5184000, refresh_token: "li-refresh-2" }) }
+    ]);
+
+    const result = await (await adapter()).publish(imageInput(1));
+
+    expect(result.status).toBe("published");
+    expect(find(requests, "POST", "/rest/posts")!.headers.Authorization).toBe("Bearer li-access-2");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("rotated refresh token could not be saved"));
+    warn.mockRestore();
   });
 
   it("reads an expired token with no refresh token as a revoked connection the breaker recognises", async () => {

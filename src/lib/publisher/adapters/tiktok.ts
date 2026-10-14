@@ -6,7 +6,8 @@ import { PermanentError, StillProcessingError, ThrottledError, fetchJson, fetchR
 import { IMAGE_REFUSALS, isImagePost } from "@/lib/publisher/images";
 import { composeCaption } from "@/lib/publisher/metadata";
 import { consentProblem, fetchCreatorPostingInfo, reconcileWithCreator } from "@/lib/publisher/tiktokPost";
-import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
+import { saveRotatedToken } from "@/lib/publisher/rotatedToken";
+import { getCachedToken } from "@/lib/publisher/tokens";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
 import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/lib/publisher/types";
 
@@ -152,7 +153,7 @@ async function accessToken(accountId: string = primaryAccountId("tiktok")): Prom
   }
   await noteRefreshAccepted("tiktok", accountId);
   if (data.refresh_token && data.refresh_token !== refreshToken) {
-    await setCachedToken(tiktokRefreshTokenKey(accountId), data.refresh_token);
+    await saveRotatedToken("TikTok", tiktokRefreshTokenKey(accountId), data.refresh_token);
   }
   const minted = { accessToken: data.access_token, expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000 };
   cachedAccess.set(accountId, minted);

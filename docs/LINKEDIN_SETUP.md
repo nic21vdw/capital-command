@@ -132,8 +132,8 @@ What LinkedIn accepts:
 | Carousel | up to 10 slides, rendered to one PDF document (LinkedIn allows 100 MB and 300 pages) |
 
 The app uploads the file to LinkedIn directly, so LinkedIn does not need the Media hosting
-setup that Instagram and Facebook need. Each upload request has a two-minute deadline, so a
-stalled connection is retried instead of holding the post.
+setup that Instagram and Facebook need. Each upload request has a deadline of two minutes plus
+thirty seconds for every 10 MB, so a stalled connection is retried instead of holding the post.
 
 A text post with a link exists in the code (`publishLinkedinText` in
 `src/lib/publisher/adapters/linkedin.ts`) and is tested, but nothing in the app books one
@@ -163,8 +163,16 @@ Retry on the leg to re-arm it. Re-arming keeps the picture or video it already u
 only the post itself is sent again. The same message appears if the app stopped between
 sending the request and recording the answer.
 
-If LinkedIn refuses a post as a duplicate and names the post it duplicates, the app records
-the leg as published with that post's ID instead of failing it.
+If you re-arm that leg and LinkedIn then refuses the post as a duplicate of a post it names, the
+app records the leg as published with that post's ID: the first request did go through. A
+post that was never in doubt gets no such benefit. If LinkedIn refuses a fresh post as a
+duplicate, the leg fails with "LinkedIn refused: same text as an earlier post"; change the
+caption and schedule it again.
+
+If the request never left the machine (no internet, a DNS failure, a refused connection or a
+certificate error), nothing can have been posted, so the app tries again with the usual
+backoff. Only a timeout, a 408 or a 5xx after the request was sent counts as "may already be
+posted".
 
 ## Limits
 

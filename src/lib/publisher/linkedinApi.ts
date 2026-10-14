@@ -6,6 +6,43 @@ export const LINKEDIN_COMMENTARY_LIMIT = 3000;
 export const DEFAULT_LINKEDIN_VERSION = "202604";
 
 export const LINKEDIN_UPLOAD_TIMEOUT_MS = 120_000;
+const UPLOAD_TIMEOUT_PER_10_MB_MS = 30_000;
+const TEN_MB = 10 * 1024 * 1024;
+
+export function linkedinUploadTimeoutMs(bytes: number): number {
+  return LINKEDIN_UPLOAD_TIMEOUT_MS + Math.ceil(Math.max(0, bytes) / TEN_MB) * UPLOAD_TIMEOUT_PER_10_MB_MS;
+}
+
+const UNSENT_CODES = new Set([
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+  "EPROTO",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "UNABLE_TO_GET_ISSUER_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "CERT_HAS_EXPIRED",
+  "CERT_NOT_YET_VALID",
+  "CERT_REVOKED",
+  "CERT_UNTRUSTED",
+  "HOSTNAME_MISMATCH",
+  "ERR_TLS_CERT_ALTNAME_INVALID"
+]);
+
+function unsentCode(error: unknown): string | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current && typeof current === "object"; depth += 1) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string" && (UNSENT_CODES.has(code) || code.startsWith("ERR_SSL_"))) return code;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
 
 const JSON_TIMEOUT_MS = 30_000;
 const RESET_GRACE_MINUTES = 5;
@@ -68,6 +105,8 @@ export class LinkedinPermanentError extends PermanentError {
   }
 }
 
+export class LinkedinUnsentError extends TransientError {}
+
 export class LinkedinTransientError extends TransientError {
   constructor(
     message: string,
@@ -119,7 +158,10 @@ async function send(url: string, init: RequestInit, label: string): Promise<Resp
   try {
     response = await fetch(url, init);
   } catch (error) {
-    throw new TransientError(`${label} network error: ${error instanceof Error ? error.message : String(error)}`);
+    const reason = error instanceof Error ? error.message : String(error);
+    const code = unsentCode(error);
+    if (code) throw new LinkedinUnsentError(`${label} network error (nothing was sent, ${code}): ${reason}`);
+    throw new TransientError(`${label} network error: ${reason}`);
   }
   if (!response.ok) await fail(response, label);
   return response;

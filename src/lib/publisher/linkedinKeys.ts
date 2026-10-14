@@ -23,12 +23,23 @@ export function postAttemptHandle(mediaUrn: string | undefined): string {
   return `${LINKEDIN_POST_ATTEMPT_PREFIX}${mediaUrn ?? ""}`;
 }
 
+export const LINKEDIN_REARMED_PREFIX = "rearmed:";
+
+export function rearmedHandle(mediaUrn: string | undefined): string {
+  return `${LINKEDIN_REARMED_PREFIX}${mediaUrn ?? ""}`;
+}
+
 export function isPostAttempt(handle: string | undefined): boolean {
   return Boolean(handle?.startsWith(LINKEDIN_POST_ATTEMPT_PREFIX));
 }
 
+export function isRearmedAttempt(handle: string | undefined): boolean {
+  return Boolean(handle?.startsWith(LINKEDIN_REARMED_PREFIX));
+}
+
 export function mediaOfHandle(handle: string | undefined): string | undefined {
   if (!handle) return undefined;
-  const media = isPostAttempt(handle) ? handle.slice(LINKEDIN_POST_ATTEMPT_PREFIX.length) : handle;
+  const prefix = [LINKEDIN_POST_ATTEMPT_PREFIX, LINKEDIN_REARMED_PREFIX].find((candidate) => handle.startsWith(candidate));
+  const media = prefix ? handle.slice(prefix.length) : handle;
   return media || undefined;
 }

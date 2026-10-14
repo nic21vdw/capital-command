@@ -734,9 +734,15 @@ not in `DEFAULT_PLATFORMS` (`types.ts`), which is what the default platform list
   `posting:<media urn>` marker into the leg's `containerId` (through `onHandle`) BEFORE
   `POST /rest/posts`. A timeout, 408 or 5xx of that POST, or a resume that finds the marker
   and no `postId`, throws `AMBIGUOUS_POST_MESSAGE` (permanent): the user checks the feed and
-  re-arms, and `rearmItem` strips the marker so the stored media is reused. A definite
-  refusal (4xx, 429) clears the marker; a 422 that names `urn:li:share` or `urn:li:ugcPost`
-  is recorded as published with that id.
+  re-arms, and `rearmItem` turns the marker into `rearmed:<media urn>` so the stored media is
+  reused and the leg remembers it came from an ambiguous create. A definite refusal (4xx,
+  429) clears the marker back to its starting handle. A duplicate-content 422 that names
+  `urn:li:share` or `urn:li:ugcPost` is recorded as published ONLY for a `rearmed:` leg; on
+  a fresh leg (and for `publishLinkedinText`) it fails with "LinkedIn refused: same text as
+  an earlier post". A network failure that proves the request was never sent
+  (`LinkedinUnsentError`: ENOTFOUND, EAI_AGAIN, ECONNREFUSED, TLS certificate errors) is
+  retryable and clears the marker; a timeout, 408 or 5xx stays "may already be posted".
+  Uploads time out after 120 s plus 30 s per 10 MB (`linkedinUploadTimeoutMs`).
 - LinkedIn only posts public items. `enqueue`/`enqueueImagePost` hold a non-public LinkedIn
   leg as `manual` with the reason, the mirror skips it (`PUBLIC_ONLY`), and the adapter
   refuses it. "Connected" for LinkedIn is `linkedinConfigured` (credentials plus a stored
@@ -753,7 +759,11 @@ not in `DEFAULT_PLATFORMS` (`types.ts`), which is what the default platform list
   a retry polls that asset and posts instead of uploading again.
 - Tokens live in `data/publisher-tokens.json` under `linkedin.*` (`linkedinKeys.ts`),
   written with `setCachedTokens` / `updateCachedTokens` (one locked, atomic read-modify-write;
-  a read that fails for any reason but ENOENT throws and nothing is written). The
+  a read that fails for any reason but ENOENT throws and nothing is written; EBUSY, EPERM and
+  EACCES are retried five times with a short backoff first). A refresh token that rotates
+  must never cost the request: TikTok, Spotify and LinkedIn save it through
+  `rotatedToken.ts` (or catch the write), log "the rotated refresh token could not be
+  saved" and carry on with the new access token. The
   OAuth state is single-use and expires in ten minutes. Standard apps get a 60 day access
   token and no refresh token: `platform-health/expiry.ts` adds an `expiring` entry to
   `/api/health/platforms` seven days ahead and the banner shows it. A refresh token, when

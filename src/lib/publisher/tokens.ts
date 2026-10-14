@@ -16,8 +16,10 @@ import { mediaHost } from "@/lib/publisher/hosting";
  *
  * Every write re-reads the whole store and writes it back, so a read that
  * fails must stop the write: only a file that does not exist is an empty store.
- * Any other failure (a lock held by a virus scanner, a half-written file) throws
- * and leaves the file exactly as it was. Reads are forgiving and answer "no
+ * A read that hits a lock (EBUSY, EPERM, EACCES: a scanner or a sync client
+ * holding the file for a moment) is tried again up to five times with a short
+ * backoff; any other failure, or a lock that does not clear, throws and leaves
+ * the file exactly as it was. Reads are forgiving and answer "no
  * token", so a post fails as not connected instead of crashing.
  */
 
@@ -25,6 +27,24 @@ const FILE_PATH = dataPath("publisher-tokens.json");
 const R2_KEY = "publisher/tokens.json";
 
 type Store = Record<string, string>;
+
+const LOCK_CODES = new Set(["EBUSY", "EPERM", "EACCES"]);
+const READ_ATTEMPTS = 5;
+const READ_BACKOFF_MS = 25;
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function readFileWithRetry(): Promise<string> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await readFile(FILE_PATH, "utf8");
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? "";
+      if (!LOCK_CODES.has(code) || attempt >= READ_ATTEMPTS) throw error;
+      await pause(READ_BACKOFF_MS * attempt);
+    }
+  }
+}
 
 function parseStore(text: string): Store {
   let parsed: unknown;
@@ -48,7 +68,7 @@ async function readStrict(): Promise<Store> {
   }
   let text: string;
   try {
-    text = await readFile(FILE_PATH, "utf8");
+    text = await readFileWithRetry();
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
     throw error;

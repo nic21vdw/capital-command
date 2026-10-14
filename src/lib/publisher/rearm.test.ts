@@ -32,7 +32,7 @@ describe("re-arming blocked posts", () => {
     expect(item.platforms.tiktok?.status).toBe("scheduled");
   });
 
-  it("clears LinkedIn's post-attempt marker on a re-arm, keeping the media it uploaded", () => {
+  it("turns LinkedIn's post-attempt marker into a re-armed one, keeping the media it uploaded", () => {
     const item = testItem({ platformIds: ["linkedin"] });
     item.platforms.linkedin = {
       status: "failed",
@@ -42,7 +42,7 @@ describe("re-arming blocked posts", () => {
     };
 
     expect(rearmItem(item, { platform: "linkedin" })).toEqual(["linkedin"]);
-    expect(item.platforms.linkedin).toEqual({ status: "pending", attempts: 0, containerId: "urn:li:document:DOC1" });
+    expect(item.platforms.linkedin).toEqual({ status: "pending", attempts: 0, containerId: "rearmed:urn:li:document:DOC1" });
   });
 
   it("does not revive an ambiguous LinkedIn create when a reconnect re-arms connection failures", () => {

@@ -6,6 +6,7 @@ import { missingCredentialsMessage } from "@/lib/publisher/connectStart";
 import { PermanentError, fetchJson } from "@/lib/publisher/http";
 import { LINKEDIN_API_ORIGIN, LINKEDIN_REST, linkedinJson } from "@/lib/publisher/linkedinApi";
 import { LINKEDIN_KEYS, LINKEDIN_PAGE_SCOPE, LINKEDIN_SETUP_DOC } from "@/lib/publisher/linkedinKeys";
+import { rotationNotSaved } from "@/lib/publisher/rotatedToken";
 import { getCachedToken, setCachedTokens, updateCachedTokens } from "@/lib/publisher/tokens";
 
 const AUTH_URL = "https://www.linkedin.com/oauth/v2/authorization";
@@ -250,12 +251,16 @@ async function refreshLinkedinToken(refreshToken: string): Promise<string> {
     await noteRefreshRejected("linkedin", accountId, error);
     throw error;
   }
-  await setCachedTokens(
-    tokenEntries(data, Date.now(), {
-      token: refreshToken,
-      expiresAt: (await getCachedToken(LINKEDIN_KEYS.refreshExpiresAt)) || null
-    })
-  );
+  try {
+    await setCachedTokens(
+      tokenEntries(data, Date.now(), {
+        token: refreshToken,
+        expiresAt: (await getCachedToken(LINKEDIN_KEYS.refreshExpiresAt)) || null
+      })
+    );
+  } catch (error) {
+    rotationNotSaved("LinkedIn", error);
+  }
   await noteRefreshAccepted("linkedin", accountId);
   return accessToken;
 }
