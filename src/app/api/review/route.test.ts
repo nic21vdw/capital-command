@@ -228,8 +228,9 @@ describe("switching a channel from hold to auto", () => {
     expect(body.released.approved).toBe(2);
     expect(await queue.get("legacy")).toEqual(legacyBefore);
     expect((await queue.get("legacy"))!.platforms.tiktok?.approvedAt).toBeUndefined();
-    expect((await queue.get("kept-back"))!.platforms.tiktok?.approvedAt).toBeTruthy();
-    expect((await queue.get("upcoming"))!.platforms.tiktok?.approvedAt).toBeTruthy();
+    expect((await queue.get("kept-back"))!.platforms.tiktok?.approvedAt).toBeUndefined();
+    expect((await queue.get("upcoming"))!.platforms.tiktok?.approvedAt).toBeUndefined();
+    expect(queue.duePlatforms((await queue.get("kept-back"))!, new Date())).toContain("tiktok");
   });
 
   it("treats everything awaiting as held when the file never recorded when the hold began", async () => {

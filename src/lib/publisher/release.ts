@@ -5,6 +5,13 @@ import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 
 export type ReleaseTarget = { id: string; platform: PlatformId };
 
+export class ReleaseUnplacedError extends Error {
+  constructor(readonly skipped: ReleaseTarget[]) {
+    super(`${skipped.length} held post${skipped.length === 1 ? " has" : "s have"} no free slot, so the requested channels stay on hold. Approve or remove ${skipped.length === 1 ? "it" : "them"} first.`);
+    this.name = "ReleaseUnplacedError";
+  }
+}
+
 export type ReleaseMove = ReleaseTarget & { publishAt: string; reason: "slot-too-old" | "day-full" };
 
 export type ReleasePlan = {

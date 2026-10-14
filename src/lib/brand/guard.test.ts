@@ -146,6 +146,7 @@ const DIRECT_CALLERS_ALLOWED: Record<string, string> = {
 const DIRECT_CALLER = /@anthropic-ai\/sdk|from "openai"|api\.openai\.com|api\.anthropic\.com|api\.x\.ai|generativelanguage\.googleapis|\/chat\/completions|\/v1\/responses/;
 
 const NO_RULES_PASS: Record<string, string> = {
+  "src/lib/inbox/voice.ts": "compatibility prompt facade, not generated copy; inbox/draft.ts applies the kit rules to replies",
   "src/lib/studio/scripts.ts": "a spoken script is read aloud, so the channel is exempt from rewriting",
   "src/lib/voice/prompt.ts": "instructions for the voice console, not published copy",
   "src/lib/clipping/hashtags.ts": "returns tags that are normalised and capped by the kit's hashtag policy, not prose",

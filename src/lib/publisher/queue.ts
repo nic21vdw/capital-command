@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { DEFAULT_REVIEW_POLICY, legAwaitingApproval, type ReviewPolicy } from "@/lib/publisher/approval";
+import { DEFAULT_REVIEW_POLICY, legAwaitingApproval, type HeldSince, type ReviewPolicy } from "@/lib/publisher/approval";
 import { readReviewPolicy } from "@/lib/publisher/approvalStore";
 import { recordQueueMutations, type QueueWriter } from "@/lib/publisher/audit";
 import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
@@ -8,7 +8,7 @@ import { preSchedulesItem } from "@/lib/publisher/nativeScheduling";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
 import { mergeById, snapshotById } from "@/lib/publisher/queueMerge";
 import { rearmItem, type RearmScope } from "@/lib/publisher/rearm";
-import { planRelease, type ReleaseMove, type ReleaseTarget } from "@/lib/publisher/release";
+import { ReleaseUnplacedError, planRelease, type ReleaseMove, type ReleaseTarget } from "@/lib/publisher/release";
 import { shortsLimit } from "@/lib/publisher/shortsCap";
 import { REARM_MAX_SLOT_AGE_MS } from "@/lib/publisher/slotAge";
 import { generateSlots, slotGrid } from "@/lib/publisher/slots";
@@ -379,6 +379,32 @@ export class PublishQueue {
     targets: ReleaseTarget[],
     now: Date
   ): Promise<{ approved: number; moves: ReleaseMove[]; skipped: ReleaseTarget[] }> {
+    return this.releaseTransaction(() => targets, now);
+  }
+
+  /** Auto authorizes these legs through the saved policy, not permanent approval stamps. */
+  async releaseForPolicyChange(
+    channels: PlatformId[],
+    before: ReviewPolicy,
+    heldSince: HeldSince,
+    now: Date,
+    commitPolicy: () => Promise<ReviewPolicy>
+  ): Promise<{ policy: ReviewPolicy; approved: number; moves: ReleaseMove[]; skipped: ReleaseTarget[] }> {
+    let policy = before;
+    const result = await this.releaseTransaction((items) => items.flatMap((item) => channels.flatMap((platform) => {
+      const leg = item.platforms[platform];
+      const since = heldSince[platform] === undefined ? Number.NEGATIVE_INFINITY : Date.parse(heldSince[platform]!);
+      return leg && legAwaitingApproval(leg, platform, before) && Date.parse(item.publishAt) >= since
+        ? [{ id: item.id, platform }] : [];
+    })), now, { approve: false, requireAll: true, commit: async () => { policy = await commitPolicy(); } });
+    return { ...result, policy };
+  }
+
+  private async releaseTransaction(
+    targets: (items: QueueItem[]) => ReleaseTarget[],
+    now: Date,
+    options: { approve?: boolean; requireAll?: boolean; commit?: () => Promise<void> } = {}
+  ): Promise<{ approved: number; moves: ReleaseMove[]; skipped: ReleaseTarget[] }> {
     await this.load();
     const { result, mutations } = await this.writeLocked(async () => {
       // Eligibility, slot reservations and splits use the latest locked file.
@@ -401,17 +427,21 @@ export class PublishQueue {
         .filter((slot) => slot.bookable)
         .map((slot) => slot.utc);
       const cap = shortsLimit(config);
-      const plan = planRelease([...staged.values()], targets, {
+      const rows = [...staged.values()];
+      const plan = planRelease(rows, targets(rows), {
         now,
         timeZone: config.timezone,
         slots,
         dailyCap: (platform) => (platform === "youtube" ? Math.min(cap, config.youtube.dailyUploadBudget) : cap),
         maxSlotAgeMs: REARM_MAX_SLOT_AGE_MS
       });
+      // A multi-channel policy change must place everything before writing anything.
+      if (options.requireAll && plan.skipped.length > 0) throw new ReleaseUnplacedError(plan.skipped);
       const mutations: Array<Parameters<typeof recordQueueMutations>[0][number]> = [];
       if (plan.release.length === 0) {
         this.adopt(raw);
         this.version = null;
+        await options.commit?.();
         return { result: { approved: 0, moves: [], skipped: plan.skipped }, mutations };
       }
 
@@ -420,10 +450,13 @@ export class PublishQueue {
       for (const target of plan.release) {
         const item = staged.get(target.id)!;
         const leg = item.platforms[target.platform]!;
-        leg.approvedAt = stamp;
-        item.updatedAt = changedAt;
+        if (options.approve !== false) {
+          leg.approvedAt = stamp;
+          item.updatedAt = changedAt;
+        }
         const move = moveFor.get(`${target.id}:${target.platform}`);
         if (!move) continue;
+        item.updatedAt = changedAt;
         if (Object.keys(item.platforms).length === 1) {
           item.publishAt = move.publishAt;
           mutations.push({ action: "publish-time", writer: "api-review-approve", id: item.id, clipPath: item.clipPath, publishAt: item.publishAt });
@@ -449,6 +482,13 @@ export class PublishQueue {
       // Refresh metadata on the next load instead of failing after a durable save.
       this.adopt(text, before);
       this.version = null;
+      if (options.commit) {
+        // Queue preparation is durable even if the policy write fails. Audit it,
+        // keep its legs unstamped, and retain the queue lock through that write.
+        await recordQueueMutations(mutations);
+        mutations.length = 0;
+        await options.commit();
+      }
       return { result: { approved: plan.release.length, moves: plan.moves, skipped: plan.skipped }, mutations };
     });
     await recordQueueMutations(mutations);

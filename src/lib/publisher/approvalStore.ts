@@ -110,7 +110,18 @@ export function readReviewPolicy(): ReviewPolicy {
 }
 
 export async function writeReviewPolicy(change: Partial<ReviewPolicy>, now: Date = new Date()): Promise<ReviewPolicy> {
+  return updateReviewPolicy(change, now, (_before, commit) => commit());
+}
+
+/** Serializes a policy transition and its queue preparation under the policy lock. */
+export async function updateReviewPolicy<T>(
+  change: Partial<ReviewPolicy>,
+  now: Date,
+  transition: (before: ReviewPolicyState, commit: () => Promise<ReviewPolicy>) => Promise<T>
+): Promise<T> {
   const file = reviewPolicyPath();
+  // A live policy owner may wait for the queue longer than the ordinary stale
+  // age. Only a dead owner may be reclaimed; malformed locks time out.
   return withFileLock(file, async () => {
     const before = readReviewPolicyState();
     if (before.error) throw new ReviewPolicyUnreadableError(before.error);
@@ -121,9 +132,11 @@ export async function writeReviewPolicy(change: Partial<ReviewPolicy>, now: Date
       const since = before.policy[channel] === "hold" ? before.heldSince[channel] : now.toISOString();
       if (since) heldSince[channel] = since;
     }
-    await atomicWriteJson(file, { ...next, ...(Object.keys(heldSince).length > 0 ? { heldSince } : {}) }, { space: 2 });
-    cached = null;
-    lastGood = { policy: next, heldSince };
-    return next;
-  });
+    return transition(before, async () => {
+      await atomicWriteJson(file, { ...next, ...(Object.keys(heldSince).length > 0 ? { heldSince } : {}) }, { space: 2 });
+      cached = null;
+      lastGood = { policy: next, heldSince };
+      return next;
+    });
+  }, { staleMs: Number.POSITIVE_INFINITY });
 }
