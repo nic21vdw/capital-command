@@ -5,6 +5,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 import { downloadFullVideo, fetchVideoMeta } from "@/lib/clipping/download";
 import { hasAudioStream, probeDuration, resolveFfmpeg, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { DEFAULT_OUTPUT_QUALITY, type OutputQuality } from "@/lib/pipeline/outputQuality";
@@ -43,7 +44,7 @@ export async function readSourceMeta(id: string): Promise<SourceMeta | null> {
 }
 
 async function writeSourceMeta(meta: SourceMeta) {
-  await writeFile(metaPath(meta.id), JSON.stringify(meta, null, 2), "utf8");
+  await atomicWriteJson(metaPath(meta.id), meta);
 }
 
 export function sourceFilePath(meta: SourceMeta) {

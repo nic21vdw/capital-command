@@ -1,6 +1,6 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteFile } from "@/lib/storage/atomic-json";
 import { publisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
 
@@ -41,8 +41,7 @@ async function writeAll(values: Record<string, string>): Promise<void> {
       return;
     }
   }
-  await mkdir(path.dirname(FILE_PATH), { recursive: true });
-  await writeFile(FILE_PATH, text, "utf8");
+  await atomicWriteFile(FILE_PATH, text);
 }
 
 export async function getCachedToken(key: string): Promise<string | null> {

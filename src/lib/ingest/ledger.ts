@@ -1,7 +1,7 @@
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 import type { ChannelSnapshot, IngestLedger, IngestRecord, LedgerScan } from "@/lib/ingest/types";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 
 /**
  * What the scan has already taken in.
@@ -11,9 +11,8 @@ import { dataPath } from "@/lib/paths";
  * ingested stream is not published until you have clipped it, which may be days
  * later or never.
  *
- * Single JSON document with the repo's atomic write-then-rename (see README
- * "Why this persistence choice", and publisher/store.ts for the same pattern
- * including the Windows rename fallback).
+ * Single JSON document written through atomicWriteJson (see README "Why this
+ * persistence choice").
  */
 
 const EMPTY: IngestLedger = { lastScanAt: null, records: [] };
@@ -44,23 +43,7 @@ export async function readLedger(): Promise<IngestLedger> {
 }
 
 export async function writeLedger(ledger: IngestLedger): Promise<void> {
-  const filePath = ledgerPath();
-  await mkdir(path.dirname(filePath), { recursive: true });
-  const text = JSON.stringify(ledger, null, 2);
-  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmpPath, text, "utf8");
-  try {
-    await rename(tmpPath, filePath);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "EPERM" || code === "EACCES" || code === "EBUSY") {
-      await writeFile(filePath, text, "utf8");
-      await unlink(tmpPath).catch(() => undefined);
-      return;
-    }
-    await unlink(tmpPath).catch(() => undefined);
-    throw error;
-  }
+  await atomicWriteJson(ledgerPath(), ledger);
 }
 
 /**

@@ -186,7 +186,7 @@ describe.skipIf(process.platform !== "win32")("scheduled runners log a summary p
   beforeAll(async () => {
     app = createHttpServer((request, response) => {
       response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-      response.end(request.method === "POST" && request.url === "/api/publish/run" ? publishResponse : "{}");
+      response.end(request.method === "POST" && request.url === "/api/publish/run" ? publishResponse : request.url === "/api/health/platforms" ? "{\"broken\":[]}" : "{}");
     });
     await new Promise<void>((resolve) => app.listen(0, "127.0.0.1", resolve));
     appPort = (app.address() as AddressInfo).port;
@@ -199,7 +199,7 @@ describe.skipIf(process.platform !== "win32")("scheduled runners log a summary p
 
   it("replaces an 87 KB line of 323 deferred items with a few lines, and keeps the ones that changed", async () => {
     const root = tempRoot();
-    installScripts(root, ["publish-runner.ps1", "build-lock.ps1", "log-files.ps1"]);
+    installScripts(root, ["publish-runner.ps1", "build-lock.ps1", "log-files.ps1", "health-toast.ps1"]);
     const failed = { itemId: "f0001", clip: "x.mp4", platform: "youtube", outcome: "failed", detail: "YouTube rejected the upload (HTTP 403)." };
     const published = { itemId: "p0001", clip: "y.mp4", platform: "instagram", outcome: "published", detail: "post 17841 is live" };
     publishResponse = publishReport([...deferred(323), published, failed]);
@@ -230,7 +230,7 @@ describe.skipIf(process.platform !== "win32")("scheduled runners log a summary p
 
   it("names a clip the moment it changes state, and one that becomes blocked", async () => {
     const root = tempRoot();
-    installScripts(root, ["publish-runner.ps1", "build-lock.ps1", "log-files.ps1"]);
+    installScripts(root, ["publish-runner.ps1", "build-lock.ps1", "log-files.ps1", "health-toast.ps1"]);
     publishResponse = publishReport(deferred(5));
     expect((await publishTick(root)).status).toBe(0);
     const before = logText(root, "publish-runner.log");
@@ -263,7 +263,7 @@ $state = '${state}'
 
   it("reads a response the app could not produce without failing the tick", async () => {
     const root = tempRoot();
-    installScripts(root, ["publish-runner.ps1", "build-lock.ps1", "log-files.ps1"]);
+    installScripts(root, ["publish-runner.ps1", "build-lock.ps1", "log-files.ps1", "health-toast.ps1"]);
     publishResponse = JSON.stringify({ skipped: true, reason: "A publish run is already in progress - leaving it alone this tick." });
     expect((await publishTick(root)).status).toBe(0);
     publishResponse = "<html>Bad gateway</html>";
@@ -275,7 +275,7 @@ $state = '${state}'
 
   it("logs one line per Threads tick plus the slots that changed", async () => {
     const root = tempRoot();
-    installScripts(root, ["threads-autopilot.ps1", "build-lock.ps1", "log-files.ps1"]);
+    installScripts(root, ["threads-autopilot.ps1", "build-lock.ps1", "log-files.ps1", "health-toast.ps1"]);
     const output = (stamp: string, trace: string) => [
       "[threads] plan (2026-10-13): Today's batch is already scheduled.",
       `[threads]   slot 2 primary \u2192 failed ${EM_DASH} Threads profile (nic) failed (HTTP 401): {"error":{"message":"Error validating access token: Session has expired on Thursday, 24-Sep-26 20:13:48 PDT. The current time is ${stamp}.","fbtrace_id":"${trace}"}}`,
@@ -318,7 +318,7 @@ function writeFixtureNext(root: string): void {
     ] } });
     http.createServer((req, res) => {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-      res.end(req.method === 'POST' ? report : '{}');
+      res.end(req.method === 'POST' ? report : req.url === '/api/health/platforms' ? '{"broken":[]}' : '{}');
     }).listen(port, '127.0.0.1', () => console.log('fixture server listening ${EM_DASH} ready'));
   `);
 }
@@ -328,7 +328,7 @@ function killFixtureServer(root: string): void {
 }
 
 describe.skipIf(process.platform !== "win32")("the runners start the app through start-server.ps1", () => {
-  const files = ["publish-runner.ps1", "build-lock.ps1", "log-files.ps1", "start-server.ps1", "stop-server.ps1", "wait-for-url.ps1"];
+  const files = ["publish-runner.ps1", "build-lock.ps1", "log-files.ps1", "health-toast.ps1", "start-server.ps1", "stop-server.ps1", "wait-for-url.ps1"];
 
   it("leaves a server.pid that stop-server.ps1 can act on, and logs the server's output", async () => {
     const root = tempRoot();

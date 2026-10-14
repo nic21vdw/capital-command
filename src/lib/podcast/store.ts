@@ -1,6 +1,7 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 import type {
   PodcastAutomation,
   PodcastEpisode, PodcastShow, PodcastState } from "@/lib/podcast/types";
@@ -54,10 +55,7 @@ export async function mutatePodcastState<T>(
   const write = async () => {
     const state = await readPodcastState();
     const result = change(state);
-    await mkdir(podcastRoot, { recursive: true });
-    const pendingFile = `${stateFile}.${process.pid}.tmp`;
-    await writeFile(pendingFile, JSON.stringify(state, null, 2), "utf8");
-    await rename(pendingFile, stateFile);
+    await atomicWriteJson(stateFile, state);
     return { state, result };
   };
   const result = writeChain.then(write, write);

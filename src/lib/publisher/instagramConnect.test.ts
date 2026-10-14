@@ -1,9 +1,13 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyEnvUpdates,
   connectInstagram,
   envUpdatesFor,
-  inspectInstagram
+  inspectInstagram,
+  saveEnvUpdates
 } from "@/lib/publisher/instagramConnect";
 import { jsonResponse, mockFetchRoutes, testConfig } from "@/lib/publisher/test-helpers";
 
@@ -235,10 +239,56 @@ describe("applyEnvUpdates", () => {
     expect(out).toBe("PUBLISH_ENABLED=true\r\nIG_USER_ID=new\r\n");
   });
 
+  it("rewrites every duplicate of a key so the one the loader reads is the new one", () => {
+    const out = applyEnvUpdates("IG_USER_ID=old\nOTHER=keep\nIG_USER_ID=older\n", { IG_USER_ID: "new" });
+    expect(out).toBe("IG_USER_ID=new\nOTHER=keep\nIG_USER_ID=new\n");
+  });
+
   it("does not touch a key that merely starts with the same name", () => {
     const out = applyEnvUpdates("IG_USER_ID_BACKUP=keep\nIG_USER_ID=old\n", { IG_USER_ID: "new" });
     expect(out).toContain("IG_USER_ID_BACKUP=keep");
     expect(out).toContain("IG_USER_ID=new");
+  });
+});
+
+describe("saveEnvUpdates", () => {
+  let dir = "";
+  afterEach(() => {
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+    dir = "";
+  });
+
+  it("keeps every other line and swaps the new keys in", async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-ig-env-"));
+    const file = path.join(dir, ".env");
+    fs.writeFileSync(file, "SECRET=keep\r\nIG_USER_ID=old\r\n", "utf8");
+
+    await saveEnvUpdates(file, { IG_USER_ID: "new", IG_ACCESS_TOKEN: "tok" });
+
+    const after = fs.readFileSync(file, "utf8");
+    expect(after).toContain("SECRET=keep\r\n");
+    expect(after).toContain("IG_USER_ID=new");
+    expect(after).toContain("IG_ACCESS_TOKEN=tok");
+  });
+
+  it("creates the file when there is none", async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-ig-env-"));
+    const file = path.join(dir, ".env");
+
+    await saveEnvUpdates(file, { IG_USER_ID: "new" });
+
+    expect(fs.readFileSync(file, "utf8")).toContain("IG_USER_ID=new");
+  });
+
+  it("stops without writing when the file exists but cannot be read", async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-ig-env-"));
+    const file = path.join(dir, ".env");
+    fs.mkdirSync(file);
+
+    await expect(saveEnvUpdates(file, { IG_USER_ID: "new" })).rejects.toMatchObject({ code: "EISDIR" });
+
+    expect(fs.statSync(file).isDirectory()).toBe(true);
+    expect(fs.readdirSync(dir)).toEqual([".env"]);
   });
 });
 

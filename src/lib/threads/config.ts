@@ -12,6 +12,8 @@
  * Connect only one account and it simply posts its own version.
  */
 
+import { effectiveToken, readStoredTokens } from "@/lib/threads/tokens";
+
 export type ThreadsVersion = "text" | "variant";
 
 export type ThreadsAccount = {
@@ -133,11 +135,25 @@ const SLOTS = [
   { id: "secondary", suffix: "_2", defaultPosts: "variant" as ThreadsVersion, defaultOffset: 3 }
 ];
 
+/** The tokens as pasted into `.env`, by account id, before any refresh. */
+export function envAccessTokens(): Record<string, string> {
+  const tokens: Record<string, string> = {};
+  for (const slot of SLOTS) {
+    const token = str(`THREADS_ACCESS_TOKEN${slot.suffix}`);
+    if (token) tokens[slot.id] = token;
+  }
+  return tokens;
+}
+
 function readAccounts(): ThreadsAccount[] {
   const accounts: ThreadsAccount[] = [];
+  const stored = readStoredTokens();
   for (const slot of SLOTS) {
-    const accessToken = str(`THREADS_ACCESS_TOKEN${slot.suffix}`);
-    if (!accessToken) continue;
+    const envToken = str(`THREADS_ACCESS_TOKEN${slot.suffix}`);
+    if (!envToken) continue;
+    // A token refreshed by the tick outlives the one in .env, which expires
+    // 60 days after it was minted. See tokens.ts.
+    const accessToken = effectiveToken(slot.id, envToken, stored);
     const userId = str(`THREADS_USER_ID${slot.suffix}`);
     accounts.push({
       id: slot.id,

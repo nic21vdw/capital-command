@@ -1,7 +1,7 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { dataPath } from "@/lib/paths";
 import type { AgentRun } from "@/lib/agents/types";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 
 const runsPath = dataPath("agents", "runs.json");
 let writeQueue = Promise.resolve();
@@ -30,15 +30,7 @@ export async function listAgentRuns(): Promise<AgentRun[]> {
 }
 
 async function writeRunsNow(runs: AgentRun[]) {
-  await mkdir(path.dirname(runsPath), { recursive: true });
-  const tmp = `${runsPath}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmp, JSON.stringify(runs.slice(0, 50), null, 2), "utf8");
-  try {
-    await rename(tmp, runsPath);
-  } catch (error) {
-    await rm(tmp, { force: true });
-    throw error;
-  }
+  await atomicWriteJson(runsPath, runs.slice(0, 50));
 }
 
 export async function saveAgentRun(run: AgentRun): Promise<AgentRun> {

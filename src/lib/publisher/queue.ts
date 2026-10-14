@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import { recordQueueMutations, type QueueWriter } from "@/lib/publisher/audit";
 import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
 import { preSchedulesItem } from "@/lib/publisher/nativeScheduling";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
+import { mergeById, snapshotById } from "@/lib/publisher/queueMerge";
 import { rearmItem, type RearmScope } from "@/lib/publisher/rearm";
 import { FileQueueStore, R2QueueStore, type QueueStore } from "@/lib/publisher/store";
 import type { BufferState, PlatformId, PlatformState, PostResult, QueueItem } from "@/lib/publisher/types";
@@ -33,6 +35,8 @@ import type { BufferState, PlatformId, PlatformState, PostResult, QueueItem } fr
 
 export class PublishQueue {
   private items = new Map<string, QueueItem>();
+  private synced = new Map<string, string>();
+  private syncedHash: string | null = null;
   private loaded = false;
   private version: string | null = null;
   private loading: Promise<void> | null = null;
@@ -64,31 +68,73 @@ export class PublishQueue {
     if (this.loaded) {
       if (!this.store.version || (await this.store.version()) === this.version) return;
     }
-    const raw = await this.store.load();
-    const items = new Map<string, QueueItem>();
-    if (raw !== null) {
-      for (const item of JSON.parse(raw) as QueueItem[]) items.set(item.id, item);
-    }
     const version = (await this.store.version?.()) ?? null;
+    const raw = await this.store.load();
     // A failed read/parse leaves the previous snapshot intact and retryable.
-    this.items = items;
+    this.adopt(raw);
     this.version = version;
+  }
+
+  private adopt(raw: string | null): void {
+    const hash = hashText(raw);
+    if (this.loaded && hash === this.syncedHash) return;
+    const stored = new Map<string, QueueItem>();
+    if (raw !== null) {
+      for (const item of JSON.parse(raw) as QueueItem[]) stored.set(item.id, item);
+    }
+    const merged = mergeById(this.synced, this.items, stored);
+    for (const [id, item] of merged) {
+      const held = this.items.get(id);
+      if (!held) this.items.set(id, item);
+      else if (held !== item) replaceInPlace(held as unknown as Fields, item as unknown as Fields, "item");
+    }
+    for (const id of [...this.items.keys()]) {
+      if (!merged.has(id)) this.items.delete(id);
+    }
+    this.synced = snapshotById(stored.values());
+    this.syncedHash = hash;
     this.loaded = true;
   }
 
   async save(): Promise<void> {
-    const pending = this.saves.then(async () => {
-      const list = [...this.items.values()].sort((a, b) => a.publishAt.localeCompare(b.publishAt));
-      await this.store.save(JSON.stringify(list, null, 2));
-      this.version = (await this.store.version?.()) ?? null;
+    await this.commit();
+  }
+
+  private commit(gate?: SaveGate): Promise<boolean> {
+    const changedAt = new Date().toISOString();
+    const pending = this.saves.then(() => {
+      const write = () => this.persist(changedAt, gate);
+      return this.store.withLock ? this.store.withLock(write) : write();
     });
-    this.saves = pending.catch(() => undefined);
-    await pending;
+    this.saves = pending.then(
+      () => undefined,
+      () => undefined
+    );
+    return pending;
+  }
+
+  private async persist(changedAt: string, gate?: SaveGate): Promise<boolean> {
+    const raw = await this.store.load();
+    if (gate && !gate.allow(parseStored(raw))) {
+      gate.reject();
+      this.adopt(raw);
+      return false;
+    }
+    for (const item of this.items.values()) {
+      if (JSON.stringify(item) !== this.synced.get(item.id)) item.updatedAt = changedAt;
+    }
+    this.adopt(raw);
+    const text = JSON.stringify(sortedByPublishAt(this.items.values()), null, 2);
+    await this.store.save(text);
+    this.synced = snapshotById(this.items.values());
+    this.syncedHash = hashText(text);
+    this.version = (await this.store.version?.()) ?? null;
+    return true;
   }
 
   async list(): Promise<QueueItem[]> {
     await this.load();
-    return [...this.items.values()].sort((a, b) => a.publishAt.localeCompare(b.publishAt));
+    return sortedByPublishAt(this.items.values());
   }
 
   async get(id: string): Promise<QueueItem | undefined> {
@@ -295,16 +341,32 @@ export class PublishQueue {
   }
 
   /** Marks a platform as being processed right now (soft lease). */
-  async claim(item: QueueItem, platform: PlatformId, now: Date): Promise<boolean> {
+  async claim(item: QueueItem, platform: PlatformId, now: Date, options: { force?: boolean } = {}): Promise<boolean> {
     const state = item.platforms[platform];
     if (!state) return false;
     if (state.claimedAt && now.getTime() - new Date(state.claimedAt).getTime() < this.config.claimTimeoutMinutes * 60_000) {
       return false;
     }
     // Check and set before the first await: manual and scheduled runs can overlap.
+    const previous = state.claimedAt;
     state.claimedAt = now.toISOString();
-    await this.save();
-    return true;
+    return this.commit({
+      allow: (stored) => {
+        const current = stored.get(item.id);
+        return current !== undefined && this.claimable(current, platform, now, options.force === true);
+      },
+      reject: () => {
+        state.claimedAt = previous;
+      }
+    });
+  }
+
+  private claimable(item: QueueItem, platform: PlatformId, now: Date, force: boolean): boolean {
+    if (!force) return this.duePlatforms(item, now).includes(platform);
+    const leg = item.platforms[platform];
+    if (!leg) return false;
+    if (isTerminalStatus(leg.status) && leg.status !== "scheduled") return false;
+    return !(leg.claimedAt && now.getTime() - new Date(leg.claimedAt).getTime() < this.config.claimTimeoutMinutes * 60_000);
   }
 
   /**
@@ -364,6 +426,14 @@ export class PublishQueue {
     state.error = message;
     state.claimedAt = undefined;
     state.nextAttemptAt = new Date(now.getTime() + retryAfterMinutes * 60_000).toISOString();
+    await this.save();
+  }
+
+  async releaseForAuth(item: QueueItem, platform: PlatformId, message: string): Promise<void> {
+    const state = item.platforms[platform];
+    if (!state) return;
+    state.error = message;
+    state.claimedAt = undefined;
     await this.save();
   }
 
@@ -451,6 +521,46 @@ export class PublishQueue {
     state.claimedAt = undefined;
     await this.save();
   }
+}
+
+function sortedByPublishAt(items: Iterable<QueueItem>): QueueItem[] {
+  return [...items].sort((a, b) => a.publishAt.localeCompare(b.publishAt));
+}
+
+type Fields = Record<string, unknown>;
+
+type SaveGate = { allow(stored: Map<string, QueueItem>): boolean; reject(): void };
+
+const isRecord = (value: unknown): value is Fields => typeof value === "object" && value !== null && !Array.isArray(value);
+
+function parseStored(raw: string | null): Map<string, QueueItem> {
+  const stored = new Map<string, QueueItem>();
+  if (raw !== null) {
+    for (const item of JSON.parse(raw) as QueueItem[]) stored.set(item.id, item);
+  }
+  return stored;
+}
+
+function replaceInPlace(held: Fields, next: Fields, level: "item" | "legs" | "flat"): void {
+  const entries = Object.entries(next).map(([key, value]): [string, unknown] => {
+    const current = held[key];
+    if (!isRecord(current) || !isRecord(value)) return [key, value];
+    if (level === "item" && key === "platforms") {
+      replaceInPlace(current, value, "legs");
+      return [key, current];
+    }
+    if ((level === "item" && key === "buffer") || level === "legs") {
+      replaceInPlace(current, value, "flat");
+      return [key, current];
+    }
+    return [key, value];
+  });
+  for (const key of Object.keys(held)) delete held[key];
+  for (const [key, value] of entries) held[key] = value;
+}
+
+function hashText(text: string | null): string | null {
+  return text === null ? null : createHash("sha1").update(text).digest("hex");
 }
 
 /**

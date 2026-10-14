@@ -286,17 +286,26 @@ is refused.
 
 ## The running app owns the publish queue (`queue.ts`)
 
-`publishQueue()` is a process-wide singleton and `load()` reads
-`data/publish-queue.json` ONCE — `loaded` is a one-shot flag. Every write then
-serializes the whole in-memory map back over the file. So a second process that
-edits the queue while the app is up has its work reverted the moment the app
-next saves anything: a booking, a rename, a delete, `settleSchedule` after a
-pipeline booking. It looks like it worked — the file is right, the audit log
-records it — and then it is silently gone.
+`publishQueue()` is a process-wide singleton that keeps the whole queue in
+memory and serializes it back over `data/publish-queue.json` on every save. A
+save now takes the queue's lock file, re-reads the file, and merges item by item
+before it writes (`queueMerge.ts`): an item the other process added or deleted
+survives, and two edits to different fields of one item both land. Only when both
+sides changed the SAME field does the newer `updatedAt` win, so a second process
+moving a `publishAt` the app also moved can still lose that one field. A platform
+leg is the exception: one that has a `postId`, a `publishedAt` or a published
+status always beats one that does not, and between two retrying legs the higher
+attempt count wins, so a stale writer can never un-publish a post and trigger a
+second upload. `claim()` checks the stored leg under the lock too and returns
+false unless it is still due and unclaimed, which is what keeps two runners from
+both uploading the same leg. Before
+this, a second process's edit was reverted the next time the app saved anything,
+and it looked like it worked — the file was right, the audit log recorded it —
+and then it was silently gone.
 
 That is why the publisher CLI is a maintenance tool and not a second door into
 a live queue. Anything that has to change scheduled times while the app is
-running must go through the app's own HTTP API, in-process:
+running should still go through the app's own HTTP API, in-process:
 
 - `POST /api/publish` with an explicit `publishAt` books a video at a chosen
   slot, which is how to place something outside the earliest-free-slot order
@@ -317,6 +326,32 @@ whatever time Facebook already took — delete the Page post and set the leg bac
 to `pending` so it goes up with its other platforms. And YouTube holds its own
 `publishAt`: a moved item that is already `scheduled` on YouTube needs
 `updateYoutubeVideoPublishAt` too, which is what `frontload --push` exists for.
+
+## Writing state files (`src/lib/storage`)
+
+Every JSON file under `data/` is written through `atomicWriteJson` /
+`atomicWriteFile` (`atomic-json.ts`): a uniquely named temporary file in the same
+folder, fsynced, renamed over the target with a bounded retry on Windows
+`EPERM`/`EBUSY`/`EACCES`, and unlinked in a `finally` if anything fails. It
+never falls back to writing the target directly - a full disk during that
+fallback is what emptied the publish queue - so a write that cannot be swapped
+in throws and leaves the old file exactly as it was. Do not hand-write a
+tmp-then-rename again; call the helper.
+
+A store that more than one process writes also takes `withFileLock`
+(`file-lock.ts`): an `O_EXCL` lock file `<target>.lock` holding the holder's pid,
+taken over when that pid is gone or the lock is older than 30 s. The publish
+queue, the Threads queue and heartbeat, the app document and `createJsonStore`
+files use it. Stores written by one process (clip jobs, pipeline runs, long-form
+projects, the music, SFX and podcast files) use the atomic write only.
+
+The `.env` that Settings edits goes through the same helper (`envFile.ts`,
+`writePublicBaseUrl`): writes are serialised in-process, every duplicate `KEY=`
+line is rewritten, and comments, CRLF and a BOM survive.
+
+`sweepStaleTmpFiles` runs once at server start (`instrumentation.ts`) and removes
+`*.tmp` files under `data/` that are more than an hour old and whose target has no
+live lock.
 
 ## Two things the publisher must never do (`schedule.ts`, `duplicates.ts`)
 
@@ -400,27 +435,59 @@ both. Two accounts posting the same wording would read as mirrored spam.
   ticks each see an empty day and every slot gets posted twice.
 - Never put a token in an API response or a log line — the route exposes only
   each account's id, label, version and offset.
-- A post that did NOT come from the daily pack is marked `origin: "pipeline"`,
-  and every autopilot decision reads `autopilotItemsForDate`, never
-  `itemsForDate`. Counting an ad-hoc post as the day's batch would make the
-  planner skip writing the pack — the one thing this module exists to do. UI
-  surfaces keep using `itemsForDate`, so the post is still visible.
-- The pack's VOICE is a contract, not a preference: one thought per post,
-  short (about 70-150 characters, and a second version at 180-280), plain
-  enough for someone outside engineering, and open enough to reply to. The
-  positioning brief supplies subject matter only, and its wording is the jargon
-  to avoid. Prompt and lengths in `src/lib/x-posts/generator.ts`; the fallback
-  `library.ts` and its test hold the same shape.
-- REWRITING TODAY'S PACK (`rewrite.ts`, `POST /api/x-posts/generate` with `force`)
-  MUST KEEP THE QUEUE AND THE PACK THE SAME. The queue holds its own copy of every
-  post, so a rewrite that only replaced the pack put one set on screen and sent
-  another. `rewriteDecision` is the one answer for the button, its confirmation
-  and the route: once any autopilot row for the day has started (published,
-  `postId`, `containerId` or `claimedAt`) or failed it is refused (409), and
-  otherwise `planTodaysBatch({ replacePending })` swaps the waiting and skipped
-  rows for the new pack's. `keepWritten` stops a rewrite that could only reach the
-  idea library from replacing a model-written pack.
+- A rejected token (HTTP 401, OAuth code 190, "Session has expired") holds only
+  THAT account for the rest of the run: its posts and link replies stay pending
+  with their attempts (and a reply's `plugAttempts`) untouched, and the other
+  account keeps posting. Before this, a 401 was a permanent error, so one dead
+  token failed 542 of 558 posts in three weeks. Do not route an auth failure
+  back through the `failed` / `retrying` accounting in `runner.ts`. See
+  "Platform health" below.
 - See `src/lib/threads/README.md`.
+
+## Platform health (`src/lib/platform-health`)
+
+A platform whose token is rejected used to fail silently: the runner kept
+spending slots on it and nothing on screen said so. Now the first auth failure
+trips a breaker for that ACCOUNT, keyed `platform:accountId` (`threads:primary`,
+`youtube:youtube-3f9a1c2d`). One dead YouTube channel or Threads handle never
+pauses the others.
+
+- `isAuthFailure` (`auth.ts`) decides what counts, by message: `HTTP 401`,
+  Meta code 190, "Session has expired", `invalid_grant`, the YouTube and TikTok
+  reconnect texts. A 403, a 400 for a bad parameter or the TikTok sandbox
+  refusal is NOT an auth failure. Adding a pattern here changes what stops an
+  account, so add a test beside it.
+- `store.ts` keeps `data/platform-auth.json`: platform, account id and display
+  name, `since`, reason, fix link, and a sha256 fingerprint of that account's
+  credentials when it broke. `accountAuthBlocked` answers "hold this account?":
+  yes until the next trial is due (30 minutes), and never once the fingerprint
+  differs. That is how a pasted or refreshed token clears it with no one
+  telling the app. A call that succeeds clears it too, for that account only.
+- Fingerprints (`fingerprint.ts`): Threads reads the account's token from
+  `threadsConfig()`; YouTube and TikTok read the primary from
+  `publisherConfig()` and an added account from its cached refresh token;
+  Instagram and Facebook added accounts are manual reminders and never call the
+  API. An account that no longer exists drops out of the list.
+- The Threads runner holds the failing account and carries on with the rest.
+  The publisher runner (`runDue`) does the same per `platform + item.accountId`
+  and releases the item through `queue.releaseForAuth`, which keeps attempts and
+  sets no backoff. `force` (Publish now) ignores the hold.
+- `GET /api/health/platforms` lists what is broken (never a token or its
+  fingerprint). `PlatformHealthBanner` in the root layout polls it each
+  minute and sets `--platform-banner-height` so the framed screens and the
+  sidebar make room for it. What it shows is decided in `banner.ts`.
+- `scripts/health-toast.ps1` runs after the tick in `publish-runner.ps1` and
+  `threads-autopilot.ps1`. It reads the endpoint and `data/health-notified.json`
+  and shows one Windows toast for accounts that are newly broken, whose break
+  date changed, or that are still broken 24 hours after the last toast; an
+  account that recovers is forgotten. The decision logic is tested by running
+  the script with `-NoToast` / `-DryRun` (`healthToast.test.ts`). A task
+  registered "whether the user is logged on or not" (S4U, which
+  `register-*-task.ps1` picks when run elevated) has no desktop, so nothing is
+  shown AND nothing is recorded: the toast waits for a run that can show it.
+  Re-register the tasks from a normal prompt to get toasts.
+- There is no email, push or other notification code: the banner and that toast
+  are the only alerts.
 
 ## Launch Pad (`src/lib/launch`)
 

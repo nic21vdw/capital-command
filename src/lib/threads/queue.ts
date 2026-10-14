@@ -1,18 +1,20 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { THREADS_TEXT_LIMIT, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
 import type { ThreadsBatchSummary, ThreadsQueueItem } from "@/lib/threads/types";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
+import { withFileLock } from "@/lib/storage/file-lock";
 
 /**
  * The Threads autopilot queue: one JSON file of scheduled posts.
  *
  * Nothing is cached between calls — every mutation re-reads the file, changes
- * it, and writes it back through a temp file + rename. That matters because
- * two things touch this queue: the app (the dashboard card, the tick route)
- * and whatever the scheduled task pokes. An in-memory copy in either one would
- * quietly clobber the other's writes, which is exactly the failure the Stream
- * Pipeline had to be redesigned around.
+ * it, and writes it back through atomicWriteJson while holding a lock file
+ * that other processes honour. That matters because two things touch this
+ * queue: the app (the dashboard card, the tick route) and whatever the
+ * scheduled task pokes. An in-memory copy in either one would quietly clobber
+ * the other's writes, which is exactly the failure the Stream Pipeline had to
+ * be redesigned around.
  */
 
 const FILE_PATH = dataPath("threads-queue.json");
@@ -21,7 +23,8 @@ const FILE_PATH = dataPath("threads-queue.json");
 let writeChain: Promise<unknown> = Promise.resolve();
 
 function withQueueWrite<T>(work: () => Promise<T>): Promise<T> {
-  const pending = writeChain.then(work, work);
+  const locked = () => withFileLock(FILE_PATH, work);
+  const pending = writeChain.then(locked, locked);
   writeChain = pending.catch(() => undefined);
   return pending;
 }
@@ -42,10 +45,7 @@ async function saveQueue(items: ThreadsQueueItem[]): Promise<void> {
   const sorted = [...items].sort(
     (a, b) => a.publishAt.localeCompare(b.publishAt) || a.slot - b.slot || a.accountId.localeCompare(b.accountId)
   );
-  await mkdir(path.dirname(FILE_PATH), { recursive: true });
-  const tmpPath = `${FILE_PATH}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmpPath, JSON.stringify(sorted, null, 2), "utf8");
-  await rename(tmpPath, FILE_PATH);
+  await atomicWriteJson(FILE_PATH, sorted);
 }
 
 export async function writeQueue(items: ThreadsQueueItem[]): Promise<void> {

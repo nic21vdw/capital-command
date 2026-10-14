@@ -64,7 +64,7 @@ if (-not (Test-App)) {
     exit 0
   }
   if (-not (Test-BuildPresent)) {
-    Add-LogText -Path $log -Text "There is no build to serve (.next\BUILD_ID is missing) - not starting a server."
+    Start-RecoveryBuild -Log $log
     exit 0
   }
   Add-LogText -Path $log -Text "App not running at $baseUrl - starting it."
@@ -100,4 +100,12 @@ $curlExit = $LASTEXITCODE
 $ErrorActionPreference = $previousPreference
 Write-PublishRunSummary -Log $log -ResponseFile $responseFile -StatePath (Join-Path $root "publish-runner.seen")
 Remove-Item -LiteralPath $responseFile -Force -ErrorAction SilentlyContinue
-exit $curlExit
+$tickExit = $curlExit
+if (-not $DryRun) {
+  try {
+    & (Join-Path $PSScriptRoot "health-toast.ps1") -BaseUrl $baseUrl -Log $log
+  } catch {
+    Add-LogText -Path $log -Text "Health toast failed: $($_.Exception.Message)"
+  }
+}
+exit $tickExit

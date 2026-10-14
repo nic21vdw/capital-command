@@ -1,6 +1,6 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 import { primaryAccountId } from "@/lib/publisher/accounts";
 import { youtubeAccessToken } from "@/lib/publisher/adapters/youtube";
 import { publisherConfig } from "@/lib/publisher/config";
@@ -209,11 +209,7 @@ function writeCacheFile(cache: StatsCache): Promise<void> {
     for (const [id, stat] of Object.entries(cache)) {
       if (!merged[id] || merged[id].fetchedAt <= stat.fetchedAt) merged[id] = stat;
     }
-    const target = CACHE_FILE();
-    await mkdir(path.dirname(target), { recursive: true });
-    const temp = `${target}.${process.pid}.tmp`;
-    await writeFile(temp, JSON.stringify(merged, null, 2), "utf8");
-    await rename(temp, target);
+    await atomicWriteJson(CACHE_FILE(), merged);
   });
   writeChain = next.catch(() => {});
   return next;

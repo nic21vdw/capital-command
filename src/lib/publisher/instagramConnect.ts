@@ -1,5 +1,7 @@
+import { readFile } from "node:fs/promises";
 import { PermanentError, fetchJson } from "@/lib/publisher/http";
 import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
+import { atomicWriteFile } from "@/lib/storage/atomic-json";
 
 /**
  * One Meta grant covers both platforms, so it has to ask for both.
@@ -290,15 +292,17 @@ export function applyEnvUpdates(raw: string, updates: Record<string, string>): s
   const newline = raw.includes("\r\n") ? "\r\n" : "\n";
   const lines = raw.split(/\r?\n/);
   const remaining = new Map(Object.entries(updates));
+  const applied = new Set<string>();
 
   const rewritten = lines.map((line) => {
     const match = line.match(/^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*=/);
     if (!match) return line;
-    const value = remaining.get(match[2]);
-    if (value === undefined) return line;
-    remaining.delete(match[2]);
+    if (!Object.hasOwn(updates, match[2])) return line;
+    const value = updates[match[2]];
+    applied.add(match[2]);
     return `${match[1]}${match[2]}=${value}`;
   });
+  for (const key of applied) remaining.delete(key);
 
   if (remaining.size > 0) {
     while (rewritten.length > 0 && rewritten[rewritten.length - 1].trim() === "") rewritten.pop();
@@ -307,6 +311,14 @@ export function applyEnvUpdates(raw: string, updates: Record<string, string>): s
   }
 
   return `${rewritten.join(newline).replace(/\s+$/, "")}${newline}`;
+}
+
+export async function saveEnvUpdates(envPath: string, updates: Record<string, string>): Promise<void> {
+  const existing = await readFile(envPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return "";
+    throw error;
+  });
+  await atomicWriteFile(envPath, applyEnvUpdates(existing, updates), { createFolder: false });
 }
 
 export type InstagramStatus = {

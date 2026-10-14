@@ -1,8 +1,12 @@
+import { authFailureReason, isAuthFailure } from "@/lib/platform-health/auth";
+import { threadsAccountFingerprint } from "@/lib/platform-health/fingerprint";
+import { accountAuthBlocked, clearAuthState, readAuthStates, recordAuthFailure } from "@/lib/platform-health/store";
+import { authStateKey } from "@/lib/platform-health/types";
 import { isTransient } from "@/lib/publisher/http";
 import { formatInTimezone } from "@/lib/publisher/time";
 import { ContainerPendingError, ContainerRejectedError, ThreadsPublishPausedError, postToThreads, type ThreadsPublishInput } from "@/lib/threads/api";
 import { plugReplyFor } from "@/lib/threads/plug";
-import { findAccount, threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
+import { findAccount, threadsBlockedReason, threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 import { mergeQueueChanges, mutateQueue, pruneOld, readQueue } from "@/lib/threads/queue";
 import type { ThreadsOutcome, ThreadsQueueItem, ThreadsRunReport } from "@/lib/threads/types";
 import { isAutomationPaused } from "@/lib/automations/store";
@@ -127,6 +131,8 @@ async function runDueInternal(
   const replyOutcomes: ThreadsOutcome[] = [];
   let note: string | undefined;
   let persistenceError: string | undefined;
+  const authFailures: Array<{ accountId: string; reason: string }> = [];
+  const heldAccounts = new Set<string>();
   const report = (): ThreadsRunReport => ({
     ran: now.toISOString(),
     published: outcomes.filter((outcome) => outcome.outcome === "published").length,
@@ -142,6 +148,7 @@ async function runDueInternal(
     } } : {}),
     ...(note ? { note } : {}),
     ...(persistenceError ? { persistenceError } : {}),
+    ...(authFailures.length ? { authFailures } : {}),
     dryRun
   });
 
@@ -149,6 +156,24 @@ async function runDueInternal(
   if (blocked) return { ...report(), note: blocked };
   if (!dryRun && await isAutomationPaused("threads")) {
     return { ...report(), note: "Threads automation is paused in Automations." };
+  }
+
+  if (!dryRun) {
+    const states = await readAuthStates();
+    for (const candidate of config.accounts) {
+      if (!await accountAuthBlocked("threads", candidate.id, threadsAccountFingerprint(candidate), now)) continue;
+      heldAccounts.add(candidate.id);
+      authFailures.push({
+        accountId: candidate.id,
+        reason: states[authStateKey("threads", candidate.id)]?.reason ?? "Threads rejected its access token."
+      });
+    }
+    if (config.accounts.length > 0 && heldAccounts.size === config.accounts.length) {
+      return {
+        ...report(),
+        note: "Threads is waiting on a working token. Nothing was sent and no post lost a retry. Reconnect it in Settings > Accounts."
+      };
+    }
   }
 
   const deps = options.deps ?? defaultDeps(config);
@@ -203,6 +228,24 @@ async function runDueInternal(
       throw error;
     }
     await record(item, "published", detail, reply);
+  };
+
+  const stopOnAuthFailure = async (item: ThreadsQueueItem, error: unknown, account: ThreadsAccount, reply: boolean) => {
+    const reason = authFailureReason(error);
+    heldAccounts.add(account.id);
+    authFailures.push({ accountId: account.id, reason });
+    note = `Threads rejected the token for ${account.label}, so its posts were left untouched. Reconnect it in Settings > Accounts.`;
+    log(`[threads] ${note} (${reason})`);
+    const at = new Date().toISOString();
+    await recordAuthFailure({ platform: "threads", accountId: account.id, accountLabel: account.label }, reason, {
+      now,
+      fingerprint: threadsAccountFingerprint(account)
+    });
+    await recordAutomationEventSafely({
+      automationId: "threads", scope: "delivery", kind: "blocked", at, itemId: item.id,
+      destination: `Threads / ${item.accountId}`, detail: `${item.topic}: ${reply ? "link reply: " : ""}token rejected - ${reason}`,
+      key: `${item.id}:${reply ? "reply:" : ""}auth:${at}`
+    });
   };
 
   let replySends = 0;
@@ -313,6 +356,11 @@ async function runDueInternal(
         note = error.message;
         return;
       }
+      if (isAuthFailure(error)) {
+        await persist();
+        await stopOnAuthFailure(item, error, account, true);
+        return;
+      }
       replySends += 1;
       item.plugAttempts = (item.plugAttempts ?? 0) + 1;
       item.plugError = error instanceof Error ? error.message : String(error);
@@ -336,6 +384,7 @@ async function runDueInternal(
     // A successful API call is still successful if the following queue save
     // fails. Keep the receipt in memory and reconcile it on the next tick.
     await saveAccepted(item, `${account.label} replied ${result.postId}.`, true);
+    await clearAuthState("threads", account.id);
   };
 
   try {
@@ -378,6 +427,7 @@ async function runDueInternal(
     for (const receipt of recoveredReplies) await record(receipt.item, "published", receipt.detail, true);
 
     for (const item of items) {
+      if (heldAccounts.has(item.accountId)) continue;
       const liveBlocked = threadsBlockedReason(currentConfig());
       if (liveBlocked || (!dryRun && await isAutomationPaused("threads"))) {
         note = liveBlocked ?? "Threads automation is paused in Automations.";
@@ -462,6 +512,11 @@ async function runDueInternal(
           note = error.message;
           break;
         }
+        if (isAuthFailure(error)) {
+          await persist();
+          await stopOnAuthFailure(item, error, account, false);
+          continue;
+        }
         item.attempts += 1;
         item.lastFailedAt = now.toISOString();
         item.error = error instanceof Error ? error.message : String(error);
@@ -487,6 +542,7 @@ async function runDueInternal(
       delete item.claimedAt;
       recovery.set(key, { ...result, text: item.text, publishedAt: item.publishedAt });
       await saveAccepted(item, `${account.label} posted ${result.postId}.`);
+      await clearAuthState("threads", account.id);
     }
   } catch (error) {
     if (!(error instanceof QueuePersistenceError)) throw error;

@@ -68,7 +68,7 @@ if (-not (Test-App)) {
     exit 0
   }
   if (-not (Test-BuildPresent)) {
-    Add-LogText -Path $log -Text "There is no build to serve (.next\BUILD_ID is missing) - not starting a server."
+    Start-RecoveryBuild -Log $log
     exit 0
   }
   Add-LogText -Path $log -Text "App not running at $baseUrl - starting it."
@@ -104,5 +104,12 @@ if ($ReplayFile) {
   $ErrorActionPreference = $previousPreference
 }
 Write-ThreadsTickSummary -Log $log -Lines $cliLines -ExitCode $cliExit -StatePath (Join-Path $root "threads-autopilot.seen")
-exit $cliExit
-
+$tickExit = $cliExit
+if (-not $DryRun -and $Mode -in @("tick", "run-due")) {
+  try {
+    & (Join-Path $PSScriptRoot "health-toast.ps1") -BaseUrl $baseUrl -Log $log
+  } catch {
+    Add-LogText -Path $log -Text "Health toast failed: $($_.Exception.Message)"
+  }
+}
+exit $tickExit

@@ -1,7 +1,8 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 
 export const XAI_OAUTH_ISSUER = "https://auth.x.ai";
 export const XAI_OAUTH_CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828";
@@ -72,15 +73,7 @@ export async function readXaiSession(): Promise<XaiSession | null> {
 }
 
 export async function writeXaiSession(session: XaiSession): Promise<XaiSession> {
-  await mkdir(path.dirname(sessionPath), { recursive: true });
-  const tmp = `${sessionPath}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmp, JSON.stringify(session, null, 2), "utf8");
-  try {
-    await rename(tmp, sessionPath);
-  } catch (error) {
-    await rm(tmp, { force: true });
-    throw error;
-  }
+  await atomicWriteJson(sessionPath, session);
   return session;
 }
 
