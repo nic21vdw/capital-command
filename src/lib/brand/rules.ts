@@ -88,15 +88,15 @@ export function expandTokens(text: string, kit: BrandKit): string {
     .replaceAll("{site}", kit.links.site);
 }
 
-const PROTECTED = /(?:https?:\/\/|www\.)\S+|@[\p{L}\p{N}_.]+|#[\p{L}\p{N}_]+/gu;
-const PLACEHOLDER = /(\d+)/g;
+const PROTECTED = /(?:https?:\/\/|www\.)[^\s—–]+|@[\p{L}\p{N}_.]+|#[\p{L}\p{N}_]+/gu;
+const PLACEHOLDER = /\uE000(\d+)\uE001/g;
 const SENTENCE_PUNCTUATION = /[,;:.!?]/;
 
 function shield(text: string): { masked: string; restore: (value: string) => string } {
   const held: string[] = [];
   const masked = text.replace(PROTECTED, (match) => {
     held.push(match);
-    return `${held.length - 1}`;
+    return `\uE000${held.length - 1}\uE001`;
   });
   return { masked, restore: (value) => value.replace(PLACEHOLDER, (_all, index: string) => held[Number(index)] ?? "") };
 }
@@ -109,7 +109,7 @@ function asPunctuation(previous: string, next: string, lineEnd: boolean): string
 }
 
 function normaliseDashes(text: string): string {
-  const dashed = text.replace(
+  return text.replace(
     /([ \t]*)([—–])([ \t]*)/g,
     (match, lead: string, dash: string, trail: string, offset: number, whole: string) => {
       const previous = offset > 0 ? whole[offset - 1] : "";
@@ -125,11 +125,6 @@ function normaliseDashes(text: string): string {
       return asPunctuation(previous, next, lineEnd);
     }
   );
-  return dashed.replace(/(?<=\S)[ \t]+-[ \t]+(?=\S)/g, (match, offset: number, whole: string) => {
-    const previous = whole[offset - 1];
-    const next = whole[offset + match.length];
-    return /\d/.test(previous) && /\d/.test(next) ? "-" : asPunctuation(previous, next, false);
-  });
 }
 
 export function stripDashes(text: string): string {
@@ -139,7 +134,7 @@ export function stripDashes(text: string): string {
 
 export function stripHashtags(text: string): string {
   return text
-    .replace(/((?:https?:\/\/|www\.)\S+)|[ \t]*(?<![\w&])#[\p{L}\p{N}_]+/gu, (_match, link: string | undefined) => link ?? "")
+    .replace(/((?:https?:\/\/|www\.)\S+)|[ \t]*(?<![\w&])#\p{L}[\p{L}\p{N}_]*/gu, (_match, link: string | undefined) => link ?? "")
     .trim();
 }
 
@@ -192,7 +187,7 @@ export function findViolations(kit: BrandKit, text: string, channel: BrandChanne
   const dash = shield(text).masked.match(/[—–]/);
   if (dash && kit.voice.dashes === "strip") found.push({ kind: "dash", match: dash[0] });
   if (config.hashtags.max === 0) {
-    const tag = text.match(/(?<![\w&])#[\p{L}\p{N}_]+/u);
+    const tag = text.match(/(?<![\w&])#\p{L}[\p{L}\p{N}_]*/u);
     if (tag) found.push({ kind: "hashtag", match: tag[0] });
   }
   if (config.emoji === "none") {

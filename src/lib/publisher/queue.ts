@@ -411,8 +411,8 @@ export class PublishQueue {
         moved.push(item);
         continue;
       }
-      const { platforms: _platforms, ...rest } = structuredClone(item);
-      void _platforms;
+      const { platforms: _platforms, buffer: _buffer, failedSeenAt: _failedSeenAt, updatedAt: _updatedAt, ...rest } = structuredClone(item);
+      void [_platforms, _buffer, _failedSeenAt, _updatedAt];
       const detached: QueueItem = {
         ...rest,
         id: crypto.randomUUID().slice(0, 8),
@@ -435,11 +435,15 @@ export class PublishQueue {
   async releaseAwaiting(
     now: Date,
     platform?: PlatformId,
-    policy: ReviewPolicy = readReviewPolicy()
+    policy: ReviewPolicy = readReviewPolicy(),
+    heldSince?: string
   ): Promise<{ approved: number; moves: ReleaseMove[]; skipped: ReleaseTarget[] }> {
     const waiting = await this.awaitingApproval(policy);
+    const since = heldSince === undefined ? Number.NEGATIVE_INFINITY : Date.parse(heldSince);
     return this.releaseLegs(
-      waiting.filter((entry) => !platform || entry.platform === platform).map((entry) => ({ id: entry.item.id, platform: entry.platform })),
+      waiting
+        .filter((entry) => (!platform || entry.platform === platform) && Date.parse(entry.item.publishAt) >= since)
+        .map((entry) => ({ id: entry.item.id, platform: entry.platform })),
       now
     );
   }

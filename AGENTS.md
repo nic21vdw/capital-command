@@ -667,19 +667,27 @@ The board's explicit Publish now counts as approval; a post already on a
 platform is never held; a Threads post nobody approved before its slot plus the
 late grace is skipped, as any missed slot is.
 
-- A READ OF THE POLICY FILE NEVER FAILS OPEN. `readReviewPolicyState` returns
-  the last good policy when a read or parse fails, holds every channel when
-  there never was one, never caches the failure, and carries an `error` that
-  the Uploading Center and Settings show as a banner. A missing file is the
-  defaults. Do not return the defaults from a catch block.
+- A READ OF THE POLICY FILE NEVER FAILS OPEN. `readReviewPolicyState` tries a
+  read three times, 25 ms apart, then returns the last good policy, or holds
+  every channel when there never was one; it never caches a failure and
+  carries an `error` that the Uploading Center and Settings show as a banner.
+  Only ENOENT means missing, and a missing file is the defaults; any other
+  stat error is an unreadable file. Do not return the defaults from a catch
+  block. `PUT /api/review/policy` answers 409 with the read error and leaves an
+  unreadable file alone.
 - APPROVING IS A RELEASE, NOT A STAMP (`release.ts`, `PublishQueue.releaseLegs`).
   A leg whose slot is older than `REARM_MAX_SLOT_AGE_HOURS` (24) goes to the
   next free slot for its platform; at most `shortsPerDay` shorts per platform
   per local day (YouTube also its upload budget) go out in place, the rest take
   later slots; a post that holds other platforms is split so its other legs keep
-  their schedule. Switching a channel from hold to auto runs the same release
-  first and answers 409, staying on hold, if some post has no slot left. Threads
-  needs none of this: it skips a late post instead of firing it.
+  their schedule (the copy takes no `buffer` or other delivery state, and
+  `planMirror` skips a clip already on a platform, so the split copy is never
+  mirrored onto platforms the clip went out on). Switching a channel from hold
+  to auto runs the same release first, but only for legs whose slot is at or
+  after `heldSince` for that channel (recorded in the policy file when it went
+  on hold); a leg that was already overdue before the hold is left exactly as
+  it was. It answers 409, staying on hold, if some post has no slot left.
+  Threads needs none of this: it skips a late post instead of firing it.
 - `POST /api/review/approve` takes `{ channel, id }` or `{ keys }`, the exact
   `channel:id` keys on screen, and approves only those that are still waiting.
   There is no approve-everything call. Approve and Approve all are `destructive`

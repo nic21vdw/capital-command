@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { planMirror } from "@/lib/publisher/mirror";
 import { PublishQueue } from "@/lib/publisher/queue";
 import { MemoryQueueStore, testConfig, testItem } from "@/lib/publisher/test-helpers";
 
@@ -70,5 +71,63 @@ describe("PublishQueue.releaseLegs", () => {
     expect(result.approved).toBe(0);
     expect(result.skipped).toEqual([{ id: "a", platform: "instagram" }]);
     expect((await queue.get("a"))!.platforms.instagram?.approvedAt).toBeUndefined();
+  });
+});
+
+describe("a held lead leg that is split off its post", () => {
+  const MIRROR = { lead: "youtube" as const, targets: ["instagram", "facebook"] as Array<"instagram" | "facebook">, now: NOW };
+
+  const splitScenario = async (over: { instagram?: object; facebook?: object; buffer?: boolean } = {}) => {
+    const item = testItem({
+      id: "a",
+      publishAt: iso(-48),
+      visibility: "public",
+      platformIds: ["youtube", "instagram", "facebook"]
+    });
+    item.platforms.instagram = { status: "published", postId: "ig1", attempts: 1, ...over.instagram };
+    item.platforms.facebook = { status: "published", postId: "fb1", attempts: 1, ...over.facebook };
+    if (over.buffer) item.buffer = { status: "scheduled", attempts: 1, updateIds: ["u1"], scheduledAt: iso(-60) };
+    item.failedSeenAt = iso(-30);
+    const queue = await queueWith([item]);
+    await queue.releaseLegs([{ id: "a", platform: "youtube" }], NOW);
+    const items = await queue.list();
+    return { queue, items, detached: items.find((entry) => entry.id !== "a")! };
+  };
+
+  it("is not mirrored back onto platforms the clip already went out on", async () => {
+    const { items, detached } = await splitScenario();
+    expect(Object.keys(detached.platforms)).toEqual(["youtube"]);
+    expect(planMirror(items, { ...MIRROR, mode: "match" }).additions).toEqual([]);
+    expect(planMirror(items, { ...MIRROR, mode: "shuffle", seed: 3 }).newItems).toEqual([]);
+  });
+
+  it("is not mirrored onto a platform where the clip is still pending or scheduled", async () => {
+    const { items } = await splitScenario({ instagram: { status: "pending", postId: undefined, attempts: 0 }, facebook: { status: "scheduled", postId: "fb1" } });
+    expect(planMirror(items, { ...MIRROR, mode: "match" }).additions).toEqual([]);
+    expect(planMirror(items, { ...MIRROR, mode: "shuffle", seed: 3 }).newItems).toEqual([]);
+  });
+
+  it("still mirrors a clip that is on no other platform", async () => {
+    const queue = await queueWith([
+      testItem({ id: "fresh", publishAt: iso(30), visibility: "public", clipPath: "data/clips/outputs/job1/fresh.mp4", platformIds: ["youtube"] })
+    ]);
+    const plan = planMirror(await queue.list(), { ...MIRROR, mode: "match" });
+    expect(plan.additions).toEqual([
+      { itemId: "fresh", platform: "instagram" },
+      { itemId: "fresh", platform: "facebook" }
+    ]);
+  });
+
+  it("mirrors onto a platform where the clip's only leg failed", async () => {
+    const { items } = await splitScenario({ instagram: { status: "failed", postId: undefined, attempts: 3, error: "boom" } });
+    expect(planMirror(items, { ...MIRROR, mode: "match" }).additions).toEqual([{ itemId: items.find((entry) => entry.id !== "a")!.id, platform: "instagram" }]);
+  });
+
+  it("carries no delivery state into the copy", async () => {
+    const { detached } = await splitScenario({ buffer: true });
+    expect(detached.buffer).toBeUndefined();
+    expect(detached.failedSeenAt).toBeUndefined();
+    expect(detached.clipPath).toBe("data/clips/outputs/job1/export-a.mp4");
+    expect(detached.title).toBe("Test clip");
   });
 });

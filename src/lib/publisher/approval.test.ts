@@ -12,6 +12,7 @@ import {
   threadsAwaitingApproval
 } from "@/lib/publisher/approval";
 import {
+  ReviewPolicyUnreadableError,
   readReviewPolicy,
   readReviewPolicyState,
   resetReviewPolicyCache,
@@ -177,16 +178,47 @@ describe("the saved policy", () => {
     expect(state.policy).toEqual({ ...DEFAULT_REVIEW_POLICY, instagram: "hold", tiktok: "hold" });
   });
 
+  it("remembers when each channel went on hold and forgets it when it comes off", async () => {
+    const first = new Date("2026-08-01T10:00:00.000Z");
+    const later = new Date("2026-08-02T10:00:00.000Z");
+    await writeReviewPolicy({ tiktok: "hold" }, first);
+    expect(readReviewPolicyState().heldSince).toEqual({ tiktok: first.toISOString() });
+    await writeReviewPolicy({ instagram: "hold" }, later);
+    expect(readReviewPolicyState().heldSince).toEqual({ tiktok: first.toISOString(), instagram: later.toISOString() });
+    await writeReviewPolicy({ tiktok: "hold" }, later);
+    expect(readReviewPolicyState().heldSince.tiktok).toBe(first.toISOString());
+    await writeReviewPolicy({ tiktok: "auto" }, later);
+    expect(readReviewPolicyState().heldSince).toEqual({ instagram: later.toISOString() });
+    await writeReviewPolicy({ tiktok: "hold" }, later);
+    expect(readReviewPolicyState().heldSince.tiktok).toBe(later.toISOString());
+  });
+
+  it("reads a policy file from before the hold time was recorded as held since nobody knows when", async () => {
+    await writeFile(reviewPolicyPath(), JSON.stringify({ ...DEFAULT_REVIEW_POLICY, tiktok: "hold" }), "utf8");
+    expect(readReviewPolicyState()).toEqual({ policy: { ...DEFAULT_REVIEW_POLICY, tiktok: "hold" }, error: null, heldSince: {} });
+  });
+
+  it("ignores a hold time that is not a date", async () => {
+    await writeFile(reviewPolicyPath(), JSON.stringify({ ...DEFAULT_REVIEW_POLICY, tiktok: "hold", heldSince: { tiktok: "yesterday", bluesky: "2026-08-01T00:00:00.000Z" } }), "utf8");
+    expect(readReviewPolicyState().heldSince).toEqual({});
+  });
+
+  it("will not overwrite a file it could not read", async () => {
+    await writeFile(reviewPolicyPath(), "{ not json", "utf8");
+    await expect(writeReviewPolicy({ instagram: "auto" })).rejects.toBeInstanceOf(ReviewPolicyUnreadableError);
+    expect(await readFile(reviewPolicyPath(), "utf8")).toBe("{ not json");
+  });
+
   it("returns to the defaults only when the file is missing", async () => {
     await writeReviewPolicy({ instagram: "hold" });
     await rm(reviewPolicyPath(), { force: true });
-    expect(readReviewPolicyState()).toEqual({ policy: DEFAULT_REVIEW_POLICY, error: null });
+    expect(readReviewPolicyState()).toEqual({ policy: DEFAULT_REVIEW_POLICY, error: null, heldSince: {} });
   });
 
   it("is written to data/review-policy.json and read back", async () => {
     const saved = await writeReviewPolicy({ instagram: "hold" });
     expect(saved).toEqual({ ...DEFAULT_REVIEW_POLICY, instagram: "hold" });
-    expect(JSON.parse(await readFile(reviewPolicyPath(), "utf8"))).toEqual(saved);
+    expect(JSON.parse(await readFile(reviewPolicyPath(), "utf8"))).toEqual({ ...saved, heldSince: { instagram: expect.any(String) } });
     expect(readReviewPolicy()).toEqual(saved);
   });
 

@@ -276,11 +276,16 @@ describe("applyBrandRules", () => {
 });
 
 describe("dashes in links, tags and handles", () => {
-  it("never touches a link, even when the link has a dash in it", () => {
-    const wiki = "https://en.wikipedia.org/wiki/Navier–Stokes_equations";
-    expect(applyBrandRules(`Read ${wiki} — it explains it`, "threads")).toBe(`Read ${wiki}, it explains it`);
-    expect(applyBrandRules("https://example.com/a—b and www.example.com/c–d", "youtube")).toBe("https://example.com/a—b and www.example.com/c–d");
-    expect(stripDashes(`see ${wiki}`)).toBe(`see ${wiki}`);
+  it("leaves an ordinary link whole and still tidies the dash around it", () => {
+    const link = "https://en.wikipedia.org/wiki/Navier-Stokes_equations";
+    expect(applyBrandRules(`Read ${link} — it explains it`, "threads")).toBe(`Read ${link}, it explains it`);
+    expect(stripDashes(`see ${link}`)).toBe(`see ${link}`);
+  });
+
+  it("ends a link at a dash glued to it, so the dash is normalised", () => {
+    expect(applyBrandRules("see https://x.com/page—then more", "threads")).toBe("see https://x.com/page, then more");
+    expect(applyBrandRules("go to www.example.com–now", "youtube")).toBe("go to www.example.com-now");
+    expect(applyBrandRules("https://example.com/a—b and www.example.com/c–d", "youtube")).toBe("https://example.com/a, b and www.example.com/c-d");
   });
 
   it("keeps a hashtag whole and joins what follows it with a hyphen", () => {
@@ -311,10 +316,10 @@ describe("dashes inside ranges, numbers and compounds", () => {
     expect(applyBrandRules("speed—it matters", "threads")).toBe("speed, it matters");
   });
 
-  it("turns a spaced hyphen in the middle of a line into a comma, like an em dash", () => {
-    expect(applyBrandRules("Part one - the setup", "youtube-longform")).toBe("Part one, the setup");
-    expect(applyBrandRules("fast - cheap - good", "threads")).toBe("fast, cheap, good");
-    expect(applyBrandRules("9:00 - 10:00", "facebook")).toBe("9:00-10:00");
+  it("leaves a spaced hyphen alone, because it is a plain hyphen and a title style", () => {
+    for (const text of ["Day 34 - Building the approval list", "10 - 3 = 7", "fast - cheap - good", "9:00 - 10:00", "Part one - the setup"]) {
+      expect(applyBrandRules(text, "youtube-longform"), text).toBe(text);
+    }
   });
 
   it("leaves a line-start bullet and an ordinary hyphen alone", () => {
@@ -375,6 +380,18 @@ describe("hashtag policy", () => {
     expect(brandHashtagPolicy("youtube")).toEqual({ target: 4, max: 6, base: ["#shorts"] });
     expect(brandHashtagPolicy("instagram").target).toBe(8);
     expect(brandHashtagPolicy("threads")).toEqual({ target: 0, max: 0, base: [] });
+  });
+});
+
+describe("hashtags in a title", () => {
+  it("removes only tags that start with a letter, so a number stays a number", () => {
+    expect(applyBrandTitle("Top #1 pick of #24 #AI", "youtube")).toBe("Top #1 pick of #24");
+    expect(applyBrandTitle("#2026 plans #coding", "youtube")).toBe("#2026 plans");
+  });
+
+  it("does not call a number sign a hashtag violation", () => {
+    expect(brandViolations("Issue #12 is fixed", "threads").map((violation) => violation.kind)).not.toContain("hashtag");
+    expect(brandViolations("Issue #fixed", "threads").map((violation) => violation.kind)).toContain("hashtag");
   });
 });
 

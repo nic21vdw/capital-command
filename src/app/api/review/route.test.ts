@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetReviewPolicyCache, reviewPolicyPath } from "@/lib/publisher/approvalStore";
@@ -31,6 +31,13 @@ const approve = async (body: unknown) => (await approveRoute()).POST(new Request
 const awaiting = async () => (await awaitingRoute()).GET();
 
 const soon = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
+
+async function backdateHold(channel: string, hoursAgo: number) {
+  const saved = JSON.parse(await readFile(reviewPolicyPath(), "utf8"));
+  saved.heldSince = { ...saved.heldSince, [channel]: soon(-hoursAgo) };
+  await writeFile(reviewPolicyPath(), JSON.stringify(saved), "utf8");
+  resetReviewPolicyCache();
+}
 
 const threadsRow = (overrides: Partial<ThreadsQueueItem> = {}): ThreadsQueueItem => ({
   id: "t1",
@@ -194,6 +201,7 @@ describe("/api/review/approve", () => {
 describe("switching a channel from hold to auto", () => {
   it("releases what was held through the same cap and slot-age rules", async () => {
     await put({ instagram: "hold" });
+    await backdateHold("instagram", 400);
     const ids = ["h1", "h2", "h3", "h4"];
     for (const [index, id] of ids.entries()) {
       await queue.add(testItem({ id, platformIds: ["instagram"], publishAt: soon(-3 - index * 0.1), clipPath: `data/clips/outputs/job1/${id}.mp4` }));
@@ -207,6 +215,31 @@ describe("switching a channel from hold to auto", () => {
     expect(new Date((await queue.get("ancient"))!.publishAt).getTime()).toBeGreaterThan(Date.now());
   });
 
+  it("releases only what the hold itself kept back, and leaves a legacy past-slot leg exactly as it was", async () => {
+    await queue.add(testItem({ id: "legacy", platformIds: ["tiktok"], publishAt: soon(-120), clipPath: "data/clips/outputs/job1/legacy.mp4" }));
+    await put({ tiktok: "hold" });
+    await backdateHold("tiktok", 6);
+    await queue.add(testItem({ id: "kept-back", platformIds: ["tiktok"], publishAt: soon(-2), clipPath: "data/clips/outputs/job1/kept.mp4" }));
+    await queue.add(testItem({ id: "upcoming", platformIds: ["tiktok"], publishAt: soon(40), clipPath: "data/clips/outputs/job1/upcoming.mp4" }));
+    const legacyBefore = structuredClone(await queue.get("legacy"));
+
+    const body = await (await put({ tiktok: "auto" })).json();
+
+    expect(body.released.approved).toBe(2);
+    expect(await queue.get("legacy")).toEqual(legacyBefore);
+    expect((await queue.get("legacy"))!.platforms.tiktok?.approvedAt).toBeUndefined();
+    expect((await queue.get("kept-back"))!.platforms.tiktok?.approvedAt).toBeTruthy();
+    expect((await queue.get("upcoming"))!.platforms.tiktok?.approvedAt).toBeTruthy();
+  });
+
+  it("treats everything awaiting as held when the file never recorded when the hold began", async () => {
+    await writeFile(reviewPolicyPath(), JSON.stringify({ youtube: "auto", instagram: "hold", tiktok: "auto", facebook: "auto", threads: "auto" }), "utf8");
+    resetReviewPolicyCache();
+    await queue.add(testItem({ id: "old", platformIds: ["instagram"], publishAt: soon(-120), clipPath: "data/clips/outputs/job1/old.mp4" }));
+    const body = await (await put({ instagram: "auto" })).json();
+    expect(body.released.approved).toBe(1);
+  });
+
   it("does not release anything when a channel goes from auto to hold", async () => {
     await queue.add(testItem({ id: "a", platformIds: ["instagram"], publishAt: soon(-3) }));
     const body = await (await put({ instagram: "hold" })).json();
@@ -217,6 +250,7 @@ describe("switching a channel from hold to auto", () => {
   it("refuses to flip, and keeps holding, when some posts have no slot to go to", async () => {
     queue = new PublishQueue(new MemoryQueueStore(), testConfig({ bookingHorizonDays: 0 }));
     await put({ instagram: "hold" });
+    await backdateHold("instagram", 400);
     await queue.add(testItem({ id: "stuck", platformIds: ["instagram"], publishAt: soon(-300) }));
     const response = await put({ instagram: "auto" });
     expect(response.status).toBe(409);
@@ -225,6 +259,14 @@ describe("switching a channel from hold to auto", () => {
 });
 
 describe("an unreadable policy file", () => {
+  it("is not overwritten by a change, and the change is refused with the read error", async () => {
+    await writeFile(reviewPolicyPath(), "{ not json", "utf8");
+    const response = await put({ instagram: "auto" });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/could not be read/i);
+    expect(await readFile(reviewPolicyPath(), "utf8")).toBe("{ not json");
+  });
+
   it("holds every channel and reports the problem on both reads", async () => {
     await writeFile(reviewPolicyPath(), "{ not json", "utf8");
     const policy = await (await policyRoute()).GET().then((response) => response.json());

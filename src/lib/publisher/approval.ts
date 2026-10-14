@@ -17,6 +17,19 @@ export const DEFAULT_REVIEW_POLICY: ReviewPolicy = {
   threads: "auto"
 };
 
+export type HeldSince = Partial<Record<ReviewChannel, string>>;
+
+export function parseHeldSince(raw: unknown): HeldSince {
+  const found: HeldSince = {};
+  const source = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>).heldSince : undefined;
+  if (typeof source !== "object" || source === null || Array.isArray(source)) return found;
+  for (const channel of REVIEW_CHANNELS) {
+    const value = (source as Record<string, unknown>)[channel];
+    if (typeof value === "string" && Number.isFinite(Date.parse(value))) found[channel] = value;
+  }
+  return found;
+}
+
 export const HOLD_EVERYTHING: ReviewPolicy = {
   youtube: "hold",
   instagram: "hold",

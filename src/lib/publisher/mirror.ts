@@ -140,6 +140,21 @@ export function dealDistinctOrders(
   return orders;
 }
 
+function clipKey(item: Pick<QueueItem, "clipPath" | "sourceClipPath">): string | undefined {
+  const file = item.sourceClipPath || item.clipPath;
+  return file ? file.replace(/\\/g, "/") : undefined;
+}
+
+function clipsOn(items: QueueItem[], platform: PlatformId): Set<string> {
+  const clips = new Set<string>();
+  for (const item of items) {
+    const state = item.platforms[platform];
+    const key = clipKey(item);
+    if (state && state.status !== "failed" && key) clips.add(key);
+  }
+  return clips;
+}
+
 function isLive(item: QueueItem, platform: PlatformId): boolean {
   const state = item.platforms[platform];
   return Boolean(state) && state!.status !== "failed";
@@ -183,8 +198,11 @@ export function planMirror(items: QueueItem[], options: MirrorOptions): MirrorPl
   if (mode === "match") {
     for (const platform of targets) {
       const usable = PUBLIC_ONLY.includes(platform) ? publishable : schedule;
+      const already = clipsOn(items, platform);
       for (const item of usable) {
         if (item.platforms[platform]) continue;
+        const key = clipKey(item);
+        if (key && already.has(key)) continue;
         plan.additions.push({ itemId: item.id, platform });
       }
     }
