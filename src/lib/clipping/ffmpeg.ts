@@ -191,8 +191,11 @@ export function parseVideoStreamInfo(stderr: string): VideoStreamInfo | null {
 }
 
 /** Reads the video's display dimensions, duration and frame rate by parsing `ffmpeg -i`. */
-export async function probeVideoStream(inputPath: string): Promise<VideoStreamInfo> {
-  const { stderr } = await runFfmpeg(["-hide_banner", "-i", inputPath], { allowFailure: true });
+export async function probeVideoStream(
+  inputPath: string,
+  { signal }: { signal?: AbortSignal } = {}
+): Promise<VideoStreamInfo> {
+  const { stderr } = await runFfmpeg(["-hide_banner", "-i", inputPath], { allowFailure: true, signal });
   const info = parseVideoStreamInfo(stderr);
   if (!info) {
     throw new Error("Could not read the video dimensions — the file may be corrupt or not a video.");

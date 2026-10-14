@@ -1,15 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Loader2, TriangleAlert } from "lucide-react";
+import { Loader2, TriangleAlert, UserRound } from "lucide-react";
 import { Select } from "@/components/ui/select";
+import type { CreatorInfoState } from "@/components/uploading-center/use-tiktok-creator-info";
 import {
+  PROCESSING_NOTICE,
+  TIKTOK_BRANDED_CONTENT_URL,
+  TIKTOK_MUSIC_USAGE_URL,
   TIKTOK_PRIVACY_LABELS,
-  complianceStatement,
-  consentProblem,
-  disclosureLabel,
+  brandedContentHint,
+  consentBlocker,
+  disclosureNotice,
+  disclosureOn,
   emptyConsent,
-  type TiktokCreatorPostingInfo
+  privacyOptionHint
 } from "@/lib/publisher/tiktokPost";
 import type { TiktokPostOptions, TiktokPrivacyLevel } from "@/lib/publisher/types";
 
@@ -25,38 +29,6 @@ import type { TiktokPostOptions, TiktokPrivacyLevel } from "@/lib/publisher/type
  * what the app has always done and what it still does when this panel is left
  * alone.
  */
-
-type CreatorInfoState =
-  | { status: "loading" }
-  | { status: "ready"; info: TiktokCreatorPostingInfo; audited: boolean }
-  | { status: "error"; message: string };
-
-// Keyed by account: two connected profiles have different audiences and
-// different interaction settings, and one must never answer for the other.
-const creatorInfoRequests = new Map<string, Promise<CreatorInfoState>>();
-
-async function loadCreatorInfo(accountId: string): Promise<CreatorInfoState> {
-  let creatorInfoRequest = creatorInfoRequests.get(accountId);
-  if (!creatorInfoRequest) {
-    creatorInfoRequest = (async (): Promise<CreatorInfoState> => {
-    try {
-      const response = await fetch(`/api/publish/tiktok/creator-info?account=${encodeURIComponent(accountId)}`);
-      const payload = await response.json();
-      if (!response.ok) return { status: "error", message: payload?.error ?? "TikTok would not answer." };
-      const { audited, ...info } = payload as TiktokCreatorPostingInfo & { audited: boolean };
-      return { status: "ready", info, audited };
-    } catch {
-      return { status: "error", message: "Could not reach TikTok." };
-    }
-    })();
-    creatorInfoRequests.set(accountId, creatorInfoRequest);
-  }
-  const settled = await creatorInfoRequest;
-  // A failed lookup must not be cached forever — the account may just have
-  // been connected, or the network may have blinked.
-  if (settled.status === "error") creatorInfoRequests.delete(accountId);
-  return settled;
-}
 
 function Toggle({
   label,
@@ -93,44 +65,53 @@ function Toggle({
   );
 }
 
+function PolicyLink({ href, children }: { href: string; children: string }) {
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className="text-white underline underline-offset-2">
+      {children}
+    </a>
+  );
+}
+
+function Declaration({ branded }: { branded: boolean }) {
+  return (
+    <p className="text-[11px] text-[var(--muted-foreground)]">
+      By posting, you agree to TikTok&apos;s{" "}
+      {branded ? (
+        <>
+          <PolicyLink href={TIKTOK_BRANDED_CONTENT_URL}>Branded Content Policy</PolicyLink> and{" "}
+        </>
+      ) : null}
+      <PolicyLink href={TIKTOK_MUSIC_USAGE_URL}>Music Usage Confirmation</PolicyLink>.
+    </p>
+  );
+}
+
+function longestVideo(seconds: number): string {
+  return seconds % 60 === 0 && seconds >= 120 ? `${seconds / 60} minutes` : `${seconds} seconds`;
+}
+
 export function TiktokConsent({
   value,
   onChange,
-  accountId
+  state,
+  clipDurationSec
 }: {
   value: TiktokPostOptions | undefined;
   onChange: (next: TiktokPostOptions | undefined) => void;
-  accountId: string;
+  state: CreatorInfoState;
+  clipDurationSec?: number;
 }) {
-  const [state, setState] = useState<CreatorInfoState>({ status: "loading" });
   const consent = value ?? { delivery: "inbox" as const };
   const direct = consent.delivery === "direct";
-
-  useEffect(() => {
-    if (!direct) return;
-    let cancelled = false;
-    void loadCreatorInfo(accountId).then((next) => {
-      if (!cancelled) setState(next);
-    });
-    return () => {
-      cancelled = true;
-      // Back to loading for the next time the panel is opened, so a stale
-      // answer is never shown as if it were this account's.
-      setState({ status: "loading" });
-    };
-  }, [direct, accountId]);
-
   const info = state.status === "ready" ? state.info : null;
   const audited = state.status === "ready" ? state.audited : true;
-  const levels: TiktokPrivacyLevel[] =
-    info && info.privacyLevels.length > 0
-      ? info.privacyLevels
-      : (Object.keys(TIKTOK_PRIVACY_LABELS) as TiktokPrivacyLevel[]);
-  const problem = direct ? consentProblem(consent, info) : null;
-  const compliance = complianceStatement(consent);
-  const disclosed = disclosureLabel(consent);
+  const problem = direct && state.status === "ready" ? consentBlocker(consent, state, clipDurationSec) : null;
+  const notice = disclosureNotice(consent);
+  const disclosing = disclosureOn(consent);
+  const who = info?.nickname ?? "your TikTok account";
 
-  const set = (patch: Partial<TiktokPostOptions>) => onChange({ ...consent, ...patch });
+  const set = (patch: Partial<TiktokPostOptions>) => onChange({ ...consent, ...patch, consentedAt: undefined });
 
   return (
     <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
@@ -149,7 +130,7 @@ export function TiktokConsent({
           <input
             type="radio"
             checked={direct}
-            onChange={() => onChange({ ...emptyConsent(), consentedAt: new Date().toISOString() })}
+            onChange={() => onChange(emptyConsent())}
             className="h-3 w-3 accent-[var(--accent)]"
           />
           Post straight to my profile
@@ -168,15 +149,25 @@ export function TiktokConsent({
       ) : state.status === "error" ? (
         <p className="tone-warning tone-text flex items-start gap-2 text-[11px]">
           <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" />
-          {state.message} Nothing can be posted straight to the profile until TikTok answers — send it to the
-          inbox instead.
+          {state.cannotPostNow
+            ? `${state.message} Nothing can be scheduled straight to the profile until then.`
+            : `${state.message} Nothing can be posted straight to the profile until TikTok answers — send it to the inbox instead.`}
         </p>
       ) : (
         <div className="space-y-2">
-          <p className="text-[11px] text-[var(--muted-foreground)]">
-            Posting to {info?.nickname ?? "your TikTok account"}
-            {info?.handle ? ` (@${info.handle})` : ""}.
-          </p>
+          <div className="flex items-center gap-2 text-[11px] text-[var(--muted-foreground)]">
+            {info?.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- TikTok's avatar host isn't in next.config images
+              <img src={info.avatarUrl} alt="" referrerPolicy="no-referrer" className="h-6 w-6 rounded-full" />
+            ) : (
+              <UserRound className="h-5 w-5" aria-hidden />
+            )}
+            <span>
+              Posting to <span className="text-white">{who}</span>
+              {info?.handle ? ` (@${info.handle})` : ""}
+              {info?.maxVideoSeconds ? ` · videos up to ${longestVideo(info.maxVideoSeconds)}` : ""}
+            </span>
+          </div>
 
           <Select
             value={consent.privacyLevel ?? ""}
@@ -187,11 +178,14 @@ export function TiktokConsent({
             aria-label="Who can see this post"
           >
             <option value="">Who can see this post…</option>
-            {levels.map((level) => (
-              <option key={level} value={level}>
-                {TIKTOK_PRIVACY_LABELS[level]}
-              </option>
-            ))}
+            {(info?.privacyLevels ?? []).map((level) => {
+              const hint = privacyOptionHint(level, consent);
+              return (
+                <option key={level} value={level} disabled={Boolean(hint)} title={hint ?? undefined}>
+                  {TIKTOK_PRIVACY_LABELS[level]}
+                </option>
+              );
+            })}
           </Select>
 
           <div className="flex flex-wrap gap-x-4 gap-y-1.5">
@@ -219,11 +213,17 @@ export function TiktokConsent({
           </div>
 
           <Toggle
-            label="This post promotes a brand, product or service"
-            checked={consent.brandOrganic === true || consent.brandedContent === true}
-            onChange={(next) => set(next ? { brandOrganic: true } : { brandOrganic: false, brandedContent: false })}
+            label="Content disclosure setting"
+            checked={disclosing}
+            onChange={(next) =>
+              set(next ? { disclosure: true } : { disclosure: false, brandOrganic: false, brandedContent: false })
+            }
           />
-          {consent.brandOrganic || consent.brandedContent ? (
+          <p className="pl-5 text-[11px] text-[var(--muted-foreground)]">
+            Turn on to disclose that this video promotes goods or services in exchange for something of value. It
+            could promote yourself, a third party, or both.
+          </p>
+          {disclosing ? (
             <div className="flex flex-wrap gap-x-4 gap-y-1.5 pl-5">
               <Toggle
                 label="Your brand"
@@ -233,16 +233,32 @@ export function TiktokConsent({
               <Toggle
                 label="Branded content"
                 checked={consent.brandedContent === true}
+                disabled={Boolean(brandedContentHint(consent))}
+                hint={brandedContentHint(consent) ?? undefined}
                 onChange={(next) => set({ brandedContent: next })}
               />
             </div>
           ) : null}
-          {disclosed ? (
-            <p className="text-[11px] text-[var(--muted-foreground)]">
-              Your post will be labelled <span className="text-white">{disclosed}</span>.
-            </p>
-          ) : null}
-          {compliance ? <p className="text-[11px] text-[var(--muted-foreground)]">{compliance}</p> : null}
+          {notice ? <p className="pl-5 text-[11px] text-white">{notice}</p> : null}
+
+          <Declaration branded={consent.brandedContent === true} />
+
+          <label className="flex items-start gap-2 text-xs text-white">
+            <input
+              type="checkbox"
+              checked={Boolean(consent.consentedAt)}
+              onChange={(event) =>
+                onChange({ ...consent, consentedAt: event.target.checked ? new Date().toISOString() : undefined })
+              }
+              className="mt-0.5 h-3.5 w-3.5 rounded border-[var(--border)] bg-[var(--surface-2)] accent-[var(--accent)]"
+            />
+            <span>
+              I agree to this video being uploaded to {who} on TikTok at the time I schedule. Nothing is sent to
+              TikTok before then.
+            </span>
+          </label>
+          <p className="text-[11px] text-[var(--muted-foreground)]">{PROCESSING_NOTICE}</p>
+
           {!audited ? (
             <p className="tone-warning tone-text text-[11px]">
               The TikTok app review has not been approved, so TikTok only accepts a private post here. Anything
