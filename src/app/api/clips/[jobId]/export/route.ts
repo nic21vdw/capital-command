@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { FFMPEG_MISSING_MESSAGE, resolveFfmpeg } from "@/lib/clipping/ffmpeg";
 import { getJob, outputDir } from "@/lib/clipping/jobs";
+import { assertEnoughDiskSpace, DiskSpaceError } from "@/lib/disk/space";
 import { startExport } from "@/lib/clipping/export";
 import { clipProjectSchema } from "@/lib/storage/schemas";
 
@@ -33,6 +34,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       { error: "The base clip file no longer exists. Re-render the clip before exporting." },
       { status: 404 }
     );
+  }
+
+  try {
+    await assertEnoughDiskSpace();
+  } catch (error) {
+    if (error instanceof DiskSpaceError) return NextResponse.json({ error: error.message }, { status: 507 });
+    throw error;
   }
 
   const record = startExport({
