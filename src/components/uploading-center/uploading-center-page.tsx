@@ -1336,6 +1336,11 @@ export function UploadingCenterPage() {
                 aiCopyAvailable={aiCopyFellBack ? false : overview?.aiCopyAvailable}
                 onShowOnBoard={showBookedItem}
                 isConnected={isAccountConnected}
+                experiment={{
+                  accountIds: activeAccountIds,
+                  disabledReason: publishingOn ? undefined : "Posting is off - turn it on in Settings to book clips.",
+                  onBooked: () => refresh()
+                }}
               />
               <div id="schedule-board" className="min-w-0 scroll-mt-4">
                 {/* Said once above the board, not only on the empty day it used
