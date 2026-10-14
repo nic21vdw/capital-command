@@ -49,7 +49,8 @@ export function readbackConfig(env: Env = process.env): ReadbackConfig | null {
     return null;
   }
   if (parsed.username || parsed.password) return null;
-  const secure = parsed.protocol === "https:" || (parsed.protocol === "http:" && LOCAL_HOSTS.has(parsed.hostname));
+  const loopback = env.COLATERAL_ATTRIBUTION_ALLOW_LOOPBACK === "1" && parsed.protocol === "http:" && LOCAL_HOSTS.has(parsed.hostname);
+  const secure = parsed.protocol === "https:" || loopback;
   return secure ? { url: parsed.toString(), token } : null;
 }
 

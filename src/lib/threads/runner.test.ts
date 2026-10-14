@@ -341,6 +341,30 @@ describe("runDue link replies", () => {
     expect(state.items[0]).toMatchObject({ status: "published", postId: "post-main", plugPostId: "post-reply" });
   });
 
+  it("sends the link reply with its parent post's code, applied at send time", async () => {
+    const inputs: Array<{ text: string; attributionCode?: string }> = [];
+    const stored = plugReplyFor(plugged().text, "item-1", config())!;
+    const { runDeps, state } = deps([plugged({ plugText: stored })], async (input) => {
+      inputs.push({ text: input.text, attributionCode: input.attributionCode });
+      return { containerId: "c-reply", postId: "post-reply" };
+    });
+
+    await runDue(new Date("2026-07-22T07:20:00.000Z"), { config: config(), deps: runDeps, log: silent });
+
+    expect(inputs).toEqual([{ text: stored, attributionCode: postCode("item-1") }]);
+    expect(state.items[0].plugText).toBe(stored);
+  });
+
+  it("does not rewrite stored reply copy when only the attribution code would differ", async () => {
+    const queued = item({ id: "item-9", text: "CoLateral is where I build my own tools.", publishAt: "2026-07-22T12:00:00.000Z" });
+    const stored = plugReplyFor(queued.text, queued.id, config())!.replace(/&c=[a-z0-9]{6}/, "");
+    const { runDeps, state } = deps([{ ...queued, plugText: stored }]);
+
+    await runDue(new Date("2026-07-22T07:00:00.000Z"), { config: config(), deps: runDeps, log: silent });
+
+    expect(state.items[0].plugText).toBe(stored);
+  });
+
   it("waits out the delay before replying", async () => {
     const { runDeps, posted } = deps([plugged()]);
 

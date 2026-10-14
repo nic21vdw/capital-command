@@ -338,7 +338,7 @@ async function runDueInternal(
     let result;
     try {
       result = await deps.post({
-        account, text: item.plugText, containerId: item.plugContainerId, replyToId: item.postId,
+        account, text: item.plugText, containerId: item.plugContainerId, replyToId: item.postId, attributionCode: postCode(item.id),
         shouldPublish: () => allowed(item, true, account.accessToken),
         onContainerCreated: async (containerId) => {
           item.plugContainerId = containerId;

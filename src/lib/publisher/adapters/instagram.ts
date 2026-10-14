@@ -114,7 +114,7 @@ async function publishImagePost(input: PublishInput, creds: { userId: string; ac
     throw new PermanentError(`Instagram carousels hold at most ${MAX_IMAGES_PER_POST} pictures — this post has ${urls.length}.`);
   }
   const carousel = isCarouselPost(input.item);
-  const caption = composeCaption(input.item, "instagram").slice(0, 2200);
+  const caption = composeCaption(input.item, "instagram", 2200);
 
   let containerId = input.item.platforms.instagram?.containerId;
   let childIds: string[] | undefined;
@@ -185,7 +185,7 @@ export const instagramAdapter: PlatformAdapter = {
           media_type: count > 1 ? "CAROUSEL" : "IMAGE",
           images: count,
           image_url: input.images?.publicUrls[0] ?? "<hosted URL minted at publish time>",
-          caption: composeCaption(input.item, "instagram").slice(0, 2200)
+          caption: composeCaption(input.item, "instagram", 2200)
         },
         publishAtUtc: toRfc3339Utc(publishAt),
         publishAtLocal: formatInTimezone(publishAt, config.timezone),
@@ -202,7 +202,7 @@ export const instagramAdapter: PlatformAdapter = {
       payload: {
         media_type: "REELS",
         video_url: input.publicUrl ?? "<hosted URL minted at publish time>",
-        caption: composeCaption(input.item, "instagram").slice(0, 2200),
+        caption: composeCaption(input.item, "instagram", 2200),
         share_to_feed: true
       },
       publishAtUtc: toRfc3339Utc(publishAt),
@@ -246,7 +246,7 @@ export const instagramAdapter: PlatformAdapter = {
         body: new URLSearchParams({
           media_type: "REELS",
           video_url: input.publicUrl,
-          caption: composeCaption(input.item, "instagram").slice(0, 2200),
+          caption: composeCaption(input.item, "instagram", 2200),
           share_to_feed: "true",
           access_token: creds.accessToken
         })

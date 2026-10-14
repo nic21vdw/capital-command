@@ -127,11 +127,17 @@ export async function generateClipMetadata(source: {
 
 type CaptionItem = Pick<QueueItem, "caption" | "hashtags"> & { id?: string };
 
-/** Full caption for platforms that take one text field (IG caption, TikTok title). */
-export function composeCaption(item: CaptionItem, platform?: AttributionPlatform): string {
+function captionWith(item: CaptionItem, platform: AttributionPlatform | undefined, code: string | undefined): string {
   const tags = normalizeHashtags(item.hashtags).join(" ");
-  const caption = platform ? attributeLinks(item.caption, platform, codeOf(item)).trim() : item.caption.trim();
+  const caption = platform ? attributeLinks(item.caption, platform, code).trim() : item.caption.trim();
   return tags ? `${caption}\n\n${tags}` : caption;
+}
+
+/** Full caption for platforms that take one text field (IG caption, TikTok title). */
+export function composeCaption(item: CaptionItem, platform?: AttributionPlatform, limit?: number): string {
+  const coded = captionWith(item, platform, codeOf(item));
+  if (limit === undefined || coded.length <= limit) return coded;
+  return captionWith(item, platform, undefined).slice(0, limit);
 }
 
 /** YouTube description: the CoLateral lead line, then caption plus hashtags on their own line. */

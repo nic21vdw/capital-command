@@ -1,6 +1,6 @@
 import { PermanentError, TransientError, fetchJson, isTransient } from "@/lib/publisher/http";
 import { attributeLinks } from "@/lib/publisher/attribution";
-import { threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
+import { THREADS_TEXT_LIMIT, threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 
 /**
  * Meta's Threads Graph API — text posts only.
@@ -71,6 +71,11 @@ export async function accountUserId(account: ThreadsAccount, config: ThreadsConf
   return profile.id;
 }
 
+function textWithinLimit(text: string, attributionCode: string | undefined): string {
+  const coded = attributeLinks(text, "threads", attributionCode);
+  return coded.length > THREADS_TEXT_LIMIT ? attributeLinks(text, "threads") : coded;
+}
+
 /** Creates the text container. Returns its creation id. */
 export async function createTextContainer(
   account: ThreadsAccount,
@@ -79,7 +84,7 @@ export async function createTextContainer(
   replyToId?: string,
   attributionCode?: string
 ): Promise<string> {
-  const body = new URLSearchParams({ media_type: "TEXT", text: attributeLinks(text, "threads", attributionCode), access_token: account.accessToken });
+  const body = new URLSearchParams({ media_type: "TEXT", text: textWithinLimit(text, attributionCode), access_token: account.accessToken });
   if (replyToId) body.set("reply_to_id", replyToId);
   const userId = await accountUserId(account, config);
 

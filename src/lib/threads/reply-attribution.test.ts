@@ -196,31 +196,3 @@ describe("Threads reply conversion links", () => {
     expect(result).toContain("?ref=one&utm_source=threads&");
   });
 });
-
-describe("Threads reply links carry the post code", () => {
-  const coded = { ...context, code: "a3f9c2" };
-
-  it("adds the code beside the utm tags on the attributed homepage", () => {
-    const result = new URL(threadsReplyUrl("https://colateralai.com", coded)!);
-    expect(result.pathname).toBe("/th");
-    expect(result.searchParams.get("c")).toBe("a3f9c2");
-    expect(result.searchParams.get("utm_content")).toBe("autopilot-custom-tools");
-  });
-
-  it("leaves a destination that already has its own path or c alone", () => {
-    const modules = new URL(threadsReplyUrl("https://colateralai.com/modules", coded)!);
-    expect(modules.searchParams.has("c")).toBe(false);
-    const own = new URL(threadsReplyUrl("https://colateralai.com/?c=mine", coded)!);
-    expect(own.searchParams.getAll("c")).toEqual(["mine"]);
-  });
-
-  it("never codes another host", () => {
-    expect(threadsReplyUrl("https://example.com/", coded)).not.toContain("c=a3f9c2");
-  });
-
-  it("ignores a malformed code", () => {
-    for (const code of ["", "A3F9C2", "a3 f9", "a3f9c2&x=1"]) {
-      expect(new URL(threadsReplyUrl("https://colateralai.com", { ...context, code })!).searchParams.has("c")).toBe(false);
-    }
-  });
-});

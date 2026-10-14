@@ -28,8 +28,20 @@ describe("readbackConfig", () => {
     }
   });
 
-  it("allows plain http only for a local test server", () => {
-    expect(readbackConfig({ COLATERAL_ATTRIBUTION_URL: "http://localhost:5173/api/attribution/summary", COLATERAL_ATTRIBUTION_TOKEN: TOKEN })).not.toBeNull();
+  it("refuses plain http to a local server unless the loopback flag is set", () => {
+    for (const host of ["localhost:5173", "127.0.0.1:5173"]) {
+      const local = { COLATERAL_ATTRIBUTION_URL: `http://${host}/api/attribution/summary`, COLATERAL_ATTRIBUTION_TOKEN: TOKEN };
+      expect(readbackConfig(local)).toBeNull();
+      expect(readbackConfig({ ...local, COLATERAL_ATTRIBUTION_ALLOW_LOOPBACK: "0" })).toBeNull();
+      expect(readbackConfig({ ...local, COLATERAL_ATTRIBUTION_ALLOW_LOOPBACK: "true" })).toBeNull();
+      expect(readbackConfig({ ...local, COLATERAL_ATTRIBUTION_ALLOW_LOOPBACK: "1" })).toEqual({ url: local.COLATERAL_ATTRIBUTION_URL, token: TOKEN });
+    }
+  });
+
+  it("never lets the loopback flag open plain http to any other host", () => {
+    const remote = { COLATERAL_ATTRIBUTION_URL: "http://colateralai.com/api/attribution/summary", COLATERAL_ATTRIBUTION_TOKEN: TOKEN, COLATERAL_ATTRIBUTION_ALLOW_LOOPBACK: "1" };
+    expect(readbackConfig(remote)).toBeNull();
+    expect(readbackConfig({ ...remote, COLATERAL_ATTRIBUTION_URL: "http://192.168.1.5/api/attribution/summary" })).toBeNull();
   });
 });
 
