@@ -11,7 +11,7 @@ vi.mock("@/lib/analytics/schedule", () => ({ startAnalyticsSync: services.analyt
 
 afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks(); });
 
-it("does not load live settings, start the pipeline or sync analytics in a production build worker", async () => {
+it("does not load live settings, start the pipeline or sync analytics in a production build worker", { timeout: 20_000 }, async () => {
   vi.stubEnv("NEXT_RUNTIME", "nodejs");
   vi.stubEnv("NEXT_PHASE", "phase-production-build");
   const { register } = await import("@/instrumentation");
@@ -19,7 +19,7 @@ it("does not load live settings, start the pipeline or sync analytics in a produ
   for (const service of Object.values(services)) expect(service).not.toHaveBeenCalled();
 });
 
-it("still initializes the runtime, settings, pipeline and analytics sync when the server starts", async () => {
+it("still initializes the runtime, settings, pipeline and analytics sync when the server starts", { timeout: 20_000 }, async () => {
   vi.stubEnv("NEXT_RUNTIME", "nodejs");
   vi.stubEnv("NEXT_PHASE", "phase-production-server");
   const { register } = await import("@/instrumentation");

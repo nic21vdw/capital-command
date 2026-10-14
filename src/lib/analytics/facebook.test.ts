@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createPacer } from "@/lib/analytics/pacing";
-import { facebookNodeOf, fetchFacebookMetrics, parseFacebookBasic, parseFacebookInsights } from "@/lib/analytics/facebook";
+import { facebookKindOf, facebookNodeOf, fetchFacebookMetrics, parseFacebookBasic, parseFacebookInsights } from "@/lib/analytics/facebook";
 import { httpDeps } from "@/lib/analytics/test-helpers";
 
 const GRAPH = "https://graph.facebook.com/v23.0";
@@ -21,6 +21,16 @@ describe("facebookNodeOf", () => {
     expect(facebookNodeOf({ postId: "100_555", format: "image" })).toBe("post");
     expect(facebookNodeOf({ postId: "100_555", format: "carousel" })).toBe("post");
     expect(facebookNodeOf({ postId: "777", format: "carousel" })).toBe("post");
+  });
+});
+
+describe("facebookKindOf", () => {
+  it("separates Reels from long video, and a carousel from a single feed post and a photo", () => {
+    expect(facebookKindOf({ postId: "1234", format: "video" })).toBe("REELS");
+    expect(facebookKindOf({ postId: "1234", format: "long-form" })).toBe("VIDEO");
+    expect(facebookKindOf({ postId: "100_5", format: "carousel" })).toBe("CAROUSEL");
+    expect(facebookKindOf({ postId: "100_5", format: "image" })).toBe("POST");
+    expect(facebookKindOf({ postId: "1234", format: "image" })).toBe("PHOTO");
   });
 });
 
@@ -74,7 +84,7 @@ describe("fetchFacebookMetrics", () => {
       { match: /\/v1\?fields=/, reply: { body: { likes: { summary: { total_count: 30 } }, comments: { summary: { total_count: 4 } } } } }
     ]);
 
-    const outcome = await fetchFacebookMetrics(creds, [{ id: "v1", node: "video" }], deps);
+    const outcome = await fetchFacebookMetrics(creds, [{ id: "v1", node: "video", kind: "REELS" }], deps);
 
     expect(outcome.results.get("v1")).toEqual({
       source: "facebook-insights",
@@ -94,7 +104,7 @@ describe("fetchFacebookMetrics", () => {
       }
     ]);
 
-    const outcome = await fetchFacebookMetrics(creds, [{ id: "100_555", node: "post" }], deps);
+    const outcome = await fetchFacebookMetrics(creds, [{ id: "100_555", node: "post", kind: "POST" }], deps);
 
     expect(outcome.results.get("100_555")?.metrics).toEqual({ views: 410, likes: 20, comments: 1, shares: 5 });
     expect(calls.some((call) => call.url.includes("video_insights"))).toBe(false);
@@ -106,7 +116,7 @@ describe("fetchFacebookMetrics", () => {
       { match: /\/ph1\?fields=/, reply: { body: { reactions: { summary: { total_count: 7 } }, comments: { summary: { total_count: 2 } } } } }
     ]);
 
-    const outcome = await fetchFacebookMetrics(creds, [{ id: "ph1", node: "photo" }], deps);
+    const outcome = await fetchFacebookMetrics(creds, [{ id: "ph1", node: "photo", kind: "PHOTO" }], deps);
 
     expect(outcome.results.get("ph1")).toEqual({ source: "facebook-basic", metrics: { likes: 7, comments: 2 } });
     expect(calls).toHaveLength(1);
@@ -129,10 +139,10 @@ describe("fetchFacebookMetrics", () => {
     const outcome = await fetchFacebookMetrics(
       creds,
       [
-        { id: "p1_1", node: "post" },
-        { id: "p2_1", node: "post" },
-        { id: "p3_1", node: "post" },
-        { id: "p4_1", node: "post" }
+        { id: "p1_1", node: "post", kind: "POST" },
+        { id: "p2_1", node: "post", kind: "POST" },
+        { id: "p3_1", node: "post", kind: "POST" },
+        { id: "p4_1", node: "post", kind: "POST" }
       ],
       deps
     );
@@ -156,9 +166,9 @@ describe("fetchFacebookMetrics", () => {
     const outcome = await fetchFacebookMetrics(
       creds,
       [
-        { id: "odd_1", node: "post" },
-        { id: "p2_1", node: "post" },
-        { id: "p3_1", node: "post" }
+        { id: "odd_1", node: "post", kind: "POST" },
+        { id: "p2_1", node: "post", kind: "POST" },
+        { id: "p3_1", node: "post", kind: "POST" }
       ],
       deps
     );
@@ -179,8 +189,8 @@ describe("fetchFacebookMetrics", () => {
     const outcome = await fetchFacebookMetrics(
       creds,
       [
-        { id: "v1", node: "video" },
-        { id: "v2", node: "video" }
+        { id: "v1", node: "video", kind: "REELS" },
+        { id: "v2", node: "video", kind: "REELS" }
       ],
       deps
     );
@@ -207,9 +217,9 @@ describe("fetchFacebookMetrics", () => {
     const outcome = await fetchFacebookMetrics(
       creds,
       [
-        { id: "v1", node: "video" },
-        { id: "v2", node: "video" },
-        { id: "v3", node: "video" }
+        { id: "v1", node: "video", kind: "REELS" },
+        { id: "v2", node: "video", kind: "REELS" },
+        { id: "v3", node: "video", kind: "REELS" }
       ],
       deps
     );
@@ -240,9 +250,9 @@ describe("fetchFacebookMetrics", () => {
     const outcome = await fetchFacebookMetrics(
       creds,
       [
-        { id: "odd", node: "video" },
-        { id: "v2", node: "video" },
-        { id: "v3", node: "video" }
+        { id: "odd", node: "video", kind: "REELS" },
+        { id: "v2", node: "video", kind: "REELS" },
+        { id: "v3", node: "video", kind: "REELS" }
       ],
       deps
     );
@@ -263,10 +273,10 @@ describe("fetchFacebookMetrics", () => {
     const outcome = await fetchFacebookMetrics(
       creds,
       [
-        { id: "v1", node: "video" },
-        { id: "v2", node: "video" },
-        { id: "v3", node: "video" },
-        { id: "100_1", node: "post" }
+        { id: "v1", node: "video", kind: "REELS" },
+        { id: "v2", node: "video", kind: "REELS" },
+        { id: "v3", node: "video", kind: "REELS" },
+        { id: "100_1", node: "post", kind: "POST" }
       ],
       deps
     );
@@ -281,7 +291,7 @@ describe("fetchFacebookMetrics", () => {
       { match: "video_insights", reply: { status: 400, body: { error: { code: 200, message: "(#200) Requires read_insights permission" } } } },
       { match: /\/v\d\?fields=/, reply: { status: 400, body: { error: { code: 100, message: "(#100) Invalid parameter" } } } }
     ]);
-    const posts = Array.from({ length: 8 }, (_, index) => ({ id: `v${index}`, node: "video" as const }));
+    const posts = Array.from({ length: 8 }, (_, index) => ({ id: `v${index}`, node: "video" as const, kind: "REELS" }));
 
     const outcome = await fetchFacebookMetrics(creds, posts, deps);
 
@@ -294,7 +304,7 @@ describe("fetchFacebookMetrics", () => {
       { match: "video_insights", reply: { status: 400, body: { error: { code: 190, message: "Error validating access token" } } } }
     ]);
 
-    const outcome = await fetchFacebookMetrics(creds, [{ id: "v1", node: "video" }], deps);
+    const outcome = await fetchFacebookMetrics(creds, [{ id: "v1", node: "video", kind: "REELS" }], deps);
 
     expect(outcome.stopped?.kind).toBe("auth");
   });
@@ -304,12 +314,61 @@ describe("fetchFacebookMetrics", () => {
       { match: "video_insights", reply: { body: insights({ blue_reels_play_count: 1 }) } },
       { match: /\/v\d\?fields=/, reply: { body: { likes: { summary: { total_count: 1 } } } } }
     ]);
-    const posts = Array.from({ length: 4 }, (_, index) => ({ id: `v${index}`, node: "video" as const }));
+    const posts = Array.from({ length: 4 }, (_, index) => ({ id: `v${index}`, node: "video" as const, kind: "REELS" }));
 
     const outcome = await fetchFacebookMetrics(creds, posts, deps, createPacer({ maxCalls: 5 }));
 
     expect(calls).toHaveLength(5);
     expect(outcome.stopped).toMatchObject({ kind: "budget" });
     expect(outcome.results.size).toBe(2);
+  });
+
+  it("keeps Reels and long video apart: refusing two Reels on the Reels metrics leaves a long video on them", async () => {
+    const { deps, calls } = httpDeps([
+      {
+        match: "video_insights",
+        reply: (call) =>
+          metricParam(call).includes("blue_reels_play_count") && call.url.includes("/reel")
+            ? { status: 400, body: { error: { code: 100, message: "(#100) invalid metric" } } }
+            : { body: insights({ blue_reels_play_count: 20, fb_reels_total_plays: 20 }) }
+      },
+      { match: /\/(reel\d|long\d)\?fields=/, reply: { body: {} } }
+    ]);
+
+    await fetchFacebookMetrics(
+      creds,
+      [
+        { id: "reel1", node: "video", kind: "REELS" },
+        { id: "reel2", node: "video", kind: "REELS" },
+        { id: "reel3", node: "video", kind: "REELS" },
+        { id: "long1", node: "video", kind: "VIDEO" }
+      ],
+      deps
+    );
+
+    const longCalls = calls.filter((call) => call.url.includes("/long1/video_insights"));
+    expect(longCalls).toHaveLength(1);
+    expect(metricParam(longCalls[0])).toContain("blue_reels_play_count");
+    expect(calls.filter((call) => call.url.includes("/reel3/video_insights")).map(metricParam)[0]).toContain("fb_reels_total_plays");
+  });
+
+  it("keeps giving a format the metric set it has proven, however many odd posts are refused on it", async () => {
+    const { deps, calls } = httpDeps([
+      {
+        match: "video_insights",
+        reply: (call) =>
+          call.url.includes("/odd")
+            ? { status: 400, body: { error: { code: 100, message: "(#100) invalid metric" } } }
+            : { body: insights({ blue_reels_play_count: 20 }) }
+      },
+      { match: /\/(odd\d|n\d)\?fields=/, reply: { body: {} } }
+    ]);
+    const videos = ["n1", "n2", "odd1", "odd2", "n3", "n4"].map((id) => ({ id, node: "video" as const, kind: "REELS" }));
+
+    const outcome = await fetchFacebookMetrics(creds, videos, deps);
+
+    expect(outcome.results.get("n3")?.source).toBe("facebook-insights");
+    const later = calls.filter((call) => /\/n[34]\/video_insights/.test(call.url));
+    expect(later.map(metricParam).every((metrics) => metrics.startsWith("blue_reels_play_count"))).toBe(true);
   });
 });

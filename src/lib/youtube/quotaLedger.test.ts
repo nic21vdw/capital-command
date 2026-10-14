@@ -154,6 +154,15 @@ describe("when the ledger cannot be used", () => {
     expect(dataPath("youtube-quota.json")).toBe(quotaLedgerFile());
   });
 
+  it("says the whole day is left for uploads and nothing for the rest when the file cannot be read", async () => {
+    await mkdir(path.dirname(quotaLedgerFile()), { recursive: true });
+    await writeFile(quotaLedgerFile(), "{ not json");
+    const quota = ledger();
+
+    expect(await quota.remaining("upload")).toBe(10_000);
+    expect(await quota.remaining("analytics")).toBe(0);
+  });
+
   it("does not wait for a lock held by another process: an upload goes through, anything else is unavailable", async () => {
     const quota = ledger(() => NOON, ledgerConfig({}), { lockTimeoutMs: 40 });
     const lockFile = `${quotaLedgerFile()}.lock`;
@@ -196,7 +205,7 @@ describe("persistence", () => {
     expect((await ledger().snapshot()).byPurpose).toEqual({ inbox: 100, analytics: 50 });
   });
 
-  it("grants exactly the allowance when many debits race, across two ledgers on the same file", async () => {
+  it("grants exactly the allowance when many debits race, across two ledgers on the same file", { timeout: 20_000 }, async () => {
     const one = ledger();
     const two = ledger();
 

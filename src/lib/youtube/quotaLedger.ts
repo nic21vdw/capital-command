@@ -32,7 +32,7 @@ export type LedgerSnapshot = {
 
 export const DEFAULT_UPLOADS_PER_DAY = 6;
 export const DEFAULT_NON_UPLOAD_UNITS = 300;
-export const DEFAULT_LOCK_TIMEOUT_MS = 5000;
+export const LEDGER_LOCK_TIMEOUT_MS = 5000;
 
 function wholeNumber(raw: string | undefined, fallback: number, minimum: number): number {
   if (raw === undefined || raw.trim() === "") return fallback;
@@ -140,7 +140,7 @@ export function createQuotaLedger(
       const state = await snapshot();
       return purpose === "upload" ? Math.max(0, state.dailyUnits - state.spent) : state.nonUploadRemaining;
     } catch {
-      return 0;
+      return purpose === "upload" ? config().dailyUnits : 0;
     }
   }
 
@@ -163,7 +163,7 @@ export function createQuotaLedger(
           await atomicWriteJson(file(), next);
           return { ok: true, remaining: Math.max(0, room - units) };
         },
-        { timeoutMs: deps.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS }
+        { timeoutMs: deps.lockTimeoutMs ?? LEDGER_LOCK_TIMEOUT_MS }
       );
     } catch {
       return upload ? { ok: true, remaining: 0, unmetered: true } : { ok: false, reason: "unavailable", remaining: 0 };

@@ -39,10 +39,12 @@ describe("POST /api/analytics/sync", () => {
   });
 
   it("does not start a second sync while one is running", async () => {
-    const [first, second] = await Promise.all([post(), post()]);
+    const responses = await Promise.all([post(), post()]);
+    const bodies = await Promise.all(responses.map((response) => response.json()));
 
-    expect((await first.json()).started).toBe(true);
-    expect(await second.json()).toMatchObject({ started: false, running: true });
+    expect(responses.map((response) => response.status)).toEqual([202, 202]);
+    expect(bodies.filter((body) => body.started === true)).toHaveLength(1);
+    expect(bodies.filter((body) => body.started === false)).toEqual([expect.objectContaining({ running: true })]);
     await syncInFlight();
   });
 

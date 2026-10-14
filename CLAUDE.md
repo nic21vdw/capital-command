@@ -653,11 +653,13 @@ capped at 90 (`metrics.ts`). Numbers a platform did not report are absent, never
   `yt-analytics.readonly`, Analytics watch time and average view duration (a 403 on that
   scope drops back to the Data API for the rest of the run; `source` on the record says
   which). Instagram, Facebook and Threads read insights with a metric-set ladder kept per
-  media type (`ladder.ts`: Instagram REELS, FEED, CAROUSEL_ALBUM, VIDEO; Facebook video,
-  post, photo; Threads TEXT, IMAGE). One media the platform refuses falls back for itself
-  only; a type moves to its next set, for the rest of the run, only after two different
-  media of that type are refused the same way, and a media that gets through a set clears
-  the refusals recorded against it. All of them fall back to likes and comments when the
+  media type (`ladder.ts`: Instagram REELS, FEED, CAROUSEL_ALBUM, VIDEO; Facebook REELS, VIDEO,
+  CAROUSEL, POST, PHOTO, by format and not by node; Threads TEXT). One media the platform
+  refuses falls back for itself only; a type moves to its next set, for the rest of the
+  run, only after two different media of that type are refused the same way. Once any
+  media gets through a set, that set is proven for the type: later refusals of it fall
+  back for that media only and never advance or exhaust the type, and a type is
+  exhausted only if no set was ever proven. All of them fall back to likes and comments when the
   token has no insights permission. Facebook asks per node type (`facebookNodeOf`): a
   Reel or video reads `blue_reels_play_count` / `fb_reels_total_plays` / `post_video_*` from
   `video_insights`, a feed post (carousel) reads `post_media_view` and `shares`, and a
@@ -701,7 +703,7 @@ capped at 90 (`metrics.ts`). Numbers a platform did not report are absent, never
   `YOUTUBE_NON_UPLOAD_DAILY_UNITS` (default 300), which is capped at what the reserve leaves
   of the 10,000-unit day, with one warning in the log when it is. An upload is never refused:
   it is recorded when it can be, and goes through unrecorded when the file is unreadable or
-  the lock is held for over 5 seconds. Anything else is refused as `budget` (allowance
+  the lock is held for over 5 seconds (`remaining("upload")` then says the whole day). Anything else is refused as `budget` (allowance
   spent) or `unavailable` (ledger unusable). Analytics debits 1 unit per `videos.list` batch;
   on `budget` it rests until midnight Pacific (`nextResetAt`, exact across the 23- and 25-hour
   DST days), on `unavailable` it tries again next cycle. The upload path does not debit the

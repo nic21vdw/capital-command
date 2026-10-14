@@ -253,4 +253,25 @@ describe("fetchInstagramMetrics", () => {
     expect(outcome.results.size).toBe(1);
     expect(outcome.stopped).toMatchObject({ kind: "rate", retryAfterMs: 3_600_000 });
   });
+
+  it("keeps giving a media type the set it has proven, however many odd media are refused on it", async () => {
+    const odd = new Set(["o1", "o2"]);
+    const { deps, calls } = httpDeps([
+      {
+        match: "/insights",
+        reply: (call) =>
+          odd.has(call.url.split("/").at(-2)!)
+            ? { status: 400, body: { error: { code: 100, message: "(#100) not supported for this media" } } }
+            : { body: insights({ views: 5, reach: 4, likes: 1, comments: 0, shares: 0, saved: 0 }) }
+      },
+      { match: /\/o\d\?fields=/, reply: { body: { like_count: 1, comments_count: 0 } } }
+    ]);
+
+    const outcome = await fetchInstagramMetrics(creds, typed("REELS", "n1", "n2", "o1", "o2", "n3", "n4"), deps);
+
+    expect(outcome.results.size).toBe(6);
+    const later = calls.filter((call) => /\/n[34]\/insights/.test(call.url));
+    expect(later).toHaveLength(2);
+    expect(later.every((call) => metricsOf(call.url).includes("views"))).toBe(true);
+  });
 });

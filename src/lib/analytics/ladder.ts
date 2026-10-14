@@ -7,7 +7,7 @@ export type Ladder = {
   exhausted(kind: string): boolean;
 };
 
-type KindState = { index: number; exhausted: boolean; refusals: Map<number, Set<string>> };
+type KindState = { index: number; exhausted: boolean; refusals: Map<number, Set<string>>; proven: Set<number> };
 
 export function createLadder(size: number, agreement: number = LADDER_AGREEMENT): Ladder {
   const kinds = new Map<string, KindState>();
@@ -15,7 +15,7 @@ export function createLadder(size: number, agreement: number = LADDER_AGREEMENT)
   function stateOf(kind: string): KindState {
     let state = kinds.get(kind);
     if (!state) {
-      state = { index: 0, exhausted: false, refusals: new Map() };
+      state = { index: 0, exhausted: false, refusals: new Map(), proven: new Set() };
       kinds.set(kind, state);
     }
     return state;
@@ -26,7 +26,7 @@ export function createLadder(size: number, agreement: number = LADDER_AGREEMENT)
     exhausted: (kind) => stateOf(kind).exhausted,
     refused(kind, index, mediaId) {
       const state = stateOf(kind);
-      if (index < state.index) return;
+      if (index < state.index || state.proven.has(index)) return;
       const seen = state.refusals.get(index) ?? new Set<string>();
       seen.add(mediaId);
       state.refusals.set(index, seen);
@@ -34,14 +34,16 @@ export function createLadder(size: number, agreement: number = LADDER_AGREEMENT)
         const agreed = state.refusals.get(state.index);
         if (!agreed || agreed.size < agreement) return;
         if (state.index >= size - 1) {
-          state.exhausted = true;
+          state.exhausted = state.proven.size === 0;
           return;
         }
         state.index += 1;
       }
     },
     accepted(kind, index) {
-      stateOf(kind).refusals.delete(index);
+      const state = stateOf(kind);
+      state.proven.add(index);
+      state.refusals.delete(index);
     }
   };
 }

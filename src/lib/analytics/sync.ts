@@ -1,5 +1,5 @@
 import { liveCredentials } from "@/lib/analytics/credentials";
-import { facebookNodeOf, fetchFacebookMetrics } from "@/lib/analytics/facebook";
+import { facebookKindOf, facebookNodeOf, fetchFacebookMetrics } from "@/lib/analytics/facebook";
 import { failureMessage, type HttpDeps } from "@/lib/analytics/http";
 import { fetchInstagramMetrics } from "@/lib/analytics/instagram";
 import { dueForSync, newPostRecord, recordSnapshot } from "@/lib/analytics/metrics";
@@ -367,20 +367,19 @@ async function clearOlderTrip(platform: AnalyticsPlatform, accountId: string, st
   await clearAuthState(platform, accountId).catch(() => false);
 }
 
-const INSTAGRAM_KINDS: Record<PostFormat, string> = {
-  video: "REELS",
-  "long-form": "VIDEO",
-  carousel: "CAROUSEL_ALBUM",
-  image: "FEED",
-  text: "FEED"
-};
+const THREADS_KIND = "TEXT";
 
 function instagramKind(postFormat: PostFormat): string {
-  return INSTAGRAM_KINDS[postFormat];
-}
-
-function threadsKind(postFormat: PostFormat): string {
-  return postFormat === "image" || postFormat === "carousel" ? "IMAGE" : "TEXT";
+  switch (postFormat) {
+    case "carousel":
+      return "CAROUSEL_ALBUM";
+    case "image":
+      return "FEED";
+    case "long-form":
+      return "VIDEO";
+    default:
+      return "REELS";
+  }
 }
 
 function metaCallsPerRun(): number {
@@ -419,13 +418,13 @@ async function fetchFor(
     case "facebook": {
       const session = await deps.credentials.facebook(accountId);
       if (!session) return null;
-      const posts = oldestFirst(group, snapshot).map((target) => ({ id: target.postId, node: facebookNodeOf(target) }));
+      const posts = oldestFirst(group, snapshot).map((target) => ({ id: target.postId, node: facebookNodeOf(target), kind: facebookKindOf(target) }));
       return fetchFacebookMetrics(session, posts, deps.http, createPacer({ maxCalls: metaCallsPerRun() }));
     }
     case "threads": {
       const session = await deps.credentials.threads(accountId);
       if (!session) return null;
-      const posts = oldestFirst(group, snapshot).map((target) => ({ id: target.postId, kind: threadsKind(target.format) }));
+      const posts = oldestFirst(group, snapshot).map((target) => ({ id: target.postId, kind: THREADS_KIND }));
       return fetchThreadsMetrics(session, posts, deps.http, createPacer({ maxCalls: metaCallsPerRun() }));
     }
     case "tiktok": {

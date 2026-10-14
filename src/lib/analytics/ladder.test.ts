@@ -87,4 +87,56 @@ describe("createLadder", () => {
     expect(ladder.start("FEED")).toBe(2);
     expect(ladder.exhausted("FEED")).toBe(true);
   });
+
+  it("keeps a proven set for every later media, however many others are refused on it: the replay", () => {
+    const ladder = createLadder(2);
+
+    ladder.accepted("REELS", 0);
+    ladder.accepted("REELS", 0);
+    for (const id of ["o1", "o2"]) {
+      ladder.refused("REELS", 0, id);
+      ladder.refused("REELS", 1, id);
+    }
+
+    expect(ladder.start("REELS")).toBe(0);
+    expect(ladder.exhausted("REELS")).toBe(false);
+  });
+
+  it("only exhausts a kind when no set was ever proven for it", () => {
+    const proven = createLadder(2);
+    proven.accepted("FEED", 1);
+    for (const id of ["a", "b"]) {
+      proven.refused("FEED", 0, id);
+      proven.refused("FEED", 1, id);
+    }
+    expect(proven.exhausted("FEED")).toBe(false);
+
+    const unproven = createLadder(2);
+    for (const id of ["a", "b"]) {
+      unproven.refused("FEED", 0, id);
+      unproven.refused("FEED", 1, id);
+    }
+    expect(unproven.exhausted("FEED")).toBe(true);
+  });
+
+  it("does not let refusals of a proven set move the kind on, even before it reaches the last set", () => {
+    const ladder = createLadder(3);
+    ladder.accepted("FEED", 0);
+
+    ladder.refused("FEED", 0, "a");
+    ladder.refused("FEED", 0, "b");
+
+    expect(ladder.start("FEED")).toBe(0);
+  });
+
+  it("proves a set per kind, not for all of them", () => {
+    const ladder = createLadder(2);
+    ladder.accepted("REELS", 0);
+
+    ladder.refused("FEED", 0, "a");
+    ladder.refused("FEED", 0, "b");
+
+    expect(ladder.start("FEED")).toBe(1);
+    expect(ladder.start("REELS")).toBe(0);
+  });
 });
