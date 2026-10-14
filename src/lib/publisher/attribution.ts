@@ -13,11 +13,29 @@ export const ATTRIBUTION_PATHS: Record<AttributionPlatform, string> = {
 
 export const YOUTUBE_LEAD_LINE = "Try CoLateral: https://colateralai.com/yt";
 
-const COLATERAL_LINK = /(?<![\w.@/-])((?:https?:\/\/)?(?:www\.)?)colateralai\.com(?=$|[\s/?#]|[)\]}>"'.,!?;:]+(?:\s|$))([/?#]\S*)?/gi;
-const TRAILING_PUNCTUATION = /[)\]}>"'.,!?;:]+$/;
+const COLATERAL_LINK = /(?<![\w.@/=&?#%+~-])((?:https?:\/\/)?(?:www\.)?)colateralai\.com(?=$|[\s/?#]|,(?=https?:\/\/)|[\p{P}>]+(?:\s|$))((?:[/?#](?:(?!,https?:\/\/)\S)*)?)/giu;
+const PUNCTUATION = /[\p{P}>]/u;
+const URL_PUNCTUATION = new Set(["/", "#", "&", "%", "_", "-", "*", "@"]);
+const OPENERS: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+
+function occurrences(text: string, char: string): number {
+  return text.split(char).length - 1;
+}
+
+function trailingLength(target: string): number {
+  let end = target.length;
+  while (end > 0) {
+    const char = target[end - 1];
+    if (URL_PUNCTUATION.has(char) || !PUNCTUATION.test(char)) break;
+    const opener = OPENERS[char];
+    if (opener && occurrences(target.slice(0, end), opener) >= occurrences(target.slice(0, end), char)) break;
+    end -= 1;
+  }
+  return target.length - end;
+}
 
 function hasCode(query: string): boolean {
-  return query.split("&").some((part) => part.split("=")[0] === "c");
+  return query.split("&").some((part) => part.split("=")[0].toLowerCase() === "c");
 }
 
 function withCode(query: string | null, code: string): string {
@@ -30,7 +48,7 @@ function withCode(query: string | null, code: string): string {
 export function attributeLinks(text: string, platform: AttributionPlatform, code?: string): string {
   return text.replace(COLATERAL_LINK, (_match, prefix: string, rest: string | undefined) => {
     const target = rest ?? "";
-    const tail = TRAILING_PUNCTUATION.exec(target)?.[0] ?? "";
+    const tail = target.slice(target.length - trailingLength(target));
     const link = target.slice(0, target.length - tail.length);
     const fragmentAt = link.indexOf("#");
     const fragment = fragmentAt < 0 ? "" : link.slice(fragmentAt);

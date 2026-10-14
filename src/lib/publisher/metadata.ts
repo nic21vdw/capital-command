@@ -141,8 +141,10 @@ export function composeCaption(item: CaptionItem, platform?: AttributionPlatform
 }
 
 /** YouTube description: the CoLateral lead line, then caption plus hashtags on their own line. */
-export function composeDescription(item: CaptionItem): string {
-  return youtubeDescription(composeCaption(item), codeOf(item));
+export function composeDescription(item: CaptionItem, limit?: number): string {
+  const coded = youtubeDescription(composeCaption(item), codeOf(item));
+  if (limit === undefined || coded.length <= limit) return coded;
+  return youtubeDescription(composeCaption(item)).slice(0, limit);
 }
 
 /** Bare tag words (no #) for YouTube's snippet.tags. */
