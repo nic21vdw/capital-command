@@ -1,9 +1,8 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { fetchJson } from "@/lib/publisher/http";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 import type { ThreadsAccount, ThreadsConfig } from "@/lib/threads/config";
 
 /**
@@ -75,11 +74,7 @@ export function effectiveToken(accountId: string, envToken: string, stored: Toke
 }
 
 async function writeStoredTokens(file: TokenFile): Promise<void> {
-  const target = tokenFile();
-  await mkdir(path.dirname(target), { recursive: true });
-  const temp = `${target}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(temp, JSON.stringify(file, null, 2), "utf8");
-  await rename(temp, target);
+  await atomicWriteJson(tokenFile(), file);
 }
 
 function refreshDays(): number {

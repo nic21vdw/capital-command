@@ -1,6 +1,6 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 import {
   RECONNECT_URL,
   authStateKey,
@@ -38,11 +38,7 @@ export async function readAuthStates(): Promise<AuthStates> {
 }
 
 async function writeAuthStates(states: AuthStates): Promise<void> {
-  const target = statePath();
-  await mkdir(path.dirname(target), { recursive: true });
-  const temp = `${target}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(temp, JSON.stringify(states, null, 2), "utf8");
-  await rename(temp, target);
+  await atomicWriteJson(statePath(), states);
 }
 
 export function recordAuthFailure(
