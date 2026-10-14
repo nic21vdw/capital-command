@@ -46,6 +46,7 @@ const TONES: Record<string, StatusTone> = {
   shouldbelive: "warning",
   needsconnection: "warning",
   awaitingconnection: "warning",
+  awaitingapproval: "warning",
   postbyhand: "warning",
   retrytopost: "warning",
   waitingforquota: "warning",

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildMasterCalendarEvents, todayKeyIn } from "@/lib/master-calendar/aggregate";
 import { generateCalendarPlan } from "@/lib/master-calendar/planner";
+import { heldFrom } from "@/lib/publisher/approval";
+import { readReviewPolicy } from "@/lib/publisher/approvalStore";
 import { publisherConfig } from "@/lib/publisher/config";
 import { legConnectionCheck } from "@/lib/publisher/legConnection";
 import { publishQueue } from "@/lib/publisher/queue";
@@ -43,7 +45,8 @@ export async function GET(request: NextRequest) {
     startKey,
     days,
     // A past-slot leg on an account with no connection reads "needs connection", not "overdue".
-    isConnected: config.enabled ? await legConnectionCheck(config) : undefined
+    isConnected: config.enabled ? await legConnectionCheck(config) : undefined,
+    held: heldFrom(readReviewPolicy())
   });
 
   const plan = await generateCalendarPlan({

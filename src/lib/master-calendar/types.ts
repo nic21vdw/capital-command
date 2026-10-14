@@ -102,6 +102,7 @@ export type MasterCalendarEvent = {
      * connection". Never set together with `late`.
      */
     awaitingConnection?: true;
+    awaitingApproval?: true;
   }[];
 };
 
@@ -124,6 +125,8 @@ export const NEEDS_CONNECTION_STATUS = "needs connection";
  */
 export const AWAITING_CONNECTION_STATUS = "awaiting connection";
 
+export const AWAITING_APPROVAL_STATUS = "awaiting approval";
+
 /** Where a missing connection is fixed. */
 export const CONNECT_HREF = "/settings#accounts";
 
@@ -141,6 +144,10 @@ export function isNeedsConnectionEventStatus(status: string): boolean {
 
 export function isAwaitingConnectionEventStatus(status: string): boolean {
   return status.toLowerCase() === AWAITING_CONNECTION_STATUS;
+}
+
+export function isAwaitingApprovalEventStatus(status: string): boolean {
+  return status.toLowerCase() === AWAITING_APPROVAL_STATUS;
 }
 
 /** A post whose slot passed and which is not out: not "scheduled", not a failure, and it needs a look. */
@@ -272,6 +279,7 @@ export function eventStatusLabel(status: string, event?: Pick<MasterCalendarEven
   }
   if (isShouldBeLiveEventStatus(status)) return SHOULD_BE_LIVE_LABEL;
   if (isOverdueEventStatus(status)) return OVERDUE_LABEL;
+  if (isAwaitingApprovalEventStatus(status)) return "Awaiting approval";
   // A booked post that has not gone out yet is "scheduled" to the person, whatever the source calls it.
   return status.toLowerCase() === "queued" ? SCHEDULED_WORD : status;
 }

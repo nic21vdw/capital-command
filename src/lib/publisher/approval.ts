@@ -68,6 +68,12 @@ export function legAwaitingApproval(leg: PlatformState, platform: PlatformId, po
   return policy[platform] === "hold" && !leg.approvedAt && legUnsent(leg);
 }
 
+export type LegHeld = (platform: PlatformId, leg: PlatformState) => boolean;
+
+export function heldFrom(policy: ReviewPolicy): LegHeld {
+  return (platform, leg) => legAwaitingApproval(leg, platform, policy);
+}
+
 export function itemAwaitingApproval(item: QueueItem, policy: ReviewPolicy): boolean {
   return (Object.entries(item.platforms) as [PlatformId, PlatformState][]).some(([platform, leg]) =>
     legAwaitingApproval(leg, platform, policy)

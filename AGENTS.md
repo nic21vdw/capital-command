@@ -660,8 +660,11 @@ Center: `PublishQueue.duePlatforms` and the Threads runner skip it, so it is
 never claimed and no attempt or retry is spent. Approving stamps `approvedAt`.
 The board's explicit Publish now counts as approval; a post already on a
 platform is never held; a Threads post nobody approved before its slot plus the
-late grace is skipped, as any missed slot is. The existing long-form YouTube
-private hold (`reviewHold.ts`) is a different thing and is untouched.
+late grace is skipped, as any missed slot is. The calendar and Day Summary
+read a held post as "awaiting approval", never "overdue" (the master-calendar
+routes pass `heldFrom(policy)` into `buildMasterCalendarEvents`). The existing
+long-form YouTube private hold (`reviewHold.ts`) is a different thing and is
+untouched.
 
 ## Tests
 
