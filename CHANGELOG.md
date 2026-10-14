@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Each post's colateralai.com link now carries its own code, so a visit or sale can be traced to the post that brought it.** Links in YouTube, Instagram, TikTok, Facebook and Threads posts become for example `colateralai.com/th?c=a3f9c2`, where the code is unique to that post. The YouTube lead line no longer gets stacked twice on a description that already has one. Day Summary has a new Attribution panel with Visits, Buys and Revenue per post for the last 7 days; it stays off until `COLATERAL_ATTRIBUTION_URL` and `COLATERAL_ATTRIBUTION_TOKEN` are set in `.env` and the CoLateral site's side is switched on. Posts sent through Buffer are still not attributed.
+
 ## 2026-10-13
 
 - A dead Threads token now shows up the moment the app tries to renew it, not hours later when a post fails. Before, the red banner and the Windows toast only fired when a post was rejected, so with the day's posts already scheduled an expired token sat unreported while `threads-autopilot.log` said "Session has expired". A renewal that Meta turns down for a bad or expired token now marks that account as broken straight away, the same as a failed post; a Meta outage or a dropped connection does not. YouTube and TikTok do the same when Google or TikTok refuses to renew their login. A renewal that works clears the banner.

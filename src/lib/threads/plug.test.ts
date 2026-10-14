@@ -139,6 +139,12 @@ describe("contextual CoLateral self-replies", () => {
     expect(plugReplyFor("Another workflow idea", "post-1", config({ plugReplies: false }))).toBeUndefined();
   });
 
+  it("keeps the post code out of the stored reply, so queued copy never changes", () => {
+    const reply = plugReplyFor("The IDE should fit the way you think.", "post-1", config())!;
+    expect(replyUrl(reply).pathname).toBe("/th");
+    expect(replyUrl(reply).searchParams.has("c")).toBe(false);
+  });
+
   it.each(["", " ", "not a URL", "javascript:alert(1)", "mailto:nic@example.com", "https://user:secret@colateralai.com"])(
     "does not emit an unsafe or invalid configured URL (%j)",
     (plugUrl) => {
