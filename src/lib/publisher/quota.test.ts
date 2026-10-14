@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { youtubeQuota } from "@/lib/publisher/quota";
+import { YOUTUBE_UNITS_PER_UPLOAD_SAFE, remainingYoutubeUploads, youtubeQuota } from "@/lib/publisher/quota";
 import { testConfig, testItem } from "@/lib/publisher/test-helpers";
 import type { QueueItem } from "@/lib/publisher/types";
 
@@ -49,5 +49,36 @@ describe("youtubeQuota", () => {
   it("ignores items without a youtube platform", () => {
     const quota = youtubeQuota([testItem({ platformIds: ["tiktok"] })], NOW, testConfig());
     expect(quota.projectedUploads).toBe(0);
+  });
+});
+
+describe("sharing the day's quota with Listening", () => {
+  const used = [
+    ytItem("a", { status: "scheduled", uploadedAt: "2026-07-08T10:00:00Z" }),
+    ytItem("b", { status: "published", uploadedAt: "2026-07-08T15:00:00Z" })
+  ];
+
+  it("sizes an upload at about 1,700 units", () => {
+    expect(YOUTUBE_UNITS_PER_UPLOAD_SAFE).toBe(1700);
+  });
+
+  it("changes nothing when Listening has spent nothing", () => {
+    expect(remainingYoutubeUploads(used, NOW, testConfig())).toBe(4);
+    expect(remainingYoutubeUploads(used, NOW, testConfig(), 0)).toBe(4);
+  });
+
+  it("takes Listening's units out of the upload budget, rounding up to whole uploads", () => {
+    expect(remainingYoutubeUploads(used, NOW, testConfig(), 100)).toBe(3);
+    expect(remainingYoutubeUploads(used, NOW, testConfig(), 1700)).toBe(3);
+    expect(remainingYoutubeUploads(used, NOW, testConfig(), 1701)).toBe(2);
+    expect(remainingYoutubeUploads(used, NOW, testConfig(), 50_000)).toBe(0);
+  });
+
+  it("shows the reduced budget and the spent units on the Uploading Center meter", () => {
+    const quota = youtubeQuota(used, NOW, testConfig(), 400);
+    expect(quota.budgetUploads).toBe(5);
+    expect(quota.listeningUnits).toBe(400);
+    expect(quota.usedUnits).toBe(2 * 1600 + 400);
+    expect(youtubeQuota(used, NOW, testConfig()).listeningUnits).toBe(0);
   });
 });

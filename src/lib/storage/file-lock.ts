@@ -51,7 +51,7 @@ export function lockFilePath(target: string): string {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function processAlive(pid: number): boolean {
+export function processAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);

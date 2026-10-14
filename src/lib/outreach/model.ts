@@ -15,6 +15,9 @@ import { addDays, daysBetween } from "@/lib/execution/dates";
 export const OUTREACH_PLATFORMS = ["youtube", "x", "newsletter", "podcast", "other"] as const;
 export type OutreachPlatform = (typeof OUTREACH_PLATFORMS)[number];
 
+export const OUTREACH_KINDS = ["creator", "thread"] as const;
+export type OutreachKind = (typeof OUTREACH_KINDS)[number];
+
 export const OUTREACH_STATUSES = ["to-contact", "contacted", "replied", "deal", "declined", "not-a-fit"] as const;
 export type OutreachStatus = (typeof OUTREACH_STATUSES)[number];
 
@@ -32,6 +35,8 @@ export const outreachContactSchema = z.object({
   name: z.string().min(1),
   url: z.string().min(1),
   platform: z.enum(OUTREACH_PLATFORMS).default("youtube"),
+  kind: z.enum(OUTREACH_KINDS).default("creator"),
+  topic: z.string().default(""),
   approxAudience: z.string().default(""),
   recentVideo: z.object({ title: z.string().default(""), url: z.string().default("") }).optional(),
   /** Why they are a fit. */
@@ -60,13 +65,34 @@ If it looks like a fit for your audience, I'd be happy to send you a free licenc
 Either way, thanks for the video.
 ${DEFAULT_BRAND_KIT.identity.firstName}`;
 
+export const THREAD_ANSWER_PLACEHOLDER = "[Answer their question here, in a sentence or two, before anything about CoLateral.]";
+
+export function hasUnfilledPlaceholder(message: string): boolean {
+  return /\[Answer their question here[^\]]*\]/.test(message);
+}
+
+export const DEFAULT_THREAD_TEMPLATE = `Hi,
+
+I came across {thread} and wanted to help with what you were asking.
+
+${THREAD_ANSWER_PLACEHOLDER}
+
+Full disclosure: I'm Nic and I build CoLateral, the all-in-one agentic workspace: one desktop canvas where your Claude Code, Codex and Gemini agents work side by side, inside your real files. If that sounds like what you're after, it's a one-time licence and you bring your own AI subscriptions. If it isn't, no worries, I hope the above helps.
+
+Nic`;
+
 export const outreachStoreSchema = z.object({
   contacts: z.array(outreachContactSchema).default([]),
-  template: z.string().default(DEFAULT_OUTREACH_TEMPLATE)
+  template: z.string().default(DEFAULT_OUTREACH_TEMPLATE),
+  threadTemplate: z.string().default(DEFAULT_THREAD_TEMPLATE)
 });
 export type OutreachStore = z.infer<typeof outreachStoreSchema>;
 
-export const defaultOutreachStore: OutreachStore = { contacts: [], template: DEFAULT_OUTREACH_TEMPLATE };
+export const defaultOutreachStore: OutreachStore = { contacts: [], template: DEFAULT_OUTREACH_TEMPLATE, threadTemplate: DEFAULT_THREAD_TEMPLATE };
+
+export function templateFor(store: Pick<OutreachStore, "template" | "threadTemplate">, contact: Pick<OutreachContact, "kind">): string {
+  return contact.kind === "thread" ? store.threadTemplate : store.template;
+}
 
 /**
  * What an import file or the add form may supply. Everything but name and url
@@ -179,9 +205,16 @@ export function paceLabel(pace: WeeklyPace): string {
  * video gets "your recent video" rather than a literal "{video}", so a copied
  * message never ships with a placeholder in it.
  */
-export function renderOutreachTemplate(template: string, contact: Pick<OutreachContact, "name" | "recentVideo">): string {
+export function renderOutreachTemplate(
+  template: string,
+  contact: Pick<OutreachContact, "name" | "recentVideo"> & { topic?: string }
+): string {
   const video = contact.recentVideo?.title?.trim() ? `"${contact.recentVideo.title.trim()}"` : "your recent video";
-  return template.replaceAll("{name}", contact.name.trim() || "there").replaceAll("{video}", video);
+  const thread = contact.topic?.trim() ? `"${contact.topic.trim()}"` : "your post";
+  return template
+    .replaceAll("{name}", contact.name.trim() || "there")
+    .replaceAll("{video}", video)
+    .replaceAll("{thread}", thread);
 }
 
 export function countByStatus(contacts: OutreachContact[]): Record<OutreachStatus, number> {

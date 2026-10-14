@@ -18,10 +18,13 @@ import {
   OUTREACH_STATUSES,
   countByStatus,
   dueForFollowUp,
+  hasUnfilledPlaceholder,
   paceLabel,
   renderOutreachTemplate,
+  templateFor,
   weeklyPace,
   type OutreachContact,
+  type OutreachKind,
   type OutreachPlatform,
   type OutreachStatus,
   type OutreachStore
@@ -169,7 +172,8 @@ export function OutreachPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [templateDraft, setTemplateDraft] = useState<string | null>(null);
+  const [templateDraft, setTemplateDraft] = useState<{ kind: OutreachKind; text: string } | null>(null);
+  const [messageDrafts, setMessageDrafts] = useState<Record<string, string>>({});
   const [importText, setImportText] = useState("");
   const [importing, setImporting] = useState(false);
 
@@ -211,8 +215,13 @@ export function OutreachPage() {
     return contacts.filter((contact) => contact.status === filter);
   }, [contacts, due, filter]);
   const selected = contacts.find((contact) => contact.id === selectedId) ?? visible[0] ?? null;
-  const template = templateDraft ?? store?.template ?? "";
+  const templateKind: OutreachKind = selected?.kind ?? "creator";
+  const savedTemplate = store ? templateFor(store, { kind: templateKind }) : "";
+  const template = templateDraft?.kind === templateKind ? templateDraft.text : savedTemplate;
   const message = selected ? renderOutreachTemplate(template, selected) : "";
+  const messageEditable = selected?.kind === "thread";
+  const outgoing = selected && messageEditable ? (messageDrafts[selected.id] ?? message) : message;
+  const placeholderLeft = Boolean(selected) && hasUnfilledPlaceholder(outgoing);
 
   const run = async (action: () => Promise<OutreachStore>, success?: string) => {
     try {
@@ -255,8 +264,9 @@ export function OutreachPage() {
   };
 
   const saveTemplate = () => {
-    if (templateDraft === null || templateDraft === store?.template) return;
-    void run(() => send("PATCH", "/api/outreach", { template: templateDraft }), "Template saved").then(() => setTemplateDraft(null));
+    if (templateDraft === null || !store || templateDraft.text === templateFor(store, { kind: templateDraft.kind })) return;
+    const body = templateDraft.kind === "thread" ? { threadTemplate: templateDraft.text } : { template: templateDraft.text };
+    void run(() => send("PATCH", "/api/outreach", body), "Template saved").then(() => setTemplateDraft(null));
   };
 
   const importJson = async () => {
@@ -314,8 +324,8 @@ export function OutreachPage() {
     controls: [
       { id: "refresh", label: "Reload the list", group: "List" },
       { id: "newContact", label: "Add a contact", group: "List" },
-      { id: "markContacted", label: "Mark selected as contacted", group: "Selected", disabled: !selected },
-      { id: "copyMessage", label: "Copy the personalised message", group: "Selected", disabled: !selected }
+      { id: "markContacted", label: "Mark selected as contacted", group: "Selected", disabled: !selected || placeholderLeft },
+      { id: "copyMessage", label: "Copy the personalised message", group: "Selected", disabled: !selected || placeholderLeft }
     ],
     readings: [
       { label: "Contacts", value: String(contacts.length) },
@@ -330,7 +340,7 @@ export function OutreachPage() {
         value:
           surfaceContacts.map((contact) => `${contact.name} [${contact.id}] - ${STATUS_LABELS[contact.status]}`).join("; ") || "None"
       },
-      { label: "Selected message", value: message || "No contact selected" }
+      { label: "Selected message", value: outgoing || "No contact selected" }
     ],
     setField: (id, value) => {
       if (id === "filter") {
@@ -376,12 +386,12 @@ export function OutreachPage() {
           setDraft({ ...EMPTY_DRAFT });
           return true;
         case "markContacted":
-          if (!selected) return false;
+          if (!selected || placeholderLeft) return false;
           void setStatus(selected.id, "contacted");
           return true;
         case "copyMessage":
-          if (!selected) return false;
-          copyToClipboard("Message", message);
+          if (!selected || placeholderLeft) return false;
+          copyToClipboard("Message", outgoing);
           return true;
         default:
           return false;
@@ -661,7 +671,15 @@ export function OutreachPage() {
             {selected ? <Badge tone={STATUS_TONE[selected.status]}>{STATUS_LABELS[selected.status]}</Badge> : null}
           </div>
           <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-            {"{name}"} and {"{video}"} are filled in from the selected contact. Edit the template below; it saves when you click away.
+            {templateKind === "thread" ? (
+              <>
+                {"{thread}"} is filled in from the post this contact came from. This is the template for people found in a thread; it claims nothing about a video. Edit it below; it saves when you click away.
+              </>
+            ) : (
+              <>
+                {"{name}"} and {"{video}"} are filled in from the selected contact. Edit the template below; it saves when you click away.
+              </>
+            )}
           </p>
           {selected ? (
             <>
@@ -669,17 +687,30 @@ export function OutreachPage() {
                 <p className={labelClass}>For {selected.name}</p>
                 <button
                   type="button"
-                  onClick={() => copyToClipboard("Message", message)}
-                  className="inline-flex items-center gap-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:text-white"
+                  disabled={placeholderLeft}
+                  onClick={() => copyToClipboard("Message", outgoing)}
+                  className="inline-flex items-center gap-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-[var(--muted-foreground)]"
                 >
                   <Copy className="h-3.5 w-3.5" />
                   Copy
                 </button>
               </div>
-              <p className="mt-1.5 whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm text-white">{message}</p>
+              {messageEditable ? (
+                <Textarea
+                  className="mt-1.5 min-h-48 text-sm"
+                  aria-label={`Message for ${selected.name}`}
+                  value={outgoing}
+                  onChange={(event) => setMessageDrafts((current) => ({ ...current, [selected.id]: event.target.value }))}
+                />
+              ) : (
+                <p className="mt-1.5 whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm text-white">{outgoing}</p>
+              )}
+              {placeholderLeft ? (
+                <p className="mt-2 text-xs text-amber-300">Replace the bracketed line with your answer before you copy or send this.</p>
+              ) : null}
               {selected.angle ? <p className="mt-2 text-xs text-[var(--muted-foreground)]">Your angle: {selected.angle}</p> : null}
               {selected.status === "to-contact" ? (
-                <Button className="mt-3" variant="secondary" onClick={() => void setStatus(selected.id, "contacted")}>
+                <Button className="mt-3" variant="secondary" disabled={placeholderLeft} onClick={() => void setStatus(selected.id, "contacted")}>
                   I sent it - mark contacted
                 </Button>
               ) : null}
@@ -692,7 +723,7 @@ export function OutreachPage() {
             <Textarea
               className="mt-1.5 min-h-56 font-mono text-xs"
               value={template}
-              onChange={(event) => setTemplateDraft(event.target.value)}
+              onChange={(event) => setTemplateDraft({ kind: templateKind, text: event.target.value })}
               onBlur={saveTemplate}
             />
           </label>
