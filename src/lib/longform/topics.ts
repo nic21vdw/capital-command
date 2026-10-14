@@ -419,7 +419,7 @@ const MAX_TOPIC_TITLE_CHARS = 95;
 export function topicSegmentSystemPrompt(): string {
   return `You are a YouTube strategist who turns one long live stream into several standalone long-form uploads.
 
-${brandPromptBlock("youtube-longform")}
+${brandPromptBlock("youtube-longform", { titleOnly: true })}
 
 Each segment below is one subject the stream covered, and it will be published as its own video. For every segment write:
 - "title": a complete, grammatical phrase in Title Case, under ${MAX_TOPIC_TITLE_CHARS} characters. NEVER a transcript fragment and never a thought that trails off. Lead with curiosity, stakes, or a bold claim. No quotation marks, hashtags, or emoji.

@@ -1,11 +1,18 @@
 "use client";
 
 import { useEffect, useSyncExternalStore } from "react";
-import { DEFAULT_REVIEW_POLICY, type ReviewPolicy } from "@/lib/publisher/approval";
+import { DEFAULT_REVIEW_POLICY, describeRelease, type ReviewPolicy } from "@/lib/publisher/approval";
 
-type Snapshot = { policy: ReviewPolicy; loaded: boolean; busy: boolean; error: string | null };
+type Snapshot = {
+  policy: ReviewPolicy;
+  loaded: boolean;
+  busy: boolean;
+  error: string | null;
+  policyError: string | null;
+  notice: string | null;
+};
 
-const INITIAL: Snapshot = { policy: DEFAULT_REVIEW_POLICY, loaded: false, busy: false, error: null };
+const INITIAL: Snapshot = { policy: DEFAULT_REVIEW_POLICY, loaded: false, busy: false, error: null, policyError: null, notice: null };
 
 let snapshot: Snapshot = INITIAL;
 const listeners = new Set<() => void>();
@@ -31,8 +38,8 @@ export async function loadReviewPolicy(): Promise<void> {
   try {
     const response = await fetch("/api/review/policy", { cache: "no-store" });
     if (!response.ok) throw new Error(await failure(response));
-    const body = (await response.json()) as { policy: ReviewPolicy };
-    publish({ policy: body.policy, loaded: true, error: null });
+    const body = (await response.json()) as { policy: ReviewPolicy; error?: string | null };
+    publish({ policy: body.policy, loaded: true, error: null, policyError: body.error ?? null });
   } catch (reason) {
     publish({ loaded: true, error: reason instanceof Error ? reason.message : String(reason) });
   }
@@ -47,8 +54,14 @@ export async function changeReviewPolicy(change: Partial<ReviewPolicy>): Promise
       body: JSON.stringify(change)
     });
     if (!response.ok) throw new Error(await failure(response));
-    const body = (await response.json()) as { policy: ReviewPolicy };
-    publish({ policy: body.policy, busy: false, error: null });
+    const body = (await response.json()) as { policy: ReviewPolicy; released?: { approved: number; moved: unknown[] } };
+    publish({
+      policy: body.policy,
+      busy: false,
+      error: null,
+      policyError: null,
+      notice: body.released && body.released.approved > 0 ? describeRelease(body.released) : null
+    });
     return true;
   } catch (reason) {
     publish({ busy: false, error: reason instanceof Error ? reason.message : String(reason) });

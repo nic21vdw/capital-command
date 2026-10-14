@@ -7,6 +7,7 @@ import {
   hashtagPolicy,
   promptBlockFor,
   resolveBrandKit,
+  stripHashtags,
   type BrandViolation,
   type KitResolution,
   type PromptBlockOptions
@@ -81,6 +82,10 @@ export function brandPromptBlock(channel: BrandChannel, options?: PromptBlockOpt
 
 export function applyBrandRules(text: string, channel: BrandChannel): string {
   return applyRules(brandKit(), text, channel);
+}
+
+export function applyBrandTitle(text: string, channel: BrandChannel): string {
+  return applyRules(brandKit(), stripHashtags(text), channel);
 }
 
 export function brandViolations(text: string, channel: BrandChannel): BrandViolation[] {

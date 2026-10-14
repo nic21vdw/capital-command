@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { applyBrandRules, brandKeywords, brandPromptBlock, brandTitleExamples } from "@/lib/brand/kit";
+import { applyBrandRules, applyBrandTitle, brandKeywords, brandPromptBlock, brandTitleExamples } from "@/lib/brand/kit";
 import { videoIdeaSchema } from "@/lib/storage/schemas";
 import type { VideoIdea, VideoIdeaCompetition, VideoIdeaFormat, VideoIdeaIntent } from "@/types/domain";
 
@@ -28,7 +28,7 @@ const COMPETITION: VideoIdeaCompetition[] = ["low", "medium", "high"];
 export function ideaResearchSystemPrompt(): string {
   return `You are a YouTube keyword-research and ideation strategist.
 
-${brandPromptBlock("youtube-longform")}
+${brandPromptBlock("youtube-longform", { titleOnly: true })}
 
 The channel's title voice (working titles must match this style):
 ${brandTitleExamples().map((t) => `- ${t}`).join("\n")}
@@ -102,7 +102,7 @@ export function parseIdeaResearch(text: string): Array<Omit<VideoIdea, "id" | "s
       .filter((idea) => typeof idea.title === "string" && (idea.title as string).trim().length > 0)
       .slice(0, IDEAS_PER_RUN)
       .map((idea) => ({
-        title: applyBrandRules(String(idea.title), "youtube-longform").slice(0, 110),
+        title: applyBrandTitle(String(idea.title), "youtube-longform").slice(0, 110),
         angle: typeof idea.angle === "string" ? applyBrandRules(idea.angle, "youtube-longform") : "",
         format: normalizeEnum(idea.format, FORMATS, "longform"),
         primaryKeyword: typeof idea.primaryKeyword === "string" ? idea.primaryKeyword.trim() : "",

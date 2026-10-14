@@ -154,7 +154,7 @@ describe("a channel set to hold", () => {
     expect(instagram.calls).toHaveLength(0);
     expect((await queue.awaitingApproval()).map((entry) => `${entry.item.id}:${entry.platform}`)).toEqual(["a:instagram"]);
 
-    const approved = await queue.approveLegs([{ id: "a", platform: "instagram" }], DUE);
+    const approved = (await queue.releaseLegs([{ id: "a", platform: "instagram" }], DUE)).approved;
     expect(approved).toBe(1);
     expect(await queue.awaitingApproval()).toEqual([]);
 
@@ -171,11 +171,11 @@ describe("a channel set to hold", () => {
     await queue.add(testItem({ id: "b", clipPath, platformIds: ["instagram", "youtube"] }));
     expect(await queue.awaitingApproval()).toHaveLength(3);
 
-    expect(await queue.approveAwaiting(DUE, "tiktok")).toBe(1);
+    expect((await queue.releaseAwaiting(DUE, "tiktok")).approved).toBe(1);
     expect((await queue.awaitingApproval()).map((entry) => entry.platform)).toEqual(["instagram", "instagram"]);
-    expect(await queue.approveAwaiting(DUE)).toBe(2);
+    expect((await queue.releaseAwaiting(DUE)).approved).toBe(2);
     expect(await queue.awaitingApproval()).toEqual([]);
-    expect(await queue.approveAwaiting(DUE)).toBe(0);
+    expect((await queue.releaseAwaiting(DUE)).approved).toBe(0);
   });
 
   it("lets the owner's explicit Publish now through", async () => {
@@ -238,7 +238,7 @@ describe("Buffer and a held channel", () => {
     expect(await syncDueToBuffer(DUE, { queue, config })).toEqual([]);
     expect(requests).toHaveLength(0);
 
-    await queue.approveAwaiting(DUE);
+    await queue.releaseAwaiting(DUE);
     const outcomes = await syncDueToBuffer(DUE, { queue, config });
     expect(outcomes.map((outcome) => outcome.outcome)).toEqual(["scheduled"]);
     expect(requests).toHaveLength(1);

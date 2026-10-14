@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseReviewField, reviewFieldId, reviewPolicySurface } from "@/components/layout/review-policy-surface";
+import { canvasMayChange, parseReviewField, reviewFieldId, reviewPolicySurface } from "@/components/layout/review-policy-surface";
 import { DEFAULT_REVIEW_POLICY, normalizeReviewPolicy } from "@/lib/publisher/approval";
 
 describe("what Settings tells the canvas about the review policy", () => {
@@ -27,6 +27,14 @@ describe("what Settings tells the canvas about the review policy", () => {
 
   it("reads a write back to the channel it names", () => {
     expect(parseReviewField(reviewFieldId("tiktok"), "hold")).toEqual({ channel: "tiktok", mode: "hold" });
+  });
+
+  it("lets the canvas hold a channel but not release one, because release posts what is waiting", () => {
+    const held = normalizeReviewPolicy({ instagram: "hold" });
+    expect(canvasMayChange(DEFAULT_REVIEW_POLICY, { channel: "instagram", mode: "hold" })).toBe(true);
+    expect(canvasMayChange(held, { channel: "instagram", mode: "hold" })).toBe(true);
+    expect(canvasMayChange(held, { channel: "instagram", mode: "auto" })).toBe(false);
+    expect(canvasMayChange(held, { channel: "tiktok", mode: "auto" })).toBe(true);
   });
 
   it("leaves other fields alone and refuses a bad write", () => {

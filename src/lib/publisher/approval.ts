@@ -17,6 +17,14 @@ export const DEFAULT_REVIEW_POLICY: ReviewPolicy = {
   threads: "auto"
 };
 
+export const HOLD_EVERYTHING: ReviewPolicy = {
+  youtube: "hold",
+  instagram: "hold",
+  tiktok: "hold",
+  facebook: "hold",
+  threads: "hold"
+};
+
 export const REVIEW_CHANNEL_LABELS: Record<ReviewChannel, string> = {
   youtube: "YouTube Shorts",
   instagram: "Instagram Reels",
@@ -39,6 +47,18 @@ export function normalizeReviewPolicy(raw: unknown): ReviewPolicy {
   for (const channel of REVIEW_CHANNELS) {
     const mode = (raw as Record<string, unknown>)[channel];
     if (isReviewMode(mode)) policy[channel] = mode;
+  }
+  return policy;
+}
+
+export function parseReviewPolicy(raw: unknown): ReviewPolicy | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const policy: ReviewPolicy = { ...DEFAULT_REVIEW_POLICY };
+  for (const channel of REVIEW_CHANNELS) {
+    const mode = (raw as Record<string, unknown>)[channel];
+    if (mode === undefined) continue;
+    if (!isReviewMode(mode)) return null;
+    policy[channel] = mode;
   }
   return policy;
 }
@@ -66,6 +86,19 @@ export function legUnsent(leg: PlatformState): boolean {
 
 export function legAwaitingApproval(leg: PlatformState, platform: PlatformId, policy: ReviewPolicy): boolean {
   return policy[platform] === "hold" && !leg.approvedAt && legUnsent(leg);
+}
+
+export type ReleaseSummary = { approved: number; moved?: unknown[]; unplaced?: unknown[] };
+
+export function describeRelease(summary: ReleaseSummary): string {
+  const moved = summary.moved?.length ?? 0;
+  const unplaced = summary.unplaced?.length ?? 0;
+  const parts = [`Approved ${summary.approved}.`];
+  if (moved > 0) {
+    parts.push(`${moved} moved to a later slot because the slot was more than a day old or that day was full.`);
+  }
+  if (unplaced > 0) parts.push(`${unplaced} had no free slot and stay on hold.`);
+  return parts.join(" ");
 }
 
 export type LegHeld = (platform: PlatformId, leg: PlatformState) => boolean;

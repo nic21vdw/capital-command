@@ -243,8 +243,8 @@ export function retryItem(items: ThreadsQueueItem[], id: string, now: Date): Que
   }
 
   target.status = "pending";
+  if (target.attempts > 0 || target.lastFailedAt) target.approvedAt ??= now.toISOString();
   target.attempts = 0;
-  target.approvedAt ??= now.toISOString();
   if (new Date(target.publishAt).getTime() < now.getTime()) target.publishAt = now.toISOString();
   delete target.error;
   delete target.note;
@@ -279,7 +279,7 @@ export function editItemText(items: ThreadsQueueItem[], id: string, text: string
 
 export function approveItems(
   items: ThreadsQueueItem[],
-  filter: { id?: string },
+  filter: { id?: string; ids?: string[] },
   now: Date,
   policy?: ReviewPolicy
 ): QueueEditResult {
@@ -291,8 +291,9 @@ export function approveItems(
     target.approvedAt = now.toISOString();
     return { items, changed: 1 };
   }
-  const waiting = items.filter((item) =>
-    policy ? threadsAwaitingApproval(item, policy) : threadsUnsent(item) && !item.approvedAt
+  const named = new Set(filter.ids ?? []);
+  const waiting = items.filter(
+    (item) => named.has(item.id) && (policy ? threadsAwaitingApproval(item, policy) : threadsUnsent(item) && !item.approvedAt)
   );
   for (const item of waiting) item.approvedAt = now.toISOString();
   return { items, changed: waiting.length };

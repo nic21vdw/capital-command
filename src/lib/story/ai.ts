@@ -1,5 +1,5 @@
 import { runAi } from "@/lib/ai/provider";
-import { applyBrandRules, brandPromptBlock, brandTitleExamples } from "@/lib/brand/kit";
+import { applyBrandRules, applyBrandTitle, brandPromptBlock, brandTitleExamples } from "@/lib/brand/kit";
 import { formatClock, locateQuote } from "@/lib/story/story";
 import type { Moment, OpenLoop, SectionRole, StoryCopy, StoryPlan, StorySection, TitleStyle, Unit } from "@/lib/story/types";
 
@@ -155,7 +155,7 @@ export function parseCopy(text: string): StoryCopy | null {
   const titles = raw.titles
     .map((option, index) => ({
       style: (STYLES.includes(option.style as TitleStyle) ? option.style : STYLES[index % STYLES.length]) as TitleStyle,
-      title: applyBrandRules(option.title ?? "", "youtube-longform")
+      title: applyBrandTitle(option.title ?? "", "youtube-longform")
     }))
     .filter((option) => option.title)
     .slice(0, 5);

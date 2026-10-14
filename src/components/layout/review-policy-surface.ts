@@ -25,7 +25,7 @@ export function reviewPolicySurface(policy: ReviewPolicy): { fields: SurfaceFiel
       value: policy[channel],
       kind: "select" as const,
       options: [...REVIEW_MODES],
-      hint: "auto posts at its slot. hold keeps new posts for approval on the Uploading Center."
+      hint: "auto posts at its slot. hold keeps new posts for approval on the Uploading Center. Switching a held channel back to auto releases what is waiting, so the canvas cannot do that: it takes a person on the Settings screen."
     })),
     readings: [
       {
@@ -34,6 +34,10 @@ export function reviewPolicySurface(policy: ReviewPolicy): { fields: SurfaceFiel
       }
     ]
   };
+}
+
+export function canvasMayChange(policy: ReviewPolicy, change: { channel: ReviewChannel; mode: ReviewMode }): boolean {
+  return !(change.mode === "auto" && policy[change.channel] === "hold");
 }
 
 export function parseReviewField(id: string, value: unknown): { channel: ReviewChannel; mode: ReviewMode } | null | undefined {

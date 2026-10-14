@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { DEFAULT_REVIEW_POLICY, legAwaitingApproval, legUnsent, type ReviewPolicy } from "@/lib/publisher/approval";
+import { DEFAULT_REVIEW_POLICY, legAwaitingApproval, type ReviewPolicy } from "@/lib/publisher/approval";
 import { readReviewPolicy } from "@/lib/publisher/approvalStore";
 import { recordQueueMutations, type QueueWriter } from "@/lib/publisher/audit";
 import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
@@ -8,6 +8,10 @@ import { preSchedulesItem } from "@/lib/publisher/nativeScheduling";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
 import { mergeById, snapshotById } from "@/lib/publisher/queueMerge";
 import { rearmItem, type RearmScope } from "@/lib/publisher/rearm";
+import { planRelease, type ReleaseMove, type ReleaseTarget } from "@/lib/publisher/release";
+import { shortsLimit } from "@/lib/publisher/shortsCap";
+import { REARM_MAX_SLOT_AGE_MS } from "@/lib/publisher/slotAge";
+import { generateSlots, slotGrid } from "@/lib/publisher/slots";
 import { FileQueueStore, R2QueueStore, type QueueStore } from "@/lib/publisher/store";
 import type { BufferState, PlatformId, PlatformState, PostResult, QueueItem } from "@/lib/publisher/types";
 
@@ -291,7 +295,8 @@ export class PublishQueue {
    */
   async rearm(item: QueueItem, scope: RearmScope = {}): Promise<PlatformId[]> {
     await this.load();
-    const revived = rearmItem(item, scope);
+    const policy = readReviewPolicy();
+    const revived = rearmItem(item, { keepReleased: (platform) => policy[platform] === "hold", ...scope });
     if (revived.length > 0) await this.save();
     return revived;
   }
@@ -367,22 +372,73 @@ export class PublishQueue {
     return waiting;
   }
 
-  async approveLegs(targets: Array<{ id: string; platform: PlatformId }>, now: Date): Promise<number> {
+  async releaseLegs(
+    targets: ReleaseTarget[],
+    now: Date
+  ): Promise<{ approved: number; moves: ReleaseMove[]; skipped: ReleaseTarget[] }> {
     await this.load();
-    let approved = 0;
-    for (const target of targets) {
-      const leg = this.items.get(target.id)?.platforms[target.platform];
-      if (!leg || leg.approvedAt || !legUnsent(leg)) continue;
-      leg.approvedAt = now.toISOString();
-      approved += 1;
+    const config = this.config;
+    const slots = generateSlots({
+      timeZone: config.timezone,
+      days: config.bookingHorizonDays,
+      now,
+      ...slotGrid(config)
+    })
+      .filter((slot) => slot.bookable)
+      .map((slot) => slot.utc);
+    const cap = shortsLimit(config);
+    const plan = planRelease([...this.items.values()], targets, {
+      now,
+      timeZone: config.timezone,
+      slots,
+      dailyCap: (platform) => (platform === "youtube" ? Math.min(cap, config.youtube.dailyUploadBudget) : cap),
+      maxSlotAgeMs: REARM_MAX_SLOT_AGE_MS
+    });
+    if (plan.release.length === 0) return { approved: 0, moves: [], skipped: plan.skipped };
+
+    const stamp = now.toISOString();
+    const moveFor = new Map(plan.moves.map((move) => [`${move.id}:${move.platform}`, move]));
+    const moved: QueueItem[] = [];
+    const added: QueueItem[] = [];
+    for (const target of plan.release) {
+      const item = this.items.get(target.id)!;
+      const leg = item.platforms[target.platform]!;
+      leg.approvedAt = stamp;
+      const move = moveFor.get(`${target.id}:${target.platform}`);
+      if (!move) continue;
+      if (Object.keys(item.platforms).length === 1) {
+        item.publishAt = move.publishAt;
+        moved.push(item);
+        continue;
+      }
+      const { platforms: _platforms, ...rest } = structuredClone(item);
+      void _platforms;
+      const detached: QueueItem = {
+        ...rest,
+        id: crypto.randomUUID().slice(0, 8),
+        publishAt: move.publishAt,
+        createdAt: stamp,
+        platforms: { [target.platform]: leg }
+      };
+      delete item.platforms[target.platform];
+      this.items.set(detached.id, detached);
+      added.push(detached);
     }
-    if (approved > 0) await this.save();
-    return approved;
+    await this.save();
+    await recordQueueMutations([
+      ...added.map((item) => ({ action: "add" as const, writer: "api-review-approve" as const, id: item.id, clipPath: item.clipPath, publishAt: item.publishAt })),
+      ...moved.map((item) => ({ action: "publish-time" as const, writer: "api-review-approve" as const, id: item.id, clipPath: item.clipPath, publishAt: item.publishAt }))
+    ]);
+    return { approved: plan.release.length, moves: plan.moves, skipped: plan.skipped };
   }
 
-  async approveAwaiting(now: Date, platform?: PlatformId, policy: ReviewPolicy = readReviewPolicy()): Promise<number> {
+  async releaseAwaiting(
+    now: Date,
+    platform?: PlatformId,
+    policy: ReviewPolicy = readReviewPolicy()
+  ): Promise<{ approved: number; moves: ReleaseMove[]; skipped: ReleaseTarget[] }> {
     const waiting = await this.awaitingApproval(policy);
-    return this.approveLegs(
+    return this.releaseLegs(
       waiting.filter((entry) => !platform || entry.platform === platform).map((entry) => ({ id: entry.item.id, platform: entry.platform })),
       now
     );

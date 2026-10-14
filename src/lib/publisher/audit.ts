@@ -41,6 +41,7 @@ export type QueueWriter =
   | "api-publish-edit"
   | "api-publish-delete"
   | "api-publish-purge"
+  | "api-review-approve"
   | "cli-mirror"
   | "cli-mirror-reset"
   | "cli-retitle"

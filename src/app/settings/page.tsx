@@ -7,7 +7,7 @@ import { useAppData } from "@/components/providers/app-provider";
 import { useThemePreset } from "@/components/providers/theme-preset-provider";
 import { brandFieldPatch, brandKitSurface, BRAND_RESET_CONTROL } from "@/components/layout/brand-kit-surface";
 import { changeReviewPolicy, useReviewPolicy } from "@/components/layout/review-policy";
-import { parseReviewField, reviewPolicySurface } from "@/components/layout/review-policy-surface";
+import { canvasMayChange, parseReviewField, reviewPolicySurface } from "@/components/layout/review-policy-surface";
 import { patchBrandKit, saveBrandKit, useBrandKitState } from "@/lib/brand/client";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { reviewChange } from "@/lib/publisher/approval";
@@ -122,7 +122,7 @@ export default function Page() {
       if (brandPatch !== undefined) return brandPatch === null ? false : patchBrandKit(brandPatch);
       const review = parseReviewField(id, value);
       if (review !== undefined) {
-        if (review === null) return false;
+        if (review === null || !canvasMayChange(reviewPolicy.policy, review)) return false;
         return changeReviewPolicy(reviewChange(review.channel, review.mode));
       }
       switch (id) {

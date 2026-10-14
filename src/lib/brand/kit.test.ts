@@ -6,6 +6,7 @@ import { BRAND_CHANNELS, DEFAULT_BRAND_KIT, brandKitSchema } from "@/lib/brand/d
 import {
   BrandKitInvalidError,
   applyBrandRules,
+  applyBrandTitle,
   brandHashtagPolicy,
   brandKit,
   brandKitPath,
@@ -274,6 +275,79 @@ describe("applyBrandRules", () => {
   });
 });
 
+describe("dashes in links, tags and handles", () => {
+  it("never touches a link, even when the link has a dash in it", () => {
+    const wiki = "https://en.wikipedia.org/wiki/Navier–Stokes_equations";
+    expect(applyBrandRules(`Read ${wiki} — it explains it`, "threads")).toBe(`Read ${wiki}, it explains it`);
+    expect(applyBrandRules("https://example.com/a—b and www.example.com/c–d", "youtube")).toBe("https://example.com/a—b and www.example.com/c–d");
+    expect(stripDashes(`see ${wiki}`)).toBe(`see ${wiki}`);
+  });
+
+  it("keeps a hashtag whole and joins what follows it with a hyphen", () => {
+    expect(applyBrandRules("Tips for #ETABS–style models", "instagram")).toBe("Tips for #ETABS-style models");
+    expect(applyBrandRules("#ETABS — nice", "instagram")).toBe("#ETABS, nice");
+    expect(applyBrandRules("Great #ai—go", "instagram")).toBe("Great #ai, go");
+  });
+
+  it("treats a handle as a handle", () => {
+    expect(applyBrandRules("thanks @nic_v—wow", "x")).toBe("thanks @nic_v, wow");
+  });
+});
+
+describe("dashes inside ranges, numbers and compounds", () => {
+  it("turns an unspaced en dash between words or numbers into a hyphen", () => {
+    expect(applyBrandRules("Open Mon–Fri", "facebook")).toBe("Open Mon-Fri");
+    expect(applyBrandRules("Costs $5–$10", "facebook")).toBe("Costs $5-$10");
+    expect(applyBrandRules("A 3–D model", "facebook")).toBe("A 3-D model");
+    expect(applyBrandRules("pages 3–5", "facebook")).toBe("pages 3-5");
+  });
+
+  it("keeps a minus sign a minus sign", () => {
+    expect(applyBrandRules("–5 degrees today", "facebook")).toBe("-5 degrees today");
+    expect(applyBrandRules("it went from –5 to 5", "facebook")).toBe("it went from -5 to 5");
+  });
+
+  it("still turns an unspaced em dash between words into a comma", () => {
+    expect(applyBrandRules("speed—it matters", "threads")).toBe("speed, it matters");
+  });
+
+  it("turns a spaced hyphen in the middle of a line into a comma, like an em dash", () => {
+    expect(applyBrandRules("Part one - the setup", "youtube-longform")).toBe("Part one, the setup");
+    expect(applyBrandRules("fast - cheap - good", "threads")).toBe("fast, cheap, good");
+    expect(applyBrandRules("9:00 - 10:00", "facebook")).toBe("9:00-10:00");
+  });
+
+  it("leaves a line-start bullet and an ordinary hyphen alone", () => {
+    const list = "Covers:\n- the setup\n  - a nested point\n- the result";
+    expect(applyBrandRules(list, "youtube-longform")).toBe(list);
+    expect(applyBrandRules("a well-known sign-off", "threads")).toBe("a well-known sign-off");
+  });
+
+  it("does not collapse spaces or flatten indentation it was not asked to touch", () => {
+    const text = "keep  two spaces\n    and this indent\n\tand a tab";
+    expect(applyBrandRules(text, "threads")).toBe(text);
+  });
+
+  it("drops a dash that sits next to punctuation instead of doubling it", () => {
+    expect(applyBrandRules("Wait. — Really", "threads")).toBe("Wait. Really");
+    expect(applyBrandRules("so — , yes", "threads")).toBe("so, yes");
+    expect(applyBrandRules("one thing —\nnext line", "threads")).toBe("one thing,\nnext line");
+  });
+});
+
+describe("respelling the product name", () => {
+  it("respells only the standalone word", () => {
+    expect(applyBrandRules("I love colateral. Co-Lateral rocks (colateral)!", "threads")).toBe("I love CoLateral. CoLateral rocks (CoLateral)!");
+    expect(applyBrandRules("colateral's canvas", "threads")).toBe("CoLateral's canvas");
+  });
+
+  it("leaves domains, repo names, paths and commands alone", () => {
+    for (const text of ["see colateral.com now", "the colateral-arcade repo", "run npx colateral init", "github.com/nic/colateral/issues", "colateral/foo"]) {
+      expect(applyBrandRules(text, "threads"), text).toBe(text);
+    }
+  });
+});
+
 describe("brandViolations", () => {
   it("flags banned phrases, claims, the retired name and dashes", () => {
     const kinds = (text: string, channel: Parameters<typeof brandViolations>[1]) => brandViolations(text, channel).map((violation) => violation.kind);
@@ -301,5 +375,23 @@ describe("hashtag policy", () => {
     expect(brandHashtagPolicy("youtube")).toEqual({ target: 4, max: 6, base: ["#shorts"] });
     expect(brandHashtagPolicy("instagram").target).toBe(8);
     expect(brandHashtagPolicy("threads")).toEqual({ target: 0, max: 0, base: [] });
+  });
+});
+
+describe("titles", () => {
+  it("leave the hashtag and call to action lines out of a title prompt", () => {
+    const block = brandPromptBlock("youtube", { titleOnly: true });
+    expect(block).not.toContain("Hashtags");
+    expect(block).not.toContain("Call to action");
+    expect(block).toContain("Emoji:");
+    expect(block).toContain("Never use these words or phrases");
+    expect(brandPromptBlock("youtube")).toContain("Hashtags: about 4");
+  });
+
+  it("lose any hashtag but keep a link's fragment", () => {
+    expect(applyBrandTitle("Day 1 #AI tips #coding", "youtube")).toBe("Day 1 tips");
+    expect(applyBrandTitle("#AI first, then more", "youtube")).toBe("first, then more");
+    expect(applyBrandTitle("Read https://x.com/#/page — now", "youtube")).toBe("Read https://x.com/#/page, now");
+    expect(applyBrandTitle("Issue C# and F#", "youtube")).toBe("Issue C# and F#");
   });
 });

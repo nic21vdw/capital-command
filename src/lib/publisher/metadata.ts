@@ -1,5 +1,5 @@
 import { runAi } from "@/lib/ai";
-import { applyBrandRules, brandHashtagPolicy, brandPromptBlock } from "@/lib/brand/kit";
+import { applyBrandTitle, brandHashtagPolicy, brandPromptBlock } from "@/lib/brand/kit";
 import type { QueueItem } from "@/lib/publisher/types";
 import { clipDescription } from "@/lib/clipping/editor";
 import { fallbackHashtags, generateClipHashtags } from "@/lib/clipping/hashtags";
@@ -54,7 +54,7 @@ export function fallbackMetadata(source: {
   const base = source.streamTitle?.trim() || source.topic?.trim() || "New clip";
   const title = base.length > MAX_TITLE_CHARS ? `${base.slice(0, MAX_TITLE_CHARS - 1)}…` : base;
   return {
-    title: applyBrandRules(title, "youtube"),
+    title: applyBrandTitle(title, "youtube"),
     description: clipDescription(),
     hashtags: fallbackHashtags(source)
   };
@@ -96,7 +96,7 @@ export async function generateClipMetadata(source: {
   try {
     const result = await runAi({
       maxTokens: 400,
-      system: brandPromptBlock("youtube"),
+      system: brandPromptBlock("youtube", { titleOnly: true }),
       messages: [
         {
           role: "user",
@@ -116,7 +116,7 @@ export async function generateClipMetadata(source: {
     if (!result || result.refused) return fallback;
     const parsed = parseMetadata(result.text);
     if (!parsed?.title) return fallback;
-    const title = applyBrandRules(parsed.title, "youtube").slice(0, MAX_TITLE_CHARS + 10);
+    const title = applyBrandTitle(parsed.title, "youtube").slice(0, MAX_TITLE_CHARS + 10);
     return {
       title,
       description: clipDescription(),

@@ -1,15 +1,23 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_REVIEW_POLICY,
+  HOLD_EVERYTHING,
   REVIEW_CHANNELS,
+  describeRelease,
   legAwaitingApproval,
   normalizeReviewPolicy,
   policyHolds,
   threadsAwaitingApproval
 } from "@/lib/publisher/approval";
-import { readReviewPolicy, reviewPolicyPath, writeReviewPolicy } from "@/lib/publisher/approvalStore";
+import {
+  readReviewPolicy,
+  readReviewPolicyState,
+  resetReviewPolicyCache,
+  reviewPolicyPath,
+  writeReviewPolicy
+} from "@/lib/publisher/approvalStore";
 import type { PlatformState } from "@/lib/publisher/types";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 
@@ -103,8 +111,19 @@ describe("what is awaiting approval", () => {
   });
 });
 
+describe("describeRelease", () => {
+  it("says what was approved and what had to move", () => {
+    expect(describeRelease({ approved: 3 })).toBe("Approved 3.");
+    expect(describeRelease({ approved: 3, moved: [{}, {}] })).toBe(
+      "Approved 3. 2 moved to a later slot because the slot was more than a day old or that day was full."
+    );
+    expect(describeRelease({ approved: 1, unplaced: [{}] })).toBe("Approved 1. 1 had no free slot and stay on hold.");
+  });
+});
+
 describe("the saved policy", () => {
   beforeEach(async () => {
+    resetReviewPolicyCache();
     await mkdir(path.dirname(reviewPolicyPath()), { recursive: true });
     await rm(reviewPolicyPath(), { force: true });
   });
@@ -116,9 +135,52 @@ describe("the saved policy", () => {
     expect(readReviewPolicy()).toEqual(DEFAULT_REVIEW_POLICY);
   });
 
-  it("is all auto when the file is not valid", async () => {
+  it("holds every channel and says why when the file exists but cannot be read", async () => {
     await writeFile(reviewPolicyPath(), "{ not json", "utf8");
-    expect(readReviewPolicy()).toEqual(DEFAULT_REVIEW_POLICY);
+    const state = readReviewPolicyState();
+    expect(state.policy).toEqual(HOLD_EVERYTHING);
+    expect(state.error).toMatch(/could not be read/i);
+    expect(readReviewPolicy()).toEqual(HOLD_EVERYTHING);
+  });
+
+  it("holds every channel when the file is valid JSON but not a policy", async () => {
+    for (const content of ["[]", '"hold"', "7", "null", '{"instagram":"holdd"}']) {
+      resetReviewPolicyCache();
+      await writeFile(reviewPolicyPath(), content, "utf8");
+      const state = readReviewPolicyState();
+      expect(state.policy, content).toEqual(HOLD_EVERYTHING);
+      expect(state.error, content).toBeTruthy();
+    }
+  });
+
+  it("keeps the last good policy when a later read fails", async () => {
+    await writeReviewPolicy({ instagram: "hold" });
+    expect(readReviewPolicy().instagram).toBe("hold");
+    await writeFile(reviewPolicyPath(), "{ not json", "utf8");
+    const state = readReviewPolicyState();
+    expect(state.policy).toEqual({ ...DEFAULT_REVIEW_POLICY, instagram: "hold" });
+    expect(state.error).toMatch(/last good/i);
+  });
+
+  it("never caches a failed read, even when the repaired file looks the same to the filesystem", async () => {
+    const stamp = new Date("2026-07-22T10:00:00.000Z");
+    const broken = '{"instagram":"hold","tiktok":"HOLD"}';
+    const repaired = '{"instagram":"hold","tiktok":"hold"}';
+    expect(broken.length).toBe(repaired.length);
+    await writeFile(reviewPolicyPath(), broken, "utf8");
+    await utimes(reviewPolicyPath(), stamp, stamp);
+    expect(readReviewPolicyState().error).toBeTruthy();
+    await writeFile(reviewPolicyPath(), repaired, "utf8");
+    await utimes(reviewPolicyPath(), stamp, stamp);
+    const state = readReviewPolicyState();
+    expect(state.error).toBeNull();
+    expect(state.policy).toEqual({ ...DEFAULT_REVIEW_POLICY, instagram: "hold", tiktok: "hold" });
+  });
+
+  it("returns to the defaults only when the file is missing", async () => {
+    await writeReviewPolicy({ instagram: "hold" });
+    await rm(reviewPolicyPath(), { force: true });
+    expect(readReviewPolicyState()).toEqual({ policy: DEFAULT_REVIEW_POLICY, error: null });
   });
 
   it("is written to data/review-policy.json and read back", async () => {

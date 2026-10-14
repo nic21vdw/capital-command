@@ -636,10 +636,15 @@ save overrides to `data/brand-kit.json`.
   `src/lib/brand/kit.ts`, which reads `data/brand-kit.json` on the server. Code
   that a client component imports takes the pure `defaults.ts` or the
   `useBrandKit()` hook in `client.ts` instead; `kit.ts` imports `node:fs`.
-- Do not copy a rule into a prompt. `guard.test.ts` fails on the speaker's name
-  or handles, a hand-copied list of banned words, a `runAi` caller with no kit
-  block, and a kit-block caller that never calls `applyBrandRules`. Each
-  exception is in the test's allow-list with its reason.
+- Do not copy a rule into a prompt. `guard.test.ts` parses the source, ignores
+  comments, and fails on the speaker's name or handles, the first name inside a
+  string, a hand-copied list of banned words, a `runAi` call site whose prompt
+  never reaches `brandPromptBlock`, code that calls a model SDK directly, and a
+  kit-block file that never calls `applyBrandRules` or `applyBrandTitle`. Each
+  exception is in the test's allow-list with its reason, per call site.
+- A generator that only writes titles passes `{ titleOnly: true }` to
+  `brandPromptBlock` (no hashtag or call-to-action lines) and runs the result
+  through `applyBrandTitle`, which also drops any `#tag`.
 - `prompt-parity.test.ts` holds every generator's prompt against
   `prompt-parity.before.json`, the prompts as they were before the kit. It lists
   the legacy lines each prompt dropped and checks the prompt differs only by the
@@ -660,11 +665,33 @@ Center: `PublishQueue.duePlatforms` and the Threads runner skip it, so it is
 never claimed and no attempt or retry is spent. Approving stamps `approvedAt`.
 The board's explicit Publish now counts as approval; a post already on a
 platform is never held; a Threads post nobody approved before its slot plus the
-late grace is skipped, as any missed slot is. The calendar and Day Summary
-read a held post as "awaiting approval", never "overdue" (the master-calendar
-routes pass `heldFrom(policy)` into `buildMasterCalendarEvents`). The existing
-long-form YouTube private hold (`reviewHold.ts`) is a different thing and is
-untouched.
+late grace is skipped, as any missed slot is.
+
+- A READ OF THE POLICY FILE NEVER FAILS OPEN. `readReviewPolicyState` returns
+  the last good policy when a read or parse fails, holds every channel when
+  there never was one, never caches the failure, and carries an `error` that
+  the Uploading Center and Settings show as a banner. A missing file is the
+  defaults. Do not return the defaults from a catch block.
+- APPROVING IS A RELEASE, NOT A STAMP (`release.ts`, `PublishQueue.releaseLegs`).
+  A leg whose slot is older than `REARM_MAX_SLOT_AGE_HOURS` (24) goes to the
+  next free slot for its platform; at most `shortsPerDay` shorts per platform
+  per local day (YouTube also its upload budget) go out in place, the rest take
+  later slots; a post that holds other platforms is split so its other legs keep
+  their schedule. Switching a channel from hold to auto runs the same release
+  first and answers 409, staying on hold, if some post has no slot left. Threads
+  needs none of this: it skips a late post instead of firing it.
+- `POST /api/review/approve` takes `{ channel, id }` or `{ keys }`, the exact
+  `channel:id` keys on screen, and approves only those that are still waiting.
+  There is no approve-everything call. Approve and Approve all are `destructive`
+  on the canvas surface, and the canvas cannot switch a held channel to auto.
+- A retry or re-arm keeps a leg or post that had already been sent released
+  (`keepReleased` in `rearm.ts`, `retryItem` for Threads); one that was never
+  sent goes back to waiting for approval.
+
+The calendar and Day Summary read a held post as "awaiting approval", never
+"overdue" (the master-calendar routes pass `heldFrom(policy)` into
+`buildMasterCalendarEvents`). The existing long-form YouTube private hold
+(`reviewHold.ts`) is a different thing and is untouched.
 
 ## Tests
 

@@ -44,11 +44,18 @@ export function awaitingSurface(
       kind: "longtext" as const
     })),
     controls: [
-      { id: APPROVE_ALL_ID, label: "Approve all", group: "Awaiting approval", disabled: busy || entries.length === 0 },
+      {
+        id: APPROVE_ALL_ID,
+        label: entries.length > 0 ? `Approve all (${entries.length})` : "Approve all",
+        group: "Awaiting approval",
+        destructive: true,
+        disabled: busy || entries.length === 0
+      },
       ...listed.map((entry) => ({
         id: approveControlId(entry.channel, entry.id),
         label: `Approve ${REVIEW_CHANNEL_LABELS[entry.channel]}: ${preview(entry.title || entry.caption)}`,
         group: "Awaiting approval",
+        destructive: true,
         disabled: busy
       }))
     ]

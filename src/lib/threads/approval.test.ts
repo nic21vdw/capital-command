@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isAutomationPaused } from "@/lib/automations/store";
+import { DEFAULT_REVIEW_POLICY, threadsAwaitingApproval } from "@/lib/publisher/approval";
 import { reviewPolicyPath } from "@/lib/publisher/approvalStore";
 import { planAddedPost } from "@/lib/threads/addPost";
 import { threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
@@ -166,11 +167,23 @@ describe("approving Threads posts", () => {
     expect(items.map((entry) => entry.approvedAt)).toEqual([AT.toISOString(), undefined, undefined, undefined]);
   });
 
-  it("approves every post that is waiting, and nothing that has gone out", () => {
+  it("approves exactly the posts it is given, and nothing that has gone out", () => {
     const items = rows();
-    const result = approveItems(items, {}, AT);
+    const result = approveItems(items, { ids: ["a", "b", "c", "d", "missing"] }, AT);
     expect(result.changed).toBe(2);
     expect(items.map((entry) => entry.approvedAt !== undefined)).toEqual([true, true, false, false]);
+  });
+
+  it("leaves a waiting post alone when it is not in the list", () => {
+    const items = rows();
+    expect(approveItems(items, { ids: ["b"] }, AT).changed).toBe(1);
+    expect(items.map((entry) => entry.approvedAt !== undefined)).toEqual([false, true, false, false]);
+  });
+
+  it("approves nothing without a post to name", () => {
+    const items = rows();
+    expect(approveItems(items, {}, AT).changed).toBe(0);
+    expect(items.every((entry) => entry.approvedAt === undefined)).toBe(true);
   });
 
   it("says so when there is nothing to approve", () => {
@@ -178,16 +191,31 @@ describe("approving Threads posts", () => {
     expect(approveItems(rows(), { id: "missing" }, AT)).toMatchObject({ changed: 0, error: "No such queued post." });
   });
 
-  it("counts a retry as the owner's approval", () => {
-    const items = [item({ id: "x", status: "skipped", note: "Not approved before its slot" })];
+  it("keeps a retried post that already went through the gate released", () => {
+    const items = [item({ id: "x", status: "failed", attempts: 3, lastFailedAt: "2026-07-22T07:20:00.000Z", error: "boom" })];
     expect(retryItem(items, "x", AT).changed).toBe(1);
     expect(items[0]).toMatchObject({ status: "pending", approvedAt: AT.toISOString() });
+  });
+
+  it("keeps a retried post that was never approved or attempted waiting for approval", () => {
+    const items = [item({ id: "x", status: "skipped", note: "Not approved before its slot" })];
+    expect(retryItem(items, "x", AT).changed).toBe(1);
+    expect(items[0].status).toBe("pending");
+    expect(items[0].approvedAt).toBeUndefined();
+    expect(threadsAwaitingApproval(items[0], { ...DEFAULT_REVIEW_POLICY, threads: "hold" })).toBe(true);
+  });
+
+  it("keeps the approval a retried post already had", () => {
+    const stamp = "2026-07-22T06:30:00.000Z";
+    const items = [item({ id: "x", status: "failed", attempts: 3, approvedAt: stamp })];
+    retryItem(items, "x", AT);
+    expect(items[0].approvedAt).toBe(stamp);
   });
 
   it("never moves a post when it approves it", () => {
     const items = rows();
     const before = items.map((entry) => entry.publishAt);
-    approveItems(items, {}, AT);
+    approveItems(items, { ids: ["a", "b"] }, AT);
     expect(items.map((entry) => entry.publishAt)).toEqual(before);
   });
 });

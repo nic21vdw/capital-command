@@ -20,11 +20,16 @@ const entry = (overrides: Partial<AwaitingEntry> = {}): AwaitingEntry => ({
 });
 
 describe("what the Uploading Center tells the canvas about posts awaiting approval", () => {
-  it("offers a one-tap approve per post and an approve-all, none of them destructive", () => {
+  it("offers a one-tap approve per post and an approve-all, each flagged so the canvas host asks first", () => {
     const { controls } = awaitingSurface([entry(), entry({ key: "threads:t1", channel: "threads", id: "t1", title: "topic", caption: "words" })], false);
     expect(controls.map((control) => control.id)).toEqual([APPROVE_ALL_ID, "approve:instagram:a", "approve:threads:t1"]);
-    expect(controls.every((control) => !control.destructive)).toBe(true);
+    expect(controls.every((control) => control.destructive === true)).toBe(true);
     expect(controls.every((control) => control.group === "Awaiting approval")).toBe(true);
+  });
+
+  it("says how many posts approve-all will release", () => {
+    const { controls } = awaitingSurface([entry(), entry({ id: "b", key: "instagram:b" })], false);
+    expect(controls.find((control) => control.id === APPROVE_ALL_ID)?.label).toBe("Approve all (2)");
   });
 
   it("exposes each caption as a field that can be edited", () => {

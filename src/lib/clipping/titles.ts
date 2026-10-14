@@ -24,7 +24,7 @@ export { CHANNEL_CONTEXT, CHANNEL_KEYWORDS, COLATERAL_DESCRIPTION, TITLE_STYLE_E
 export function viralTitleSystemPrompt(): string {
   return `You are a short-form video growth expert who writes scroll-stopping titles for YouTube Shorts, TikTok, and Reels.
 
-${brandPromptBlock("youtube")}
+${brandPromptBlock("youtube", { titleOnly: true })}
 
 Every title must:
 - Be 4-10 words and under 60 characters, in Title Case.

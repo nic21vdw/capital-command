@@ -88,22 +88,62 @@ export function expandTokens(text: string, kit: BrandKit): string {
     .replaceAll("{site}", kit.links.site);
 }
 
-export function stripDashes(text: string): string {
-  return (
-    text
-      .replace(/^([ \t]*)[—–][ \t]*/gm, "$1- ")
-      .replace(/(\d)[ \t]*[—–][ \t]*(\d)/g, "$1-$2")
-      .replace(/[ \t]*[—–][ \t]*/g, ", ")
-      .replace(/,[ \t]*,+/g, ",")
-      .replace(/([,;:.!?])[ \t]*,/g, "$1")
-      .replace(/,([ \t]*[.!?])/g, "$1")
-      .replace(/[ \t]{2,}/g, " ")
-      .replace(/[ \t]+$/gm, "")
-      .trim()
-  );
+const PROTECTED = /(?:https?:\/\/|www\.)\S+|@[\p{L}\p{N}_.]+|#[\p{L}\p{N}_]+/gu;
+const PLACEHOLDER = /(\d+)/g;
+const SENTENCE_PUNCTUATION = /[,;:.!?]/;
+
+function shield(text: string): { masked: string; restore: (value: string) => string } {
+  const held: string[] = [];
+  const masked = text.replace(PROTECTED, (match) => {
+    held.push(match);
+    return `${held.length - 1}`;
+  });
+  return { masked, restore: (value) => value.replace(PLACEHOLDER, (_all, index: string) => held[Number(index)] ?? "") };
 }
 
-const PROTECTED = /(https?:\/\/\S+|www\.\S+|@[\w.]+|#\w+)/g;
+function asPunctuation(previous: string, next: string, lineEnd: boolean): string {
+  if (lineEnd) return SENTENCE_PUNCTUATION.test(previous) ? "" : ",";
+  if (SENTENCE_PUNCTUATION.test(previous)) return " ";
+  if (SENTENCE_PUNCTUATION.test(next)) return "";
+  return ", ";
+}
+
+function normaliseDashes(text: string): string {
+  const dashed = text.replace(
+    /([ \t]*)([—–])([ \t]*)/g,
+    (match, lead: string, dash: string, trail: string, offset: number, whole: string) => {
+      const previous = offset > 0 ? whole[offset - 1] : "";
+      const next = whole[offset + match.length] ?? "";
+      const lineEnd = next === "" || next === "\n";
+      if (previous === "" || previous === "\n") {
+        if (dash === "–" && trail === "" && /\d/.test(next)) return `${lead}-`;
+        return lineEnd ? `${lead}-` : `${lead}- `;
+      }
+      if (/\d/.test(previous) && /\d/.test(next)) return "-";
+      if (dash === "–" && lead === "" && trail === "") return "-";
+      if (dash === "–" && lead !== "" && trail === "" && /[\d$]/.test(next)) return `${lead}-`;
+      return asPunctuation(previous, next, lineEnd);
+    }
+  );
+  return dashed.replace(/(?<=\S)[ \t]+-[ \t]+(?=\S)/g, (match, offset: number, whole: string) => {
+    const previous = whole[offset - 1];
+    const next = whole[offset + match.length];
+    return /\d/.test(previous) && /\d/.test(next) ? "-" : asPunctuation(previous, next, false);
+  });
+}
+
+export function stripDashes(text: string): string {
+  const { masked, restore } = shield(text);
+  return restore(normaliseDashes(masked)).trim();
+}
+
+export function stripHashtags(text: string): string {
+  return text
+    .replace(/((?:https?:\/\/|www\.)\S+)|[ \t]*(?<![\w&])#[\p{L}\p{N}_]+/gu, (_match, link: string | undefined) => link ?? "")
+    .trim();
+}
+
+const PRODUCT_NAME = /(?<![\p{L}\p{N}_@./-])(?<!\bnpx\s)co-?lateral(?![\p{L}\p{N}_@/-]|\.[\p{L}\p{N}])/giu;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -111,13 +151,6 @@ function escapeRegExp(value: string): string {
 
 function phrasePattern(phrase: string, flags = "iu"): RegExp {
   return new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(phrase)}(?![\\p{L}\\p{N}_])`, flags);
-}
-
-function mapUnprotected(text: string, change: (part: string) => string): string {
-  return text
-    .split(PROTECTED)
-    .map((part, index) => (index % 2 === 0 ? change(part) : part))
-    .join("");
 }
 
 function matchCase(source: string, replacement: string): string {
@@ -130,18 +163,13 @@ const UNPUBLISHED_FAMILIES = new Set(["voice", "script"]);
 
 export function applyRules(kit: BrandKit, text: string, channel: BrandChannel): string {
   if (!text || UNPUBLISHED_FAMILIES.has(kit.channels[channel].family)) return text;
-  let out = text;
-  if (kit.voice.dashes === "strip") out = stripDashes(out);
-  const wordmark = kit.logo.wordmark;
-  const casing = /\bco-?lateral\b/gi;
-  out = mapUnprotected(out, (part) => {
-    let next = part.replace(casing, wordmark);
-    for (const { from, to } of kit.voice.substitutions) {
-      next = next.replace(phrasePattern(from, "giu"), (match) => matchCase(match, to));
-    }
-    return next;
-  });
-  return out.replace(/[ \t]+$/gm, "").trim();
+  const { masked, restore } = shield(text);
+  let out = kit.voice.dashes === "strip" ? normaliseDashes(masked) : masked;
+  out = out.replace(PRODUCT_NAME, kit.logo.wordmark);
+  for (const { from, to } of kit.voice.substitutions) {
+    out = out.replace(phrasePattern(from, "giu"), (match) => matchCase(match, to));
+  }
+  return restore(out).trim();
 }
 
 function pictographs(text: string): string[] {
@@ -161,7 +189,7 @@ export function findViolations(kit: BrandKit, text: string, channel: BrandChanne
   scan("banned-claim", kit.voice.claimTriggers);
   scan("retired-name", kit.voice.retiredNames.map((retired) => retired.name));
   scan("avoid-word", config.avoid);
-  const dash = text.match(/[—–]/);
+  const dash = shield(text).masked.match(/[—–]/);
   if (dash && kit.voice.dashes === "strip") found.push({ kind: "dash", match: dash[0] });
   if (config.hashtags.max === 0) {
     const tag = text.match(/(?<![\w&])#[\p{L}\p{N}_]+/u);
@@ -197,7 +225,7 @@ function emojiLine(kit: BrandKit, channel: BrandChannel): string {
   return "Emoji: fine where they fit.";
 }
 
-export type PromptBlockOptions = { keywords?: boolean };
+export type PromptBlockOptions = { keywords?: boolean; titleOnly?: boolean };
 
 export function promptBlockFor(kit: BrandKit, channel: BrandChannel, options: PromptBlockOptions = {}): string {
   const config = kit.channels[channel];
@@ -229,6 +257,10 @@ export function promptBlockFor(kit: BrandKit, channel: BrandChannel, options: Pr
     );
   }
   if (kit.voice.bannedClaims.length > 0) lines.push(`Claims:\n${bullets(kit.voice.bannedClaims, kit)}`);
+  if (options.titleOnly) {
+    lines.push(emojiLine(kit, channel));
+    return lines.join("\n");
+  }
   lines.push(hashtagLine(kit, channel), emojiLine(kit, channel));
   const cta = [config.cta.line, config.cta.url].filter(Boolean).join(": ");
   if (cta) lines.push(`Call to action and link target (use only where the task asks for a call to action): ${cta}`);

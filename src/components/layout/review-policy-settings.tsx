@@ -13,7 +13,7 @@ import {
 const MODE_LABELS: Record<ReviewMode, string> = { auto: "Auto", hold: "Hold" };
 
 export function ReviewPolicySettings() {
-  const { policy, busy, error } = useReviewPolicy();
+  const { policy, busy, error, policyError, notice } = useReviewPolicy();
   return (
     <div className="mt-5 rounded-xl border border-[var(--border)] px-4 py-4" role="group" aria-label="Review before posting">
       <h3 className="text-sm font-semibold text-white">Review before posting</h3>
@@ -51,6 +51,16 @@ export function ReviewPolicySettings() {
           </li>
         ))}
       </ul>
+      {policyError ? (
+        <p role="alert" className="mt-3 rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+          {policyError}
+        </p>
+      ) : null}
+      {notice ? (
+        <p role="status" className="mt-2 text-xs text-[var(--muted-foreground)]">
+          {notice}
+        </p>
+      ) : null}
       {error ? <p className="mt-2 text-xs text-amber-200">{error}</p> : null}
     </div>
   );

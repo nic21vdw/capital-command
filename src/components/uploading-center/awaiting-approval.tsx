@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   DEFAULT_REVIEW_POLICY,
   REVIEW_CHANNEL_LABELS,
+  describeRelease,
   policyHolds,
   type AwaitingEntry,
   type ReviewPolicy
@@ -28,6 +29,8 @@ export type AwaitingApproval = {
   loaded: boolean;
   busy: boolean;
   error: string | null;
+  policyError: string | null;
+  notice: string | null;
   approve: (entry: Pick<AwaitingEntry, "channel" | "id">) => Promise<boolean>;
   approveAll: () => Promise<boolean>;
   saveCaption: (entry: Pick<AwaitingEntry, "channel" | "id">, caption: string) => Promise<boolean>;
@@ -40,15 +43,18 @@ export function useAwaitingApproval(): AwaitingApproval {
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [policyError, setPolicyError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const mounted = useRef(true);
 
   const refresh = useCallback(async () => {
     try {
       const response = await fetch("/api/review/awaiting", { cache: "no-store" });
       if (!response.ok) throw new Error(await readError(response));
-      const body = (await response.json()) as { policy: ReviewPolicy; items: AwaitingEntry[] };
+      const body = (await response.json()) as { policy: ReviewPolicy; error?: string | null; items: AwaitingEntry[] };
       if (!mounted.current) return;
       setPolicy(body.policy);
+      setPolicyError(body.error ?? null);
       setEntries(body.items);
       setError(null);
     } catch (reason) {
@@ -70,12 +76,18 @@ export function useAwaitingApproval(): AwaitingApproval {
   }, [refresh]);
 
   const act = useCallback(
-    async (request: () => Promise<Response>): Promise<boolean> => {
+    async (request: () => Promise<Response>, announce = false): Promise<boolean> => {
       setBusy(true);
       try {
         const response = await request();
         if (!response.ok) throw new Error(await readError(response));
         setError(null);
+        if (announce) {
+          const reply = (await response.json().catch(() => null)) as Parameters<typeof describeRelease>[0] | null;
+          if (mounted.current) setNotice(reply ? describeRelease(reply) : null);
+        } else if (mounted.current) {
+          setNotice(null);
+        }
         await refresh();
         return true;
       } catch (reason) {
@@ -95,21 +107,24 @@ export function useAwaitingApproval(): AwaitingApproval {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ channel: entry.channel, id: entry.id })
-        })
+        }),
+        true
       ),
     [act]
   );
 
   const approveAll = useCallback(
     () =>
-      act(() =>
-        fetch("/api/review/approve", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ all: true })
-        })
+      act(
+        () =>
+          fetch("/api/review/approve", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ keys: entries.map((entry) => entry.key) })
+          }),
+        true
       ),
-    [act]
+    [act, entries]
   );
 
   const saveCaption = useCallback(
@@ -130,7 +145,7 @@ export function useAwaitingApproval(): AwaitingApproval {
     [act]
   );
 
-  return { policy, entries, loaded, busy, error, approve, approveAll, saveCaption, refresh };
+  return { policy, entries, loaded, busy, error, policyError, notice, approve, approveAll, saveCaption, refresh };
 }
 
 function AwaitingRow({
@@ -203,9 +218,9 @@ function AwaitingRow({
 }
 
 export function AwaitingApprovalCard({ approval, timezone }: { approval: AwaitingApproval; timezone: string }) {
-  const { policy, entries, loaded, busy, error } = approval;
+  const { policy, entries, loaded, busy, error, policyError, notice } = approval;
   if (!loaded && entries.length === 0) return null;
-  if (entries.length === 0 && !policyHolds(policy) && !error) return null;
+  if (entries.length === 0 && !policyHolds(policy) && !error && !policyError) return null;
   return (
     <Card className="mb-4 space-y-2" aria-label="Awaiting approval">
       <div className="flex flex-wrap items-center gap-2">
@@ -218,6 +233,16 @@ export function AwaitingApprovalCard({ approval, timezone }: { approval: Awaitin
           Approve all
         </Button>
       </div>
+      {policyError ? (
+        <p role="alert" className="rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+          {policyError}
+        </p>
+      ) : null}
+      {notice ? (
+        <p role="status" className="text-xs text-[var(--muted-foreground)]">
+          {notice}
+        </p>
+      ) : null}
       {error ? <p className="text-xs text-amber-200">{error}</p> : null}
       {entries.length === 0 ? (
         <p className="text-sm text-[var(--muted-foreground)]">

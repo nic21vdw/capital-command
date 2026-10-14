@@ -1,5 +1,5 @@
 import { runAi } from "@/lib/ai";
-import { applyBrandRules, brandPromptBlock } from "@/lib/brand/kit";
+import { applyBrandTitle, brandPromptBlock } from "@/lib/brand/kit";
 import { overlayIdeas } from "@/lib/thumbnails/suggestions";
 import type { LongformProject } from "@/lib/longform/types";
 
@@ -10,7 +10,7 @@ const WANTED = 3;
 function systemPrompt(): string {
   return [
     "You write the words that go on a YouTube thumbnail.",
-    brandPromptBlock("youtube-longform"),
+    brandPromptBlock("youtube-longform", { titleOnly: true }),
     "Rules, all of them hard:",
     "- 3 to 6 words. Never more.",
     "- Only claims the transcript actually supports. Never invent a number, a result or an event.",
@@ -80,7 +80,7 @@ export function parseHooks(text?: string | null): string[] {
 }
 
 function clampWords(line: string): string {
-  const words = applyBrandRules(line, "youtube-longform").replace(/[."]+$/g, "").split(/\s+/).filter(Boolean).slice(0, MAX_WORDS);
+  const words = applyBrandTitle(line, "youtube-longform").replace(/[."]+$/g, "").split(/\s+/).filter(Boolean).slice(0, MAX_WORDS);
   const joined = words.join(" ");
   return joined.length <= MAX_CHARS ? joined : words.slice(0, MAX_WORDS - 1).join(" ");
 }

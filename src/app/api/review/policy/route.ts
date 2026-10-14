@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { REVIEW_MODES } from "@/lib/publisher/approval";
-import { readReviewPolicy, writeReviewPolicy } from "@/lib/publisher/approvalStore";
+import { REVIEW_CHANNELS, REVIEW_MODES } from "@/lib/publisher/approval";
+import { readReviewPolicyState, writeReviewPolicy } from "@/lib/publisher/approvalStore";
+import { publisherConfig } from "@/lib/publisher/config";
+import { publishQueue } from "@/lib/publisher/queue";
+import type { ReleaseMove } from "@/lib/publisher/release";
+import type { PlatformId } from "@/lib/publisher/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +24,7 @@ const changeSchema = z
   .refine((change) => Object.keys(change).length > 0, "Name at least one channel.");
 
 export async function GET() {
-  return NextResponse.json({ policy: readReviewPolicy() });
+  return NextResponse.json(readReviewPolicyState());
 }
 
 export async function PUT(request: Request) {
@@ -34,5 +38,27 @@ export async function PUT(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid request." }, { status: 400 });
   }
-  return NextResponse.json({ policy: await writeReviewPolicy(parsed.data) });
+  const change = parsed.data;
+  const before = readReviewPolicyState().policy;
+  const now = new Date();
+  const released = { approved: 0, moved: [] as Array<ReleaseMove & { key: string }> };
+  try {
+    const opening = REVIEW_CHANNELS.filter((channel) => channel !== "threads" && before[channel] === "hold" && change[channel] === "auto");
+    for (const channel of opening) {
+      const result = await publishQueue(publisherConfig()).releaseAwaiting(now, channel as PlatformId, before);
+      released.approved += result.approved;
+      released.moved.push(...result.moves.map((move) => ({ ...move, key: `${move.platform}:${move.id}` })));
+      if (result.skipped.length > 0) {
+        return NextResponse.json(
+          {
+            error: `${result.skipped.length} held post${result.skipped.length === 1 ? " has" : "s have"} no free slot left to go to, so ${channel} stays on hold. Approve or remove ${result.skipped.length === 1 ? "it" : "them"} first.`
+          },
+          { status: 409 }
+        );
+      }
+    }
+    return NextResponse.json({ policy: await writeReviewPolicy(change), released });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+  }
 }
