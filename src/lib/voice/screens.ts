@@ -23,6 +23,7 @@ export const SCREENS: Screen[] = [
   { id: "automations", href: "/automations", label: "Automations", purpose: "background workers: pause or resume posting, last runs, what still goes live" },
   { id: "master-calendar", href: "/master-calendar", label: "Master Calendar", purpose: "the content calendar" },
   { id: "day-summary", href: "/day-summary", label: "Day Summary", purpose: "one day's output as a briefing" },
+  { id: "performance", href: "/performance", label: "Performance", purpose: "how each published post performed: views, engagement and trend per platform, read back every 6 hours" },
   { id: "agents", href: "/agents", label: "Sourceflow Agents", purpose: "agent team settings and approvals" },
   { id: "ideas", href: "/ideas", label: "Idea Lab", purpose: "content ideas" },
   { id: "scripts", href: "/scripts", label: "Scripts", purpose: "written scripts" },

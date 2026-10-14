@@ -638,6 +638,82 @@ News, Reddit, YouTube and Bluesky. It reads and classifies; it never posts.
   thread message in an editable box and will not copy it or mark it sent until
   that line is gone (`hasUnfilledPlaceholder`).
 
+## Post analytics (`src/lib/analytics`, `/performance`)
+
+Every published post is read back from its platform into `data/analytics/metrics.json`
+(`store.ts`: `atomicWriteJson` under `withFileLock`, compact JSON, one process-wide
+write queue). A record per post keeps the latest numbers plus one snapshot per UTC day,
+capped at 90 (`metrics.ts`). Numbers a platform did not report are absent, never zero.
+
+- **What is read** (`targets.ts`): every publish-queue leg that is `published` with a
+  `postId`, and every published Threads item. The Threads queue keeps 14 days, so the
+  store, not the queue, is the long-term record of a Threads post.
+- **Per platform**, each a pure parser plus a fetcher over an injectable `fetch`:
+  YouTube reads Data API counts in batches of 50 and, when the token has
+  `yt-analytics.readonly`, Analytics watch time and average view duration (a 403 on that
+  scope drops back to the Data API for the rest of the run; `source` on the record says
+  which). Instagram, Facebook and Threads read insights with a metric-set ladder kept per
+  media type (`ladder.ts`: Instagram REELS, FEED, CAROUSEL_ALBUM, VIDEO; Facebook REELS, VIDEO,
+  CAROUSEL, POST, PHOTO, by format and not by node; Threads TEXT). One media the platform
+  refuses falls back for itself only; a type moves to its next set, for the rest of the
+  run, only after two different media of that type are refused the same way. Once any
+  media gets through a set, that set is proven for the type: later refusals of it fall
+  back for that media only and never advance or exhaust the type, and a type is
+  exhausted only if no set was ever proven. All of them fall back to likes and comments when the
+  token has no insights permission. Facebook asks per node type (`facebookNodeOf`): a
+  Reel or video reads `blue_reels_play_count` / `fb_reels_total_plays` / `post_video_*` from
+  `video_insights`, a feed post (carousel) reads `post_media_view` and `shares`, and a
+  single photo has neither `shares` nor an insights edge. Instagram drops `plays` from
+  Graph v22. TikTok is marked unsupported until the app's scope (`TIKTOK_SCOPE`) includes
+  `video.list`.
+  Production's YouTube grant today is `youtube.upload`, `youtube.readonly` and
+  `youtube.force-ssl`, so watch time does not arrive until YouTube is reconnected with the
+  extra scope; Connect YouTube does not ask for it.
+- **Failures** (`http.ts`, `classifyFailure`): a 429 backs off (honouring `Retry-After`
+  up to 60 s, else the account is left alone for the advised time and shown as rate
+  limited); an auth failure goes through the platform-health breaker per account
+  (`recordAuthFailure`, and `accountAuthBlocked` skips it until the next trial), exactly
+  like posting (a trip the publisher recorded after the sync began is never cleared by it);
+  a missing permission is a note on the account, not a break. Five failed reads in a row stop
+  an account for the run, but only transport and 5xx failures count: a post's own 4xx does not.
+  Ten posts in a row refused with a 4xx stop the account for the run as a probably retired
+  endpoint. Meta's "does not exist, cannot be loaded due to missing permissions" is not
+  treated as gone.
+- **When** (`schedule.ts`, started from `src/instrumentation.ts`): the running server checks every
+  15 minutes and syncs when the last completed sync is 6 hours old (30 minutes after a failed one),
+  first check 2 minutes after start. Single-flight in the process (`globalThis`) and across
+  processes (a `sync.running` marker with pid and 30-minute staleness). `ANALYTICS_SYNC=off`
+  disables it. The marker carries a heartbeat refreshed every 5 minutes, so a long pass is
+  not taken for a dead one. Posts are read every cycle in their first week, daily to day 30,
+  every third day to day 90, and once more after day 90 (`final`); a post missing three times
+  is `gone`, and is looked at again weekly and on every forced sync. Each account is read
+  oldest-`attemptedAt` first, so posts that keep failing do not go first forever.
+  `npm run analytics:sync [-- --force]` and the page's Sync now (`POST /api/analytics/sync`,
+  202, runs in the background, 429 within 10 minutes of the last Sync now) use the same code.
+- **Meta pacing** (`pacing.ts`): Instagram, Facebook and Threads get 150 calls per account
+  per run (`ANALYTICS_META_CALLS_PER_RUN`), and every response's `x-app-usage`,
+  `x-page-usage` and `x-business-use-case-usage` is read; above 75% the account is left
+  alone for an hour (or the time Meta gives), so reading numbers never starves
+  `media_publish`.
+- **YouTube quota ledger** (`src/lib/youtube/quotaLedger.ts`): one ledger per Pacific day in
+  `data/youtube-quota.json`. `debit(units, purpose)` applies a delta under the file lock
+  before each call; `remaining(purpose)` and `snapshot()` give the per-purpose breakdown.
+  Uploads keep a reserve of `YOUTUBE_DAILY_UPLOAD_BUDGET` x `YOUTUBE_UNITS_PER_UPLOAD`
+  (`publisher/quota.ts`, 1,600 each, 9,600 by default). Everything else shares
+  `YOUTUBE_NON_UPLOAD_DAILY_UNITS` (default 300), which is capped at what the reserve leaves
+  of the 10,000-unit day, with one warning in the log when it is. An upload is never refused:
+  it is recorded when it can be, and goes through unrecorded when the file is unreadable or
+  the lock is held for over 5 seconds (`remaining("upload")` then says the whole day). Anything else is refused as `budget` (allowance
+  spent) or `unavailable` (ledger unusable). Analytics debits 1 unit per `videos.list` batch;
+  on `budget` it rests until midnight Pacific (`nextResetAt`, exact across the 23- and 25-hour
+  DST days), on `unavailable` it tries again next cycle. The upload path does not debit the
+  ledger yet; the inbox, listening and outlier scans are meant to move onto it.
+- **For later slices**: `queryAnalytics`, `queryRows`, `topRows`, `platformTotals` and
+  `getPostMetrics` are exported from `src/lib/analytics/index.ts`; `GET /api/analytics`
+  takes `platform` (comma list), `since` (`28d` or a date), `top` and `sort`. The page
+  declares its filters, Sync now and a reading of the totals through
+  `buildPerformanceSurface` (`surface.ts`).
+
 ## Launch Pad (`src/lib/launch`)
 
 Product Hunt launch planning at `/launch`. Product Hunt has NO write API for

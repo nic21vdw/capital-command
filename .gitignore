@@ -57,6 +57,7 @@ data/overlay-images/
 # Local carousel-frame evaluation output (scripts/eval-carousel-frames.ts)
 /eval-out/
 data/youtube-stats.json
+data/analytics/
 
 # Python bytecode
 __pycache__/
