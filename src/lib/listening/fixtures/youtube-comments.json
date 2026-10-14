@@ -1,0 +1,35 @@
+{
+  "kind": "youtube#commentThreadListResponse",
+  "items": [
+    {
+      "id": "UgxAAA",
+      "snippet": {
+        "videoId": "vid0001",
+        "topLevelComment": {
+          "id": "UgxAAA",
+          "snippet": {
+            "videoId": "vid0001",
+            "authorDisplayName": "Dana",
+            "textDisplay": "Is there an <b>AI</b> tool that checks ETABS models? Has anyone tried one?",
+            "publishedAt": "2026-10-12T09:30:00Z"
+          }
+        }
+      }
+    },
+    {
+      "id": "UgxBBB",
+      "snippet": {
+        "videoId": "vid0001",
+        "topLevelComment": {
+          "id": "UgxBBB",
+          "snippet": {
+            "videoId": "vid0001",
+            "authorDisplayName": "Lee",
+            "textDisplay": "Nice video, thanks.",
+            "publishedAt": "2026-10-12T09:45:00Z"
+          }
+        }
+      }
+    }
+  ]
+}

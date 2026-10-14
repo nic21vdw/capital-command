@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Listening now runs itself every two hours and flags real leads.** While the app is open it searches Hacker News, Reddit, YouTube and Bluesky for your keywords (the product, ETABS, SAP2000, RISA, Tekla, Revit, structural engineering AI, and the earlier agent-workspace terms, all editable on the Listening page), drops the same post seen twice, and sorts each new hit into lead, mention, competitor or noise with a sentiment and a score. A badge on Listening in the sidebar counts new leads scoring 70 or more, the publish and Threads runner tasks pop a Windows toast "N new leads" at most once every two hours, and **Send to Outreach** on a hit files it as an Outreach contact. X is listed as needing paid API access and does nothing yet; YouTube is capped at 400 quota units a day so uploads keep their allowance, and Bluesky search needs no sign-in. The lead toast rides the same script as the broken-account toast, so it shows wherever that one does.
+
 ## 2026-10-13
 
 - A dead Threads token now shows up the moment the app tries to renew it, not hours later when a post fails. Before, the red banner and the Windows toast only fired when a post was rejected, so with the day's posts already scheduled an expired token sat unreported while `threads-autopilot.log` said "Session has expired". A renewal that Meta turns down for a bad or expired token now marks that account as broken straight away, the same as a failed post; a Meta outage or a dropped connection does not. YouTube and TikTok do the same when Google or TikTok refuses to renew their login. A renewal that works clears the banner.

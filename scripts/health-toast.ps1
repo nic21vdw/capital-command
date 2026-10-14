@@ -6,6 +6,11 @@ param(
   [string]$Log,
   [string]$OutFile,
   [int]$RepeatHours = 24,
+  [string]$LeadsJson,
+  [string]$LeadsStatePath,
+  [int]$LeadsRepeatHours = 2,
+  [switch]$SkipHealth,
+  [switch]$SkipLeads,
   [switch]$DryRun,
   [switch]$NoToast,
   [switch]$NoDesktop
@@ -140,7 +145,7 @@ function Invoke-HealthToast {
   $health = Read-Health $HealthJson $BaseUrl
   if (-not $health -or $null -eq $health.broken) {
     Write-HealthLog "Health toast: the app did not answer /api/health/platforms - nothing to do."
-    return
+    return $null
   }
 
   $state = Read-NotifiedState $statePath
@@ -174,9 +179,136 @@ function Invoke-HealthToast {
   if ($content -and $shown) { Write-HealthLog "Health toast: showed '$($content.title)'." }
   elseif ($content -and $skippedReason) { Write-HealthLog "Health toast: could not show '$($content.title)' ($skippedReason); will try again next run." }
 
+  return [ordered]@{ toast = $content; state = $nextState; shown = $shown; skipped = $skippedReason }
+}
+
+function Read-LeadSummary([string]$LeadsJson, [string]$BaseUrl) {
+  if ($LeadsJson) {
+    return [System.IO.File]::ReadAllText($LeadsJson, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
+  }
+  $temp = [System.IO.Path]::GetTempFileName()
+  try {
+    & curl.exe --silent --fail --max-time 10 --output $temp "$BaseUrl/api/listening?summary=1" 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    return [System.IO.File]::ReadAllText($temp, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
+  } finally {
+    Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Read-LeadState([string]$Path) {
+  $state = [ordered]@{ lastToastAt = $null; notifiedIds = @() }
+  if (-not (Test-Path -LiteralPath $Path)) { return $state }
+  try {
+    $parsed = [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
+    if ($parsed.lastToastAt) { $state.lastToastAt = [string]$parsed.lastToastAt }
+    $state.notifiedIds = @(@($parsed.notifiedIds) | Where-Object { $_ } | ForEach-Object { [string]$_ })
+  } catch {
+    Write-HealthLog "Lead toast: ignoring an unreadable $Path."
+    $state = [ordered]@{ lastToastAt = $null; notifiedIds = @() }
+  }
+  return $state
+}
+
+function Get-LeadToastDecision {
+  param($Summary, $State, [DateTime]$Now, [int]$RepeatHours = 2)
+
+  $current = @(if ($Summary.leads) { $Summary.leads })
+  $currentIds = @($current | ForEach-Object { [string]$_.id })
+  $known = @($State.notifiedIds)
+  $fresh = @($current | Where-Object { $known -notcontains [string]$_.id })
+  $kept = @($known | Where-Object { $currentIds -contains $_ })
+
+  $quiet = $false
+  if ($State.lastToastAt) { $quiet = ($Now - (ConvertTo-UtcDate $State.lastToastAt)).TotalHours -lt $RepeatHours }
+  $isDue = ($fresh.Count -gt 0) -and (-not $quiet)
+
+  $held = [ordered]@{ lastToastAt = $State.lastToastAt; notifiedIds = $kept }
+  $announced = [ordered]@{ lastToastAt = $Now.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", [System.Globalization.CultureInfo]::InvariantCulture); notifiedIds = $currentIds }
+  return [pscustomobject]@{
+    Due = $(if ($isDue) { $fresh } else { @() })
+    NextState = $(if ($isDue) { $announced } else { $held })
+    HeldState = $held
+  }
+}
+
+function New-LeadToastContent {
+  param($Due, [string]$BaseUrl)
+
+  $entries = @($Due)
+  $title = if ($entries.Count -eq 1) { "1 new lead" } else { "$($entries.Count) new leads" }
+  $first = [string]$entries[0].title
+  if ($first.Length -gt 90) { $first = $first.Substring(0, 87) + "..." }
+  $more = if ($entries.Count -gt 1) { " and $($entries.Count - 1) more" } else { "" }
+  $body = "`"$first`"$more. Open Listening to send them to Outreach."
+  $launch = "$($BaseUrl.TrimEnd('/'))/listening"
+  $escape = { param($Text) [System.Security.SecurityElement]::Escape($Text) }
+  $xml = "<toast activationType=`"protocol`" launch=`"$(& $escape $launch)`"><visual><binding template=`"ToastGeneric`">" +
+    "<text>$(& $escape $title)</text><text>$(& $escape $body)</text></binding></visual></toast>"
+  return [ordered]@{
+    title = $title
+    body = $body
+    launch = $launch
+    leadIds = @($entries | ForEach-Object { [string]$_.id })
+    xml = $xml
+  }
+}
+
+function Invoke-LeadToast {
+  $nowUtc = if ($Now) { ConvertTo-UtcDate $Now } else { [DateTime]::UtcNow }
+  $statePath = if ($LeadsStatePath) { $LeadsStatePath } else { Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) "data") "listening-notified.json" }
+
+  $summary = Read-LeadSummary $LeadsJson $BaseUrl
+  if (-not $summary -or $null -eq $summary.leads) {
+    Write-HealthLog "Lead toast: the app did not answer /api/listening - nothing to do."
+    return $null
+  }
+
+  $state = Read-LeadState $statePath
+  $decision = Get-LeadToastDecision -Summary $summary -State $state -Now $nowUtc -RepeatHours $LeadsRepeatHours
+  $content = if (@($decision.Due).Count -gt 0) { New-LeadToastContent -Due $decision.Due -BaseUrl $BaseUrl } else { $null }
+
+  $shown = $false
+  $skippedReason = $null
+  if ($content -and -not $DryRun -and -not $NoToast) {
+    if ($NoDesktop -or -not [Environment]::UserInteractive) {
+      $skippedReason = "no desktop session"
+    } else {
+      try {
+        Show-Toast $content.xml
+        $shown = $true
+      } catch {
+        $skippedReason = $_.Exception.Message
+      }
+    }
+  }
+
+  $recorded = $DryRun -or $NoToast -or $shown -or -not $content
+  $nextState = if ($recorded) { $decision.NextState } else { $decision.HeldState }
+  if (-not $DryRun) { Write-NotifiedState $statePath $nextState }
+
+  if ($content -and $shown) { Write-HealthLog "Lead toast: showed '$($content.title)'." }
+  elseif ($content -and $skippedReason) { Write-HealthLog "Lead toast: could not show '$($content.title)' ($skippedReason); will try again next run." }
+
+  return [ordered]@{ toast = $content; state = $nextState; shown = $shown; skipped = $skippedReason }
+}
+
+function Invoke-Main {
+  $health = $null
+  $leads = $null
+  if (-not $SkipHealth) { $health = Invoke-HealthToast }
+  $checkLeads = (-not $SkipLeads) -and ($LeadsJson -or -not $HealthJson)
+  if ($checkLeads) { $leads = Invoke-LeadToast }
+
   if ($OutFile) {
-    $result = [ordered]@{ toast = $content; state = $nextState; shown = $shown; skipped = $skippedReason }
-    [System.IO.File]::WriteAllText($OutFile, (ConvertTo-Json -InputObject $result -Depth 6), (New-Object System.Text.UTF8Encoding($false)))
+    $result = [ordered]@{
+      toast = $(if ($health) { $health.toast } else { $null })
+      state = $(if ($health) { $health.state } else { $null })
+      shown = $(if ($health) { $health.shown } else { $false })
+      skipped = $(if ($health) { $health.skipped } else { $null })
+      leads = $leads
+    }
+    [System.IO.File]::WriteAllText($OutFile, (ConvertTo-Json -InputObject $result -Depth 8), (New-Object System.Text.UTF8Encoding($false)))
   }
 }
 
@@ -185,7 +317,7 @@ if ($MyInvocation.InvocationName -ne ".") {
   $held = $false
   try {
     try { $held = $mutex.WaitOne(15000) } catch [System.Threading.AbandonedMutexException] { $held = $true }
-    if ($held) { Invoke-HealthToast }
+    if ($held) { Invoke-Main }
   } finally {
     if ($held) { $mutex.ReleaseMutex() }
     $mutex.Dispose()

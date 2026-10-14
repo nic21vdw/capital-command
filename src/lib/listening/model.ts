@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { DEFAULT_KEYWORD_GROUPS } from "@/lib/listening/defaults";
+
+export { DEFAULT_KEYWORD_GROUPS };
 
 /**
  * Listening — find the public threads where someone is describing the exact
@@ -6,21 +9,33 @@ import { z } from "zod";
  * hunting for a Cursor alternative), so Nic can answer the ones he genuinely
  * can help with.
  *
- * Pure: schemas, defaults, the two response parsers, term matching and the
- * dedupe merge. Network lives in scan.ts and disk in store.ts, so everything
+ * Pure: schemas, defaults, term matching and the dedupe merge. The response
+ * parsers are here (Hacker News, Reddit) and in parsers.ts (YouTube, Bluesky).
+ * Network lives in scan.ts and disk in config.ts and store.ts, so everything
  * here is tested against fixture JSON with no network at all.
  */
 
-export const LISTENING_INTENTS = ["pain", "comparison", "pricing"] as const;
+export const LISTENING_INTENTS = ["pain", "comparison", "pricing", "brand", "competitor"] as const;
 export type ListeningIntent = (typeof LISTENING_INTENTS)[number];
 
-export const LISTENING_SOURCES = ["hn", "reddit"] as const;
+export const LISTENING_SOURCES = ["hn", "reddit", "youtube", "bluesky", "x"] as const;
 export type ListeningSource = (typeof LISTENING_SOURCES)[number];
 
-export const RESULT_STATUSES = ["new", "replied", "ignored"] as const;
+export const RESULT_STATUSES = ["new", "seen", "sent-to-outreach", "dismissed"] as const;
 export type ResultStatus = (typeof RESULT_STATUSES)[number];
 
-export const SOURCE_LABELS: Record<ListeningSource, string> = { hn: "Hacker News", reddit: "Reddit" };
+export const HIT_CATEGORIES = ["lead", "mention", "competitor", "noise"] as const;
+export type HitCategory = (typeof HIT_CATEGORIES)[number];
+
+export const SOURCE_LABELS: Record<ListeningSource, string> = {
+  hn: "Hacker News",
+  reddit: "Reddit",
+  youtube: "YouTube",
+  bluesky: "Bluesky",
+  x: "X"
+};
+
+export const SOURCE_NOTES: Partial<Record<ListeningSource, string>> = { x: "Needs X API access" };
 
 export const keywordGroupSchema = z.object({
   id: z.string().min(1),
@@ -29,6 +44,8 @@ export const keywordGroupSchema = z.object({
   intent: z.enum(LISTENING_INTENTS)
 });
 export type KeywordGroup = z.infer<typeof keywordGroupSchema>;
+
+export const sourceReference = z.object({ source: z.enum(LISTENING_SOURCES), url: z.string().min(1) });
 
 export const listeningResultSchema = z.object({
   id: z.string().min(1),
@@ -44,13 +61,21 @@ export const listeningResultSchema = z.object({
   status: z.enum(RESULT_STATUSES).default("new"),
   note: z.string().default(""),
   /** When a scan first found it (ISO). */
-  foundAt: z.string()
+  foundAt: z.string(),
+  category: z.enum(HIT_CATEGORIES).default("mention"),
+  sentiment: z.number().min(-1).max(1).default(0),
+  score: z.number().min(0).max(100).default(0),
+  reason: z.string().default(""),
+  classifiedBy: z.enum(["ai", "heuristic"]).default("heuristic"),
+  alsoOn: z.array(sourceReference).default([]),
+  outreachContactId: z.string().optional()
 });
 export type ListeningResult = z.infer<typeof listeningResultSchema>;
 
 export const sourceReportSchema = z.object({
   source: z.enum(LISTENING_SOURCES),
   ok: z.boolean(),
+  skipped: z.boolean().optional(),
   /** Queries actually sent. */
   queries: z.number().int().min(0),
   /** Hits the source returned that matched a term. */
@@ -58,58 +83,71 @@ export const sourceReportSchema = z.object({
   /** Of those, how many were not already on the list. */
   added: z.number().int().min(0),
   httpStatus: z.number().int().optional(),
-  error: z.string().optional()
+  error: z.string().optional(),
+  note: z.string().optional()
 });
 export type SourceReport = z.infer<typeof sourceReportSchema>;
 
 export const scanReportSchema = z.object({
   at: z.string(),
-  sources: z.array(sourceReportSchema)
+  sources: z.array(sourceReportSchema),
+  classified: z.object({ ai: z.number().int().min(0), heuristic: z.number().int().min(0) }).optional()
 });
 export type ScanReport = z.infer<typeof scanReportSchema>;
 
-export const DEFAULT_KEYWORD_GROUPS: KeywordGroup[] = [
-  {
-    id: "pain",
-    name: "Juggling agents",
-    intent: "pain",
-    terms: [
-      "multiple claude code",
-      "claude code worktrees",
-      "run codex and claude",
-      "too many terminals ai agents",
-      "parallel ai coding agents"
-    ]
-  },
-  {
-    id: "comparison",
-    name: "Looking for an alternative",
-    intent: "comparison",
-    terms: ["cursor alternative", "conductor app claude", "warp alternative", "claude code gui"]
-  },
-  {
-    id: "pricing",
-    name: "Subscription fatigue",
-    intent: "pricing",
-    terms: ["ai tool subscription fatigue", "one-time license ai"]
-  }
-];
+const sourceSwitchesSchema = z.object({
+  hn: z.boolean().default(true),
+  reddit: z.boolean().default(true),
+  youtube: z.boolean().default(true),
+  bluesky: z.boolean().default(true),
+  x: z.boolean().default(false)
+});
+export type SourceSwitches = z.infer<typeof sourceSwitchesSchema>;
+
+export const DEFAULT_SOURCE_SWITCHES: SourceSwitches = { hn: true, reddit: true, youtube: true, bluesky: true, x: false };
+
+export const listeningConfigSchema = z.object({
+  groups: z.array(keywordGroupSchema).default(DEFAULT_KEYWORD_GROUPS),
+  sources: sourceSwitchesSchema.default(DEFAULT_SOURCE_SWITCHES),
+  autoScan: z.boolean().default(true)
+});
+export type ListeningConfig = z.infer<typeof listeningConfigSchema>;
+
+export const defaultListeningConfig: ListeningConfig = {
+  groups: DEFAULT_KEYWORD_GROUPS,
+  sources: DEFAULT_SOURCE_SWITCHES,
+  autoScan: true
+};
+
+const youtubeStateSchema = z.object({
+  day: z.string().default(""),
+  units: z.number().int().min(0).default(0),
+  cursor: z.number().int().min(0).default(0)
+});
+export type YoutubeState = z.infer<typeof youtubeStateSchema>;
+
+export const EMPTY_YOUTUBE_STATE: YoutubeState = { day: "", units: 0, cursor: 0 };
 
 export const listeningStoreSchema = z.object({
-  groups: z.array(keywordGroupSchema).default(DEFAULT_KEYWORD_GROUPS),
-  sources: z.object({ hn: z.boolean().default(true), reddit: z.boolean().default(true) }).default({ hn: true, reddit: true }),
   results: z.array(listeningResultSchema).default([]),
-  lastScan: scanReportSchema.optional()
+  lastScan: scanReportSchema.optional(),
+  youtube: youtubeStateSchema.default(EMPTY_YOUTUBE_STATE)
 });
 export type ListeningStore = z.infer<typeof listeningStoreSchema>;
 
-export const defaultListeningStore: ListeningStore = {
-  groups: DEFAULT_KEYWORD_GROUPS,
-  sources: { hn: true, reddit: true },
-  results: []
-};
+export const defaultListeningStore: ListeningStore = { results: [], youtube: EMPTY_YOUTUBE_STATE };
 
-/** The most results kept. Older ones fall off first, but a result you marked keeps its place over a new one. */
+export type ListeningSnapshot = ListeningConfig & ListeningStore;
+
+export const SCAN_INTERVAL_MS = 2 * 60 * 60 * 1000;
+
+export function isScanDue(state: { autoScan: boolean; lastScanAt: string | undefined; now: number }): boolean {
+  if (!state.autoScan) return false;
+  const last = state.lastScanAt ? Date.parse(state.lastScanAt) : Number.NaN;
+  return !Number.isFinite(last) || state.now - last >= SCAN_INTERVAL_MS;
+}
+
+/** The most results kept. When full, the least valuable go first; see capResults. */
 export const MAX_RESULTS = 1000;
 
 /** Shown on the page before anyone replies to anything. */
@@ -173,13 +211,18 @@ export interface ListeningHit {
   createdAt: string;
   excerpt: string;
   matchedTerms: string[];
+  category?: HitCategory;
+  sentiment?: number;
+  score?: number;
+  reason?: string;
+  classifiedBy?: "ai" | "heuristic";
 }
 
-function str(value: unknown): string {
+export function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-function excerptOf(text: string): string {
+export function excerptOf(text: string): string {
   const plain = plainText(text);
   return plain.length > 280 ? `${plain.slice(0, 277)}...` : plain;
 }
@@ -270,49 +313,119 @@ function resultId(hit: ListeningHit): string {
   return `${hit.source}-${(hash >>> 0).toString(36)}`;
 }
 
+const MIN_FINGERPRINT_CHARS = 40;
+const FINGERPRINT_CHARS = 120;
+
+export function contentFingerprint(hit: Pick<ListeningHit, "title" | "excerpt">): string | null {
+  const body = plainText(hit.excerpt);
+  const title = plainText(hit.title);
+  const basis = body.length >= MIN_FINGERPRINT_CHARS ? body : title.startsWith("Comment on: ") ? "" : title.replace(/^r\/\w+: /, "");
+  const words = basis.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return words.length >= MIN_FINGERPRINT_CHARS ? words.slice(0, FINGERPRINT_CHARS) : null;
+}
+
+interface ResultIndex {
+  byUrl: Map<string, string>;
+  byPrint: Map<string, string>;
+}
+
+function indexResults(results: ListeningResult[]): ResultIndex {
+  const index: ResultIndex = { byUrl: new Map(), byPrint: new Map() };
+  for (const result of results) addToIndex(index, result);
+  return index;
+}
+
+function addToIndex(index: ResultIndex, result: ListeningResult) {
+  index.byUrl.set(normalizeResultUrl(result.url), result.id);
+  for (const other of result.alsoOn) index.byUrl.set(normalizeResultUrl(other.url), result.id);
+  const print = contentFingerprint(result);
+  if (print && !index.byPrint.has(print)) index.byPrint.set(print, result.id);
+}
+
+function lookup(index: ResultIndex, hit: ListeningHit): string | undefined {
+  const print = contentFingerprint(hit);
+  return index.byUrl.get(normalizeResultUrl(hit.url)) ?? (print ? index.byPrint.get(print) : undefined);
+}
+
+export function splitNewHits(existing: ListeningResult[], hits: ListeningHit[]): ListeningHit[] {
+  const index = indexResults(existing);
+  const seenUrls = new Set<string>();
+  const seenPrints = new Set<string>();
+  const fresh: ListeningHit[] = [];
+  for (const hit of hits) {
+    const url = normalizeResultUrl(hit.url);
+    const print = contentFingerprint(hit);
+    if (lookup(index, hit) || seenUrls.has(url) || (print && seenPrints.has(print))) continue;
+    seenUrls.add(url);
+    if (print) seenPrints.add(print);
+    fresh.push(hit);
+  }
+  return fresh;
+}
+
 /**
- * Fold a scan's hits into the stored results, one entry per url. A url already
- * on the list keeps its status and note — a scan never resurrects something
- * marked ignored — and only gains any newly matched terms. Returns how many
- * were genuinely new.
+ * Fold a scan's hits into the stored results, one entry per url and per piece
+ * of text. A url already on the list keeps its status and note - a scan never
+ * resurrects something dismissed - and only gains any newly matched terms. The
+ * same words found on another source are folded into the first result and
+ * remembered in `alsoOn`. Returns how many were genuinely new.
  */
 export function mergeResults(
   existing: ListeningResult[],
   hits: ListeningHit[],
   foundAt = new Date().toISOString()
 ): { results: ListeningResult[]; added: number } {
-  const byUrl = new Map<string, ListeningResult>();
-  for (const result of existing) byUrl.set(normalizeResultUrl(result.url), result);
+  const byId = new Map<string, ListeningResult>(existing.map((result) => [result.id, result]));
+  const index = indexResults(existing);
   let added = 0;
   for (const hit of hits) {
-    const key = normalizeResultUrl(hit.url);
-    const known = byUrl.get(key);
+    const knownId = lookup(index, hit);
+    const known = knownId ? byId.get(knownId) : undefined;
     if (known) {
       const terms = [...new Set([...known.matchedTerms, ...hit.matchedTerms])];
-      if (terms.length !== known.matchedTerms.length) byUrl.set(key, { ...known, matchedTerms: terms });
+      const sameUrl = normalizeResultUrl(known.url) === normalizeResultUrl(hit.url);
+      const listed = known.alsoOn.some((other) => normalizeResultUrl(other.url) === normalizeResultUrl(hit.url));
+      const alsoOn = sameUrl || listed ? known.alsoOn : [...known.alsoOn, { source: hit.source, url: hit.url }];
+      if (terms.length !== known.matchedTerms.length || alsoOn.length !== known.alsoOn.length) {
+        const next = { ...known, matchedTerms: terms, alsoOn };
+        byId.set(known.id, next);
+        addToIndex(index, next);
+      }
       continue;
     }
-    byUrl.set(key, { ...hit, id: resultId(hit), status: "new", note: "", foundAt });
+    const result = listeningResultSchema.parse({
+      ...hit,
+      id: resultId(hit),
+      status: "new",
+      note: "",
+      foundAt
+    });
+    byId.set(result.id, result);
+    addToIndex(index, result);
     added += 1;
   }
-  const results = [...byUrl.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const results = [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return { results: capResults(results), added };
+}
+
+function keepRank(result: ListeningResult): number {
+  if (result.status === "sent-to-outreach" || result.note) return 3;
+  if (result.status === "dismissed") return 0;
+  if (result.category === "lead") return 2;
+  if (result.category === "noise") return 0;
+  return 1;
 }
 
 function capResults(results: ListeningResult[]): ListeningResult[] {
   if (results.length <= MAX_RESULTS) return results;
-  // Results arrive newest first. Drop untouched "new" ones from the old end
-  // before anything Nic marked, then plain age if that is still not enough.
   const overflow = results.length - MAX_RESULTS;
-  const dropIds = new Set(
+  const drop = new Set(
     [...results]
-      .reverse()
-      .filter((result) => result.status === "new" && !result.note)
+      .sort((a, b) => keepRank(a) - keepRank(b) || a.createdAt.localeCompare(b.createdAt))
       .slice(0, overflow)
       .map((result) => result.id)
   );
-  const kept = results.filter((result) => !dropIds.has(result.id));
-  return kept.slice(0, MAX_RESULTS);
+  return results.filter((result) => !drop.has(result.id));
 }
 
 export function intentOfTerms(groups: KeywordGroup[], terms: string[]): ListeningIntent[] {
