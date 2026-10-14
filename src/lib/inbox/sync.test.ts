@@ -6,6 +6,7 @@ import { syncInbox } from "@/lib/inbox/sync";
 import { readInbox, updateInbox } from "@/lib/inbox/store";
 import { jsonResponse, samplePost, stubFetch, writeCalls, type FetchCall } from "@/lib/inbox/test-helpers";
 import { cursorKey, emptyInbox } from "@/lib/inbox/types";
+import { createQuotaLedger, quotaLedgerFile } from "@/lib/youtube/quotaLedger";
 
 vi.mock("@/lib/publisher/adapters/youtube", () => ({ youtubeAccessToken: vi.fn(async () => "yt-token") }));
 vi.mock("@/lib/publisher/metaProfile", () => ({
@@ -14,6 +15,7 @@ vi.mock("@/lib/publisher/metaProfile", () => ({
 
 const NOW = new Date("2026-10-13T12:00:00.000Z");
 const DAY = 86_400_000;
+const todaysQuota = () => createQuotaLedger({ now: () => NOW });
 const daysAgo = (days: number) => new Date(NOW.getTime() - days * DAY).toISOString();
 
 const yt = (id: string, at: string) => ({
@@ -60,6 +62,7 @@ beforeEach(async () => {
   vi.stubEnv("THREADS_USER_ID", "555");
   await updateInbox(() => emptyInbox());
   await rm(dataPath("platform-auth.json"), { force: true });
+  await rm(quotaLedgerFile(), { force: true });
 });
 
 afterEach(() => {
@@ -250,12 +253,14 @@ describe("syncInbox", () => {
   it("keeps YouTube reads inside a small daily quota budget so uploads are never starved", async () => {
     vi.stubEnv("INBOX_YOUTUBE_DAILY_UNITS", "2");
     const calls = stubFetch((call) => platformApis(call) ?? jsonResponse({}, 404));
+    const quota = todaysQuota();
 
-    const report = await syncInbox({ now: NOW, posts: [ytPost("v1"), ytPost("v2"), ytPost("v3")] });
+    const report = await syncInbox({ now: NOW, quota, posts: [ytPost("v1"), ytPost("v2"), ytPost("v3")] });
 
     expect(calls.filter((call) => new URL(call.url).hostname === "www.googleapis.com")).toHaveLength(2);
     expect(report.platforms.youtube).toMatchObject({ status: "deferred", fetchedPosts: 2 });
-    expect((await readInbox()).youtubeUnits?.used).toBe(2);
+    expect(report.platforms.youtube?.detail).toMatch(/quota saved for uploads/i);
+    expect((await quota.snapshot()).byPurpose).toEqual({ inbox: 2 });
   });
 
   it("leaves a platform with no credentials alone", async () => {
@@ -271,50 +276,69 @@ describe("syncInbox", () => {
 });
 
 describe("YouTube read budget", () => {
-  const unitsFor = async () => (await readInbox()).youtubeUnits?.used;
+  const unitsFor = async (quota = todaysQuota()) => (await quota.snapshot()).byPurpose.inbox;
 
   it("counts a call that failed, not only the ones that answered", async () => {
     stubFetch(() => yt403("insufficientPermissions", "Request had insufficient authentication scopes."));
 
-    await syncInbox({ now: NOW, posts: [ytPost("v1")] });
+    await syncInbox({ now: NOW, quota: todaysQuota(), posts: [ytPost("v1")] });
 
     expect(await unitsFor()).toBe(1);
   });
 
   it("saves the count after every call, not once at the end of the run", async () => {
     const seen: Array<number | undefined> = [];
+    const quota = todaysQuota();
     stubFetch(async (call) => {
       const url = new URL(call.url);
       if (url.hostname !== "www.googleapis.com") return jsonResponse({}, 404);
-      seen.push(await unitsFor());
+      seen.push(await unitsFor(quota));
       return jsonResponse({ items: [yt(`c-${url.searchParams.get("videoId")}`, daysAgo(1))] });
     });
 
-    await syncInbox({ now: NOW, posts: [ytPost("v1"), ytPost("v2"), ytPost("v3")] });
+    await syncInbox({ now: NOW, quota, posts: [ytPost("v1"), ytPost("v2"), ytPost("v3")] });
 
     expect(seen).toEqual([1, 2, 3]);
-    expect(await unitsFor()).toBe(3);
+    expect(await unitsFor(quota)).toBe(3);
   });
 
-  it("is shared through the store, so a run elsewhere has already spent part of today's budget", async () => {
+  it("is shared through the ledger, so a run elsewhere has already spent part of today's budget", async () => {
     vi.stubEnv("INBOX_YOUTUBE_DAILY_UNITS", "200");
-    await updateInbox((store) => ({ ...store, youtubeUnits: { date: "2026-10-13", used: 199 } }));
+    await todaysQuota().debit(199, "inbox");
     const calls = stubFetch((call) => platformApis(call) ?? jsonResponse({}, 404));
 
-    const report = await syncInbox({ now: NOW, posts: [ytPost("v1"), ytPost("v2")] });
+    const report = await syncInbox({ now: NOW, quota: todaysQuota(), posts: [ytPost("v1"), ytPost("v2")] });
 
     expect(calls.filter((call) => new URL(call.url).hostname === "www.googleapis.com")).toHaveLength(1);
     expect(report.platforms.youtube?.status).toBe("deferred");
     expect(await unitsFor()).toBe(200);
   });
 
+  it("shares the allowance with the other purposes: nothing is read once the non-upload units are gone", async () => {
+    await todaysQuota().debit(300, "outliers");
+    const calls = stubFetch((call) => platformApis(call) ?? jsonResponse({}, 404));
+
+    const report = await syncInbox({ now: NOW, quota: todaysQuota(), posts: [ytPost("v1")] });
+
+    expect(calls.filter((call) => new URL(call.url).hostname === "www.googleapis.com")).toHaveLength(0);
+    expect(report.platforms.youtube?.status).toBe("deferred");
+  });
+
   it("starts a new count on the next quota day", async () => {
-    await updateInbox((store) => ({ ...store, youtubeUnits: { date: "2026-10-12", used: 200 } }));
+    await createQuotaLedger({ now: () => new Date("2026-10-12T12:00:00.000Z") }).debit(200, "inbox");
     stubFetch((call) => platformApis(call) ?? jsonResponse({}, 404));
 
-    await syncInbox({ now: NOW, posts: [ytPost("v1")] });
+    await syncInbox({ now: NOW, quota: todaysQuota(), posts: [ytPost("v1")] });
 
-    expect((await readInbox()).youtubeUnits).toEqual({ date: "2026-10-13", used: 1 });
+    expect((await todaysQuota().snapshot()).byPurpose).toEqual({ inbox: 1 });
+  });
+
+  it("no longer writes the old counter in the inbox store", async () => {
+    stubFetch((call) => platformApis(call) ?? jsonResponse({}, 404));
+
+    await syncInbox({ now: NOW, quota: todaysQuota(), posts: [ytPost("v1")] });
+
+    expect((await readInbox()).youtubeUnits).toBeUndefined();
   });
 });
 

@@ -3,11 +3,12 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { updateListeningConfig } from "@/lib/listening/config";
-import { listeningUnitsToday } from "@/lib/listening/ledger";
+import { storeLedger } from "@/lib/listening/ledger";
 import { runListeningScan } from "@/lib/listening/run";
 import { clearScanBackoff, scheduleEnabled, scheduledScanOnce, startListeningSchedule, stopListeningSchedule, SCAN_INTERVAL_MS } from "@/lib/listening/schedule";
 import { readListeningStore, updateListeningStore } from "@/lib/listening/store";
 import { dataPath } from "@/lib/paths";
+import { createQuotaLedger, ledgerConfig, quotaLedgerFile, type LedgerConfig } from "@/lib/youtube/quotaLedger";
 
 const crash = vi.hoisted(() => ({ armed: false }));
 
@@ -52,6 +53,12 @@ function youtubeFetch(onSearch?: () => Promise<void>) {
 
 const searchesIn = (fetcher: ReturnType<typeof youtubeFetch>) => fetcher.mock.calls.filter(([input]) => isSearch(String(input))).length;
 
+const BIG_LISTENING_CAP: LedgerConfig = { ...ledgerConfig({}), nonUploadUnits: 400, purposeCaps: { inbox: 200, listening: 400 } };
+
+function quotaAt(offsetMs = 0) {
+  return createQuotaLedger({ now: at(offsetMs), config: () => BIG_LISTENING_CAP });
+}
+
 function deps(fetcher: ReturnType<typeof youtubeFetch>, extra: { offset?: number; budget?: number } = {}) {
   return {
     fetch: fetcher as unknown as typeof fetch,
@@ -59,7 +66,8 @@ function deps(fetcher: ReturnType<typeof youtubeFetch>, extra: { offset?: number
     now: at(extra.offset ?? 0),
     runAi: noAi,
     youtubeAuth: async () => ({ key: "KEY" }),
-    youtubeDailyUnits: extra.budget ?? 400
+    youtubeDailyUnits: extra.budget ?? 400,
+    youtubeLedger: storeLedger(quotaAt(extra.offset ?? 0))
   };
 }
 
@@ -76,6 +84,7 @@ beforeEach(async () => {
   clearScanBackoff();
   await rm(dataPath("listening.json"), { force: true });
   await rm(dataPath("listening"), { recursive: true, force: true });
+  await rm(quotaLedgerFile(), { force: true });
   await configureYoutubeOnly();
 });
 
@@ -84,63 +93,88 @@ afterEach(() => {
   stopListeningSchedule();
 });
 
+const listeningUnits = async (quota = quotaAt()) => (await quota.snapshot()).byPurpose.listening;
+
 describe("the YouTube quota ledger", () => {
-  it("is debited in the store before the search leaves the machine", async () => {
+  it("is debited in the shared ledger before the search leaves the machine", async () => {
     let unitsWhenSent = -1;
     const fetcher = youtubeFetch(async () => {
-      unitsWhenSent = (await readListeningStore()).youtube.units;
+      unitsWhenSent = (await listeningUnits()) ?? 0;
     });
 
     await runListeningScan(deps(fetcher));
 
     expect(unitsWhenSent).toBe(100);
-    expect((await readListeningStore()).youtube).toMatchObject({ day: "2026-10-12", units: 101 });
+    expect(await listeningUnits()).toBe(101);
+  });
+
+  it("no longer writes the old counter in the Listening store, which keeps only its rotation cursor moving", async () => {
+    await runListeningScan(deps(youtubeFetch()));
+
+    expect((await readListeningStore()).youtube).toEqual({ day: "", units: 0, cursor: 1 });
   });
 
   it("changes the stored numbers by what this scan spent, not back to what it read when it started", async () => {
+    const quota = quotaAt();
     const fetcher = youtubeFetch(async () => {
-      await updateListeningStore((store) => ({ ...store, youtube: { ...store.youtube, units: store.youtube.units + 50, cursor: store.youtube.cursor + 10 } }));
+      await quota.debit(50, "listening");
+      await updateListeningStore((store) => ({ ...store, youtube: { ...store.youtube, cursor: store.youtube.cursor + 10 } }));
     });
 
     await runListeningScan(deps(fetcher));
 
-    expect((await readListeningStore()).youtube).toEqual({ day: "2026-10-12", units: 50 + 100 + 1, cursor: 10 + 1 });
+    expect(await listeningUnits(quota)).toBe(50 + 100 + 1);
+    expect((await readListeningStore()).youtube.cursor).toBe(10 + 1);
   });
 
   it("keeps counting across scans and a crash after the fetch, reloading the ledger from disk each time", async () => {
     const first = youtubeFetch();
     await runListeningScan(deps(first));
-    expect((await readListeningStore()).youtube.units).toBe(101);
+    expect(await listeningUnits()).toBe(101);
 
     crash.armed = true;
     const second = youtubeFetch();
     await expect(runListeningScan(deps(second))).rejects.toThrow(/process died/);
     expect(searchesIn(second)).toBe(1);
     const afterCrash = await readListeningStore();
-    expect(afterCrash.youtube.units).toBe(202);
+    expect(await listeningUnits()).toBe(202);
     expect(afterCrash.lastScan?.error).toMatch(/process died/);
     crash.armed = false;
 
     const third = youtubeFetch();
     await runListeningScan(deps(third));
     expect(searchesIn(third)).toBe(1);
-    expect((await readListeningStore()).youtube.units).toBe(303);
+    expect(await listeningUnits()).toBe(303);
 
     const fourth = youtubeFetch();
     await runListeningScan(deps(fourth));
     expect(searchesIn(fourth)).toBe(0);
-    expect((await readListeningStore()).youtube.units).toBe(303);
+    expect(await listeningUnits()).toBe(303);
   });
-});
 
-describe("what Listening has spent today", () => {
-  it("reads today's units from the ledger, and nothing for another day or a file it cannot read", async () => {
-    await updateListeningStore((store) => ({ ...store, youtube: { day: "2026-10-12", units: 250, cursor: 0 } }));
-    expect(await listeningUnitsToday(NOW)).toBe(250);
-    expect(await listeningUnitsToday(new Date("2026-10-14T06:00:00.000Z"))).toBe(0);
+  it("stops at its own 100-unit sub-cap when the shared ledger is the real one", async () => {
+    const real = createQuotaLedger({ now: at() });
+    const smallDeps = (fetcher: ReturnType<typeof youtubeFetch>) => ({ ...deps(fetcher), youtubeDailyUnits: 400, youtubeLedger: storeLedger(real) });
 
-    await writeFile(dataPath("listening.json"), "{broken", "utf8");
-    expect(await listeningUnitsToday(NOW)).toBe(0);
+    const first = youtubeFetch();
+    await runListeningScan(smallDeps(first));
+    expect(searchesIn(first)).toBe(1);
+    expect((await real.snapshot()).byPurpose.listening).toBe(100);
+
+    const second = youtubeFetch();
+    const outcome = await runListeningScan(smallDeps(second));
+    expect(searchesIn(second)).toBe(0);
+    expect(outcome.report.sources[0].note).toMatch(/quota saved for uploads/i);
+  });
+
+  it("shares the 300-unit allowance, so a spent allowance turns the search away", async () => {
+    const real = createQuotaLedger({ now: at() });
+    await real.debit(300, "outliers");
+    const fetcher = youtubeFetch();
+
+    await runListeningScan({ ...deps(fetcher), youtubeLedger: storeLedger(real) });
+
+    expect(searchesIn(fetcher)).toBe(0);
   });
 });
 

@@ -96,8 +96,8 @@ the queue. It lists the clips from the latest generator run with thumbnails,
 lets you edit title/caption, pick a platform (YouTube · TikTok · Instagram · Facebook)
 and a schedule slot — weekdays at 07:30 / 12:30 / 19:30 `PUBLISH_TIMEZONE`,
 stored as UTC — or drag a clip straight onto the 14-day board. It also shows
-a YouTube quota meter (uploads today vs the `YOUTUBE_DAILY_UPLOAD_BUDGET`,
-default 6) and a **Connect YouTube** button: set `YOUTUBE_CLIENT_ID` /
+a YouTube quota meter (uploads left today against `YOUTUBE_DAILY_UPLOAD_BUDGET`,
+default 6, and what uploads, analytics, the inbox, Listening and the scans each spent) and a **Connect YouTube** button: set `YOUTUBE_CLIENT_ID` /
 `YOUTUBE_CLIENT_SECRET` in `.env` (OAuth client type **Web application** with
 redirect URI `http://localhost:3000/api/auth/google/callback`), click
 Connect, approve, done — the refresh token is stored server-side in

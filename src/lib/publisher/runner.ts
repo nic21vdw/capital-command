@@ -20,12 +20,12 @@ import { imagePathsOf, isImagePost } from "@/lib/publisher/images";
 import { channelDuplicateMessage, youtubeChannelDuplicate } from "@/lib/publisher/duplicateGuard";
 import { describeMirrorPlan, planMirror } from "@/lib/publisher/mirror";
 import { AbandonedUploadError, PermanentError, StillProcessingError, ThrottledError, isTransient } from "@/lib/publisher/http";
-import { listeningUnitsToday } from "@/lib/listening/ledger";
-import { effectiveUploadBudget, remainingYoutubeUploads } from "@/lib/publisher/quota";
+import { remainingYoutubeUploads } from "@/lib/publisher/quota";
 import { outstandingTiktokDrafts, usesTiktokInbox } from "@/lib/publisher/tiktokInbox";
 import { PublishQueue, isTerminalStatus, mirroredPlatformState, publishQueue } from "@/lib/publisher/queue";
 import { formatInTimezone } from "@/lib/publisher/time";
 import type { PlatformAdapter, PlatformId, PlatformState, PostResult, PublishInput, PublishPlan, QueueItem } from "@/lib/publisher/types";
+import { youtubeQuotaLedger, type QuotaLedger } from "@/lib/youtube/quotaLedger";
 
 /**
  * The scheduler/runner. run_due(now) processes every queue item that is due
@@ -109,6 +109,7 @@ export type RunDueOptions = {
    * instead of being failed by a forced attempt it could never complete.
    */
   platforms?: PlatformId[];
+  quota?: Pick<QuotaLedger, "snapshot">;
 };
 
 export const defaultAdapters: Record<PlatformId, PlatformAdapter> = {
@@ -400,9 +401,9 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
   // every file today, empties the daily allowance and locks the channel out of
   // uploading. `due` is ordered by slot, so what does go up is the soonest.
   const allItems = await queue.list();
-  const listeningUnits = options.force ? 0 : await listeningUnitsToday(now);
-  const youtubeBudgetToday = effectiveUploadBudget(config, listeningUnits);
-  let youtubeUploadsLeft = options.force ? Number.POSITIVE_INFINITY : remainingYoutubeUploads(allItems, now, config, listeningUnits);
+  const ledger = options.force ? null : await (options.quota ?? youtubeQuotaLedger).snapshot().catch(() => null);
+  let youtubeUploadsLeft = options.force ? Number.POSITIVE_INFINITY : remainingYoutubeUploads(allItems, now, config, ledger);
+  const ledgerLimited = Boolean(ledger) && youtubeUploadsLeft < remainingYoutubeUploads(allItems, now, config);
   // TikTok's ceiling counts drafts waiting in the inbox, and only a tap in the
   // app clears one — so unlike YouTube's allowance it does not reset overnight.
   const tiktokDraftsWaiting = outstandingTiktokDrafts(allItems);
@@ -485,7 +486,9 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
             if (youtubeUploadsLeft <= 0) {
               await record(
                 "deferred",
-                `YouTube's ${youtubeBudgetToday} uploads for today are used${listeningUnits > 0 ? ` (${config.youtube.dailyUploadBudget} less the quota Listening spent)` : ""} — this one goes up on the next run after the quota resets.`,
+                ledger && ledgerLimited
+                  ? `YouTube's quota for today is nearly spent (${ledger.spent} of ${ledger.dailyUnits} units) — this one goes up on the next run after the quota resets.`
+                  : `YouTube's ${config.youtube.dailyUploadBudget} uploads for today are used — this one goes up on the next run after the quota resets.`,
                 "daily cap"
               );
               continue;
