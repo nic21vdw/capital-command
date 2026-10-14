@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { appendFile, mkdir, open, readdir, unlink } from "node:fs/promises";
+import { appendFile, mkdir, open, readdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { dataPath } from "@/lib/paths";
@@ -10,13 +10,36 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_EVENTS = 50_000;
 const PAGE_SIZE = 50;
+const SEED_BYTES = 4 * 1024 * 1024;
+const PRUNE_EVERY_MS = 60_000;
 const journalName = /^(pipeline|ingest|publisher|threads|podcast)-(\d{4}-\d{2}-\d{2})\.jsonl$/;
 const schema = z.object({
   id: z.string().min(1).max(80), at: z.string().datetime(), automationId: z.enum(AUTOMATION_IDS),
   scope: z.enum(["worker", "delivery", "control"]), kind: z.enum(AUTOMATION_EVENT_KINDS), detail: z.string().max(1000),
   itemId: z.string().max(100).optional(), destination: z.string().max(100).optional(), nextAttemptAt: z.string().datetime().optional()
 });
-let lastPruned = 0;
+type Written = { kind: string; detail: string; id: string };
+type Memory = { journals: Map<string, { file: string; written: Map<string, Written> }>; queue: Promise<unknown>; lastPruned: number };
+const globals = globalThis as typeof globalThis & { __automationHistoryMemory?: Memory };
+
+function memory(): Memory {
+  return (globals.__automationHistoryMemory ??= { journals: new Map(), queue: Promise.resolve(), lastPruned: 0 });
+}
+
+export function resetAutomationHistoryMemory(): void {
+  globals.__automationHistoryMemory = undefined;
+}
+
+function serialised<T>(task: () => Promise<T>): Promise<T> {
+  const state = memory();
+  const result = state.queue.then(task);
+  state.queue = result.catch(() => undefined);
+  return result;
+}
+
+function streamKey(event: Pick<AutomationHistoryEvent, "scope" | "itemId" | "destination">): string {
+  return `${event.scope}\u0000${event.itemId ?? ""}\u0000${event.destination ?? ""}`;
+}
 
 export function historyDetail(value: string): string {
   return value.replace(/\u2014/g, " - ")
@@ -28,27 +51,78 @@ export function historyDetail(value: string): string {
     .slice(0, 1000);
 }
 
-async function prune(now: Date): Promise<void> {
+export async function pruneAutomationHistory(now: Date): Promise<void> {
   const cutoff = new Date(now.getTime() - WEEK_MS).toISOString().slice(0, 10);
   const folder = dataPath("automations", "history");
-  for (const name of await readdir(folder)) {
-    const match = journalName.exec(name);
-    if (match && match[2] < cutoff) await unlink(path.join(folder, name)).catch((error) => {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    });
+  let names: string[];
+  try { names = await readdir(folder); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
   }
+  for (const name of names) {
+    const match = journalName.exec(name);
+    if (match && match[2] < cutoff) await unlink(path.join(folder, name)).catch(() => undefined);
+  }
+}
+
+async function pruneWhenDue(now: Date): Promise<void> {
+  const state = memory();
+  if (now.getTime() - state.lastPruned <= PRUNE_EVERY_MS) return;
+  state.lastPruned = now.getTime();
+  await pruneAutomationHistory(now).catch(() => undefined);
+}
+
+async function readWritten(file: string): Promise<Map<string, Written>> {
+  const written = new Map<string, Written>();
+  let handle;
+  try { handle = await open(file, "r"); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return written;
+    throw error;
+  }
+  try {
+    const size = (await handle.stat()).size;
+    const start = Math.max(0, size - SEED_BYTES);
+    const buffer = Buffer.alloc(size - start);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, start);
+    let content = buffer.subarray(0, bytesRead).toString("utf8");
+    if (start > 0) content = content.slice(content.indexOf("\n") + 1);
+    for (const line of content.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const event = schema.parse(JSON.parse(line));
+        written.set(streamKey(event), { kind: event.kind, detail: event.detail, id: event.id });
+      } catch {
+        continue;
+      }
+    }
+  } finally { await handle.close(); }
+  return written;
+}
+
+async function writtenIn(automationId: AutomationId, file: string): Promise<Map<string, Written>> {
+  const known = memory().journals.get(automationId);
+  if (known?.file === file && await stat(file).then(() => true, () => false)) return known.written;
+  const written = await readWritten(file);
+  memory().journals.set(automationId, { file, written });
+  return written;
 }
 
 export async function recordAutomationEvent(input: Omit<AutomationHistoryEvent, "id"> & { key?: string }, now = new Date()): Promise<void> {
   const { key, ...fields } = input;
   const event = schema.parse({ ...fields, detail: historyDetail(input.detail), id: key ? createHash("sha256").update(`${input.automationId}:${input.scope}:${input.kind}:${key}`).digest("hex") : randomUUID() });
-  const folder = dataPath("automations", "history");
-  await mkdir(folder, { recursive: true });
-  await appendFile(path.join(folder, `${event.automationId}-${event.at.slice(0, 10)}.jsonl`), `${JSON.stringify(event)}\n`, "utf8");
-  if (now.getTime() - lastPruned > 60_000) {
-    lastPruned = now.getTime();
-    await prune(now);
-  }
+  const keyed = Boolean(event.itemId && key);
+  const restatable = event.scope !== "delivery" || Boolean(event.itemId);
+  await serialised(async () => {
+    const folder = dataPath("automations", "history");
+    const file = path.join(folder, `${event.automationId}-${event.at.slice(0, 10)}.jsonl`);
+    const written = await writtenIn(event.automationId, file);
+    const previous = written.get(streamKey(event));
+    if (restatable && previous && previous.kind === event.kind && previous.detail === event.detail && (!keyed || previous.id === event.id)) return;
+    await mkdir(folder, { recursive: true });
+    await appendFile(file, `${JSON.stringify(event)}\n`, "utf8");
+    written.set(streamKey(event), { kind: event.kind, detail: event.detail, id: event.id });
+  });
+  await pruneWhenDue(now);
 }
 
 export async function recordAutomationEventSafely(input: Parameters<typeof recordAutomationEvent>[0]): Promise<void> {

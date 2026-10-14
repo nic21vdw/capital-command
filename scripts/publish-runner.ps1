@@ -27,19 +27,16 @@ $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot "build-lock.ps1")
+. (Join-Path $PSScriptRoot "log-files.ps1")
 $log = Join-Path $root "publish-runner.log"
 $baseUrl = if ($env:APP_BASE_URL) { $env:APP_BASE_URL } else { "http://localhost:3000" }
 
 Set-Location $root
 
-# Keep the last few runs rather than growing without bound.
-if ((Test-Path $log) -and ((Get-Item $log).Length -gt 2MB)) {
-  Move-Item $log "$log.old" -Force
-}
+Invoke-LogRotation -Path $log
 
 $stamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-Add-Content -Path $log -Value "" -Encoding utf8
-Add-Content -Path $log -Value "=== publish run $stamp ===" -Encoding utf8
+Add-LogText -Path $log -Text "=== publish run $stamp ==="
 
 # curl.exe rather than Invoke-WebRequest: IWR has hung indefinitely here under
 # Task Scheduler despite -TimeoutSec, and one wedged instance blocks every later
@@ -63,15 +60,19 @@ if (-not (Test-App)) {
   # from the build that is about to want it. The tick is skipped, not delayed:
   # the next one is minutes away and the release will be finished by then.
   if (Test-BuildInProgress) {
-    Add-Content -Path $log -Value "A build is in progress - leaving it alone this tick." -Encoding utf8
+    Add-LogText -Path $log -Text "A build is in progress - leaving it alone this tick."
     exit 0
   }
   if (-not (Test-BuildPresent)) {
     Start-RecoveryBuild -Log $log
     exit 0
   }
-  Add-Content -Path $log -Value "App not running at $baseUrl - starting it." -Encoding utf8
-  Start-Process -FilePath "npm.cmd" -ArgumentList "run", "start" -WorkingDirectory $root -WindowStyle Hidden
+  Add-LogText -Path $log -Text "App not running at $baseUrl - starting it."
+  try {
+    & (Join-Path $PSScriptRoot "start-server.ps1") -Quiet -NoBuild *>&1 | ForEach-Object { Add-LogText -Path $log -Text "$_" }
+  } catch {
+    Add-LogText -Path $log -Text "start-server.ps1 failed: $($_.Exception.Message)"
+  }
 
   $deadline = (Get-Date).AddMinutes(3)
   while ((Get-Date) -lt $deadline -and -not (Test-App)) {
@@ -79,29 +80,32 @@ if (-not (Test-App)) {
   }
 
   if (-not (Test-App)) {
-    Add-Content -Path $log -Value "App did not come up within 3 minutes. Is it built? Run 'npm run build'." -Encoding utf8
+    Add-LogText -Path $log -Text "App did not come up within 3 minutes. Is it built? Run 'npm run build'."
     exit 1
   }
-  Add-Content -Path $log -Value "App is up." -Encoding utf8
+  Add-LogText -Path $log -Text "App is up."
 }
 
 $body = if ($DryRun) { '{"dryRun":true}' } else { '{}' }
 
 # Uploads and the platforms' own processing polls can take minutes, so this is
 # given far longer than the health check above.
+$responseFile = [System.IO.Path]::GetTempFileName()
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 & curl.exe --silent --show-error --max-time 280 `
-  -X POST -H "Content-Type: application/json" -d $body "$baseUrl/api/publish/run" 2>&1 |
-  ForEach-Object {
-    $line = "$_"
-    Write-Host $line
-    Add-Content -Path $log -Value $line -Encoding utf8
-  }
-$tickExit = $LASTEXITCODE
+  -X POST -H "Content-Type: application/json" -d $body --output $responseFile "$baseUrl/api/publish/run" 2>&1 |
+  ForEach-Object { Add-LogText -Path $log -Text "$_" }
+$curlExit = $LASTEXITCODE
+$ErrorActionPreference = $previousPreference
+Write-PublishRunSummary -Log $log -ResponseFile $responseFile -StatePath (Join-Path $root "publish-runner.seen")
+Remove-Item -LiteralPath $responseFile -Force -ErrorAction SilentlyContinue
+$tickExit = $curlExit
 if (-not $DryRun) {
   try {
     & (Join-Path $PSScriptRoot "health-toast.ps1") -BaseUrl $baseUrl -Log $log
   } catch {
-    Add-Content -Path $log -Value "Health toast failed: $($_.Exception.Message)" -Encoding utf8
+    Add-LogText -Path $log -Text "Health toast failed: $($_.Exception.Message)"
   }
 }
 exit $tickExit

@@ -9,13 +9,15 @@ param(
   # Callers that already show their own console output (update-app.ps1) pass
   # this so a failure does not stop the release behind a modal dialog.
   [switch]$Quiet,
-  [switch]$Rebuild
+  [switch]$Rebuild,
+  [switch]$NoBuild
 )
 
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot "build-lock.ps1")
+. (Join-Path $PSScriptRoot "log-files.ps1")
 $node = if ($env:node) { $env:node } else { "node" }
 $stdout = Join-Path $root "server.out.log"
 $stderr = Join-Path $root "server.err.log"
@@ -40,7 +42,7 @@ function Show-Failure($summary, $logPath) {
   Write-Host $summary -ForegroundColor Red
   if (Test-Path $logPath) {
     Write-Host "--- last 40 lines of $(Split-Path -Leaf $logPath) ---"
-    Get-Content $logPath -Tail 40 | ForEach-Object { Write-Host $_ }
+    Get-Content $logPath -Tail 40 -Encoding UTF8 | ForEach-Object { Write-Host $_ }
   }
 
   # The desktop shortcut runs this through a headless console, so anything
@@ -50,7 +52,7 @@ function Show-Failure($summary, $logPath) {
 
   try {
     Add-Type -AssemblyName System.Windows.Forms
-    $tail = if (Test-Path $logPath) { (Get-Content $logPath -Tail 12) -join "`n" } else { "" }
+    $tail = if (Test-Path $logPath) { (Get-Content $logPath -Tail 12 -Encoding UTF8) -join "`n" } else { "" }
     [System.Windows.Forms.MessageBox]::Show(
       "$summary`n`n$tail`n`nFull log: $logPath",
       "CoLateral Marketing could not start",
@@ -81,7 +83,8 @@ if (Test-Path $pidFile) {
   Remove-Item $pidFile -ErrorAction SilentlyContinue
 }
 
-Remove-Item $stdout, $stderr, $buildLog -ErrorAction SilentlyContinue
+Invoke-LogRotation -Path $stdout -Always
+Invoke-LogRotation -Path $stderr -Always
 
 function Test-BuildCurrent {
   try {
@@ -125,8 +128,10 @@ function Invoke-Build($append) {
   # failure, leaving the app down.
   & cmd.exe /c "cd /d `"$root`" && npm.cmd run build" 2>&1 |
     ForEach-Object { $_.ToString() } |
-    Tee-Object -FilePath $buildLog -Append:$append |
-    ForEach-Object { Write-Host $_ }
+    ForEach-Object {
+      Add-LogText -Path $buildLog -Text $_
+      Write-Host $_
+    }
   $exit = $LASTEXITCODE
   $ErrorActionPreference = $previousPreference
   $label = if ($append) { 'Retry build' } else { 'Compile build' }
@@ -134,9 +139,12 @@ function Invoke-Build($append) {
   return $exit
 }
 
-$skipBuild = (-not $Rebuild) -and (Test-BuildCurrent)
+$skipBuild = $NoBuild -or ((-not $Rebuild) -and (Test-BuildCurrent))
 
-if ($skipBuild) {
+if ($NoBuild) {
+  Write-Host "Starting the existing build without rebuilding it."
+  $buildExit = 0
+} elseif ($skipBuild) {
   $reuseClock = [System.Diagnostics.Stopwatch]::StartNew()
   Write-Host "The build inputs are unchanged - reusing the existing build."
   # This commit has identical app inputs, so it is covered by this build too.
@@ -149,6 +157,7 @@ if ($skipBuild) {
   Write-Host ('[update-timing] ' + (@{ label = 'Reuse build'; durationMs = $reuseClock.ElapsedMilliseconds } | ConvertTo-Json -Compress))
 } else {
   Write-Host "Building CoLateral Marketing (a few minutes)..."
+  Invoke-LogRotation -Path $buildLog -Always
   Set-BuildLock
   $buildExit = Invoke-Build $false
 }

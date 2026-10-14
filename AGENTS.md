@@ -264,6 +264,10 @@ never written. If you touch that script, keep all three guards: the build's
 output is teed to `build.log`, `BUILD_ID` is checked before the server is
 launched, and the port is polled before it claims to be up.
 
+`start-server.ps1 -NoBuild` starts whatever `.next` already holds and never
+builds or restamps it. Only the scheduled runners use it, because they need the
+app answering inside one tick and a build would hold the tick for minutes.
+
 The build runs with `$ErrorActionPreference = "Continue"`. `next build` writes
 warnings to stderr, and under `Stop` PowerShell promotes each of those lines to
 a terminating error — a green build would abort the script.
@@ -299,32 +303,85 @@ One line is healthy. Two — a `127.0.0.1` and a `0.0.0.0`/`[::]` — is this bu
 kill the wildcard one. `start-server.ps1` now refuses to start when the port
 already answers, so it will not add a second itself.
 
-## The scheduled tasks can start a server nothing can stop
+## The scheduled tasks start the app through start-server.ps1
 
-`scripts\publish-runner.ps1` and `scripts\threads-autopilot.ps1` both check
-port 3000 at the top of every tick and, if nothing answers, start the app
-themselves with `Start-Process npm.cmd run start`. That is deliberate — the
-runner has to be able to post when the app happens to be down — but the server
-it launches is NOT the one `start-server.ps1` launches, and nothing writes its
-pid to `server.pid`.
+`scriptspublish-runner.ps1` and `scripts	hreads-autopilot.ps1` both check
+port 3000 at the top of every tick and, if nothing answers, run
+`start-server.ps1 -Quiet -NoBuild`. The fallback is deliberate — the runner has
+to be able to post when the app happens to be down — and it goes through the
+launcher so the server gets what every other launch gets: `server.pid`, and
+`server.out.log` / `server.err.log` for its output. `stop-server.ps1` stops it,
+and `update-app.ps1` restarts it, like any other.
 
-So `stop-server.ps1` cannot stop it, `update-app.ps1` restarts around it, and
-it survives a release: a `next start` from before the merge, holding port 3000
-and serving `.next` while the release rebuilds that same folder underneath it.
-That is the half-rebuilt tree — the app answers, and answers with whichever
-chunks happened to survive.
+It used to run `Start-Process npm.cmd run start`, which wrote no pid file and
+redirected nothing: `stop-server.ps1` could not find it, `update-app.ps1`
+restarted around it, and it survived a release as a `next start` from before
+the merge, holding port 3000 and serving `.next` while the release rebuilt that
+same folder underneath it — the half-rebuilt tree. Its output went nowhere, so
+`server.out.log` and `server.err.log` stopped at the last launcher start. Do not
+put `npm.cmd run start` or `next start` back in a script;
+`src/lib/release/runner-logs.test.ts` fails if it returns.
+
+`-NoBuild` is what makes blocking on it fine. The runner waits for
+`start-server.ps1` to return, which is a node start plus the port poll (seconds,
+at most 150), and the tick already waited up to three minutes for the app. A
+missing `.nextBUILD_ID` or a running build still ends the tick without
+starting anything, as before.
 
 If production is behaving strangely after a release, or `stop-server.ps1`
-reports success while the port still answers, this is the first thing to check:
+reports success while the port still answers, check for a server that was
+started by hand:
 
 ```
 netstat -ano | findstr ":3000 .*LISTENING"    # compare the PID against server.pid
 ```
 
 Kill THAT pid, never the image name (`node.exe` is also Nic's editors and every
-other agent's dev server), then start the app the normal way. Do not "fix" the
-scripts by removing the fallback without giving the server it starts the same
-pid file the launcher writes.
+other agent's dev server), then start the app the normal way.
+
+## Logs keep 14 days and say what changed
+
+`publish-runner.log` and `threads-autopilot.log` get one summary per tick: counts
+per status, then a line only for a clip (or Threads slot) whose state changed
+since the last tick. A group of more than three identical changes is one line
+with the first three ids. The comparison is kept in `publish-runner.seen` and
+`threads-autopilot.seen` beside the log (gitignored); digits in the message are
+ignored, so "42 clips" becoming "41 clips" is not a change. The first tick of
+each day states every standing condition again, so each day's log says what was
+wrong without reading the day before.
+
+The helpers are in `scriptslog-files.ps1`, dot-sourced by both runners and by
+`start-server.ps1`:
+
+- Every log is written with `[System.IO.File]::AppendAllText` and a
+  `UTF8Encoding($false)`. `Add-Content -Encoding utf8` writes a BOM on
+  Windows PowerShell 5.1 and `Tee-Object` writes UTF-16, which is how
+  `build.log` ended up UTF-16. The file also sets `[Console]::OutputEncoding` to
+  UTF-8; without it PowerShell decodes curl's and node's UTF-8 output as code
+  page 437 and writes three garbled characters where an em dash was.
+- The publish response is saved by `curl --output` and read back as UTF-8, not
+  piped through the console.
+- `Invoke-LogRotation` moves a log to `name.yyyy-MM-dd.log` (the day it was last
+  written) once that day is over, appends to the archive if one already exists,
+  and deletes archives older than 14 days and a leftover `.log.old`. A log that
+  is locked or missing is skipped, never fatal. `start-server.ps1` archives
+  `server.out.log`, `server.err.log` and (when it builds) `build.log` with
+  `-Always` at every start, because `Start-Process` overwrites its redirect target.
+- `threads-autopilot.ps1 -ReplayFile <path>` summarises a saved CLI output
+  instead of running the CLI; that is how the spec drives it.
+
+The server's own stdout still carries one line per deferred clip per tick
+(about 14 MB a day while TikTok's inbox is full). It is archived at each start
+but not capped between starts.
+
+The automation history journal (`data/automations/history`) writes an event only
+when it differs from the last one written for the same item and destination
+(or the same worker): same kind and message, and for keyed delivery events the
+same key. A retry carries its attempt in its key, so every attempt is still
+written. The last-written event per stream is held in memory per day-file and
+re-read from the journal after a restart or when the file is missing. Days older
+than seven are deleted by `pruneAutomationHistory`, which also runs when the
+event it was called for was a repeat.
 
 ## The build is Turbopack, and it does not lint or type-check
 
@@ -349,6 +406,14 @@ If Turbopack ever mis-handles the native packages in `serverExternalPackages`
 `@huggingface/transformers`), drop `--turbopack` from the `build` script — the
 webpack build still works, it is only slow. Verified on 2026-08-22 that a
 Turbopack build serves every screen and the routes that load those packages.
+
+The QA review in `docs/qa/marketing-ui-2026-10-01/review.md` recorded the default
+`npm run build` failing on an unchanged baseline, parsing
+`node_modules/@esbuild/linux-x64/bin/esbuild` as source. That is a Linux
+sandbox, where the binary is an extensionless ELF file; this machine installs
+`@esbuild/win32-x64` instead. On Windows `npm run build` passes (64 s from a
+cold worktree on 2026-10-13, main at `13e1538`). The Linux failure was not
+reproduced, so it is still open if the build is ever moved off this machine.
 
 ## A launch only rebuilds when the code changed
 
