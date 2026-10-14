@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { PERSONAL_NAV } from "@/lib/personal-routes";
 
 /**
  * The nav label and the page title are the same words (CLAUDE.md). Seven of nine
@@ -22,6 +23,12 @@ describe("page titles", () => {
   });
 
   it.each(items)("$href is titled with its nav label", ({ href, label }) => {
+    expect(titleFor(href)).toBe(`${label} | CoLateral Marketing`);
+  });
+});
+
+describe("personal page titles", () => {
+  it.each(PERSONAL_NAV)("$href is titled with its nav label", ({ href, label }) => {
     expect(titleFor(href)).toBe(`${label} | CoLateral Marketing`);
   });
 });

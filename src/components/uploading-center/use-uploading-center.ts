@@ -10,6 +10,7 @@ import {
 } from "@/components/uploading-center/booking-summary-store";
 import { loadWorkflowJson, workflowLoadMessage } from "@/lib/marketing/workflow-resource";
 import { nameClips } from "@/components/uploading-center/bulk";
+import type { ScheduleOutcome } from "@/components/uploading-center/book-clip";
 import { describeRearmResults, type RearmPlatformResult } from "@/components/uploading-center/failures";
 import {
   NO_AI_CAPTION_SUMMARY_NOTE,
@@ -1131,12 +1132,16 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       options: {
         /** Told the caption written for an empty box, so the card shows what was posted. */
         onCaption?: (caption: string) => void;
+        /** Told how the booking ended, in the words the server gave, for a caller that cannot see the toast. */
+        onOutcome?: (outcome: ScheduleOutcome) => void;
       } = {}
     ) => {
-      if (!draft.slotUtc) {
-        errorToast("Pick a schedule slot first.");
+      const refuse = (message: string, toastOptions?: ExternalToast) => {
+        errorToast(message, toastOptions);
+        options.onOutcome?.({ ok: false, message });
         return false;
-      }
+      };
+      if (!draft.slotUtc) return refuse("Pick a schedule slot first.");
       setBusy(`schedule:${clip.key}`);
       try {
         // An empty caption box means "write one when I schedule", which is what
@@ -1160,18 +1165,14 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         let file = clip.file;
         if (clip.needsRerender) {
           const project = projectForClip(clip);
-          if (!project) {
-            errorToast("Open this clip in the editor and hit Schedule Short to bake in your edits first.");
-            return false;
-          }
+          if (!project) return refuse("Open this clip in the editor and hit Schedule Short to bake in your edits first.");
           const bakeToast = toast.loading("Baking your trim before scheduling…");
           try {
             file = await bakeProject(project);
           } catch (error) {
-            errorToast(`Couldn't render the trimmed clip: ${error instanceof Error ? error.message : "render failed"}.`, {
+            return refuse(`Couldn't render the trimmed clip: ${error instanceof Error ? error.message : "render failed"}.`, {
               id: bakeToast
             });
-            return false;
           }
           toast.dismiss(bakeToast);
         }
@@ -1225,10 +1226,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           results.push(result);
         }
         const booked = results.filter((result) => result.booked);
-        if (!several && booked.length === 0) {
-          errorToast(firstError ?? "Couldn't schedule this clip.");
-          return false;
-        }
+        const outcomeMessage = results.map((result) => `${PLATFORM_LABELS[result.platform]} ${result.detail}`).join(" ");
+        if (!several && booked.length === 0) return refuse(firstError ?? "Couldn't schedule this clip.");
         if (several) {
           // One toast, a line per platform: "scheduled everywhere" used to hide
           // which platform refused and why.
@@ -1239,12 +1238,16 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
             duration: summary.level === "success" && !noKeyNote ? 8000 : 15000,
             style: { whiteSpace: "pre-line" }
           });
-          if (booked.length === 0) return false;
+          if (booked.length === 0) {
+            options.onOutcome?.({ ok: false, message: outcomeMessage });
+            return false;
+          }
         } else if (usedTitle) {
           // Said beside the booking's own toast, not instead of it: the post is
           // booked, and its caption is only the title.
           toast.warning(NO_AI_CAPTION_SUMMARY_NOTE, { id: "caption-fallback", duration: 15000 });
         }
+        options.onOutcome?.({ ok: true, message: outcomeMessage });
         await refresh({ channelRefresh: platforms.includes("youtube") });
         return true;
       } finally {

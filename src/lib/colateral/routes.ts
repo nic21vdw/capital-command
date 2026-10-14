@@ -14,6 +14,7 @@
  * this list does not have.
  */
 
+import { PERSONAL_GROUP_LABEL, isPersonalRoute } from "../personal-routes";
 import type { RouteEntry } from "./protocol";
 
 export const ROUTE_GROUPS = ["Import", "Formats", "Schedule", "Calendar", "Studio", "System"] as const;
@@ -49,7 +50,6 @@ export const CAPITAL_COMMAND_ROUTES: RouteEntry[] = [
   { path: "/presentation", label: "Segment Deck", group: "Studio" },
   { path: "/voiceover", label: "Voiceover", group: "Studio" },
   { path: "/music", label: "Music Studio", group: "Studio" },
-  { path: "/finance", label: "Personal Finance", group: "Studio" },
 
   { path: "/settings", label: "Settings", group: "System" }
 ];
@@ -60,10 +60,14 @@ export const CAPITAL_COMMAND_ROUTES: RouteEntry[] = [
  * still send someone there, under a heading that says they are secondary.
  *
  * Redirect stubs are NOT listed. /youtube, /creator, /notes and /thumbnails
- * send you to /clips, /insights sends you to /performance, and /goals,
- * /holdings and /watchlist send you to a tab of /finance (personal finance,
- * not marketing). Listing them gave an agent a "page" whose label promised
- * something the route does not do; point it at the real destination instead.
+ * send you to /clips and /insights sends you to /performance. Listing them
+ * gave an agent a "page" whose label promised something the route does not
+ * do; point it at the real destination instead.
+ *
+ * Personal finance (/finance and the /holdings, /watchlist and /goals tabs
+ * that redirect into it) is not here at all. It is Nic's own portfolio, not
+ * marketing, so it is reachable by URL and from the sidebar's Personal group,
+ * and invisible to a canvas agent: see personal-routes.ts.
  */
 export const CAPITAL_COMMAND_SECONDARY_ROUTES: RouteEntry[] = [
   { path: "/pipeline", label: "Stream Pipeline (alias)", group: "System" }
@@ -74,6 +78,7 @@ const BY_PATH = new Map<string, RouteEntry>(
 );
 
 export function routeLabel(path: string): string {
+  if (isPersonalRoute(path)) return PERSONAL_GROUP_LABEL;
   return BY_PATH.get(path)?.label ?? path;
 }
 
