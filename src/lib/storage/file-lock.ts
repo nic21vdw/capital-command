@@ -156,12 +156,13 @@ async function acquire(target: string, options: FileLockOptions): Promise<HeldLo
     if (await tryCreate(lockPath, token)) return { lockPath, token };
 
     const reading = await readLock(lockPath).catch(() => null);
-    if (reading && isStale(reading, staleMs)) {
-      await breakStale(lockPath, reading, staleMs);
-      continue;
-    }
     const waitedMs = Date.now() - startedAt;
     if (waitedMs >= timeoutMs) throw new FileLockTimeoutError(target, reading?.record?.pid ?? null, waitedMs);
+    if (reading && isStale(reading, staleMs)) {
+      await breakStale(lockPath, reading, staleMs);
+      await wait(Math.floor(Math.random() * retryMs));
+      continue;
+    }
     await wait(retryMs + Math.floor(Math.random() * retryMs));
   }
 }
