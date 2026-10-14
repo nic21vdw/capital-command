@@ -444,6 +444,68 @@ both. Two accounts posting the same wording would read as mirrored spam.
   "Platform health" below.
 - See `src/lib/threads/README.md`.
 
+## Engagement inbox (`/inbox`, `src/lib/inbox`)
+
+Comments and replies on published posts, one list for YouTube, Instagram,
+Facebook and Threads, in `data/inbox.json` (`createJsonStore`, so the shared
+atomic write and lock). Items run `new` -> `seen` -> `replied` -> `done`.
+
+- NOTHING IS SENT UNLESS A PERSON PRESSES SEND. Fetching and drafting are
+  read-only; `sendReply` is the only write, `POST /api/inbox/send` refuses
+  without `confirm: true`, and the page's Send controls are `destructive` so the
+  canvas asks Nic. Never call a write endpoint from sync, tests or a scheduled
+  task. The tests assert no non-GET request leaves a sync.
+- A SEND CAN NEVER POST TWICE BY ACCIDENT (`send.ts`). The in-process slot is
+  claimed before any await, then the item is re-read inside the store lock and a
+  durable `send: { state: "sending", at, text }` is written BEFORE the platform
+  call. A refusal from the platform (HTTP 4xx other than 408, a failed scope
+  check, a Threads container that was never published) clears the record. Any
+  other outcome (timeout, dropped connection, 5xx, a Threads publish with no
+  id, a throw after the POST) leaves `send-unknown`, and a restart leaves
+  `sending`; both refuse a resend with 409 `kind: "send-unknown"` until the
+  request carries `override: true` (the UI's "Check the platform first, then
+  send anyway"). Saving the reply is retried; if it never saves, the sending
+  record stays and `ReplyUnrecordedError` says the reply is already posted.
+  Replies post the stored text exactly (no `attributeLinks`); an Instagram
+  mention is answered through `/{ig-user-id}/mentions`, not the comment edge.
+- Fetching is incremental. Each post keeps `newestAt` in `cursors` and paging
+  stops at it, unless a page limit or the YouTube budget cut the walk short
+  (`truncated`): then the items are kept and the cursor stays put. `schedule.ts`
+  decides which posts are asked: published in the
+  last 30 days, or a comment landed in the last 7, then every 25 minutes for the
+  first 6 hours of effective age, 2 hours to 2 days, 12 hours to a week, daily
+  after that.
+- YouTube reads spend the same 10,000 daily units uploads use (1,600 each, six a
+  day), so the inbox is capped at `INBOX_YOUTUBE_DAILY_UNITS` (default 200) per
+  Pacific day. `youtubeUnits.ts` reserves one unit before EVERY request (failed
+  ones count) and saves it to the store at once, so the CLI and the server share
+  one count; a reply charges 50 and is never blocked by a spent read budget. A
+  spent budget reports `deferred`, never an error.
+- A missing permission is not an outage. `failures.ts` sorts an error into
+  `auth` (trips the platform-health breaker through `recordAuthRejection`),
+  `scope` (the platform state says "Reconnect <platform> with comment
+  permission" and is re-probed every 6 hours, or on Refresh; one post failing
+  on scope is only a per-post error unless it is the lane's only post, because
+  a collab or ad media post can refuse comments alone, so two different posts
+  must fail), `gone`,
+  `comments-disabled` and `throttled`. Add new Meta or Google wording to the
+  patterns there with a test.
+- The Instagram webhook verifies the signature, answers 200 at once and queues
+  the event (`webhookQueue.ts`, drained by one worker in batches), so no queue
+  read or locked inbox write sits on Meta's clock. Still exempt from the origin
+  guard. The poll is the backstop, so a failed write loses nothing.
+- Drafts go through `runAi` with `voice.ts` (`replyVoiceBlock`), the one seam
+  where the brand voice plugs in. The comment is fenced as untrusted text.
+- The server syncs every 30 minutes (`scheduler.ts`, started in
+  `instrumentation.ts`, single-flight on `globalThis`); `INBOX_SYNC_ENABLED=false`
+  turns it off. `npm run inbox:sync [-- --force]` and the Refresh button run the
+  same `syncInbox`.
+- Scopes the platforms need: YouTube `youtube.readonly` to read and
+  `youtube.force-ssl` to reply; Instagram `instagram_manage_comments`; Facebook
+  `pages_read_engagement`, `pages_read_user_content` and
+  `pages_manage_engagement`; Threads `threads_read_replies` (replies reuse the
+  publish scope). Subscribe the Meta app's webhook to `comments` and `mentions`.
+
 ## Platform health (`src/lib/platform-health`)
 
 A platform whose token is rejected used to fail silently: the runner kept

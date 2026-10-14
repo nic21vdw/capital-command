@@ -3,6 +3,7 @@ import { applyBrandRules, brandHashtagPolicy, brandPromptBlock } from "@/lib/bra
 import type { QueueItem } from "@/lib/publisher/types";
 import { clipDescription } from "@/lib/clipping/editor";
 import { fallbackHashtags, generateClipHashtags } from "@/lib/clipping/hashtags";
+import { postCode } from "@/lib/attribution/code";
 import { attributeLinks, youtubeDescription, type AttributionPlatform } from "@/lib/publisher/attribution";
 
 /**
@@ -21,6 +22,10 @@ export type ClipMetadata = {
 };
 
 const MAX_TITLE_CHARS = 90; // fits YouTube's 100-char limit with room to spare
+
+function codeOf(item: { id?: string }): string | undefined {
+  return item.id ? postCode(item.id) : undefined;
+}
 
 function normalizeHashtags(tags: string[]): string[] {
   const seen = new Set<string>();
@@ -122,16 +127,26 @@ export async function generateClipMetadata(source: {
   }
 }
 
-/** Full caption for platforms that take one text field (IG caption, TikTok title). */
-export function composeCaption(item: Pick<QueueItem, "caption" | "hashtags">, platform?: AttributionPlatform): string {
+type CaptionItem = Pick<QueueItem, "caption" | "hashtags"> & { id?: string };
+
+function captionWith(item: CaptionItem, platform: AttributionPlatform | undefined, code: string | undefined): string {
   const tags = normalizeHashtags(item.hashtags).join(" ");
-  const caption = platform ? attributeLinks(item.caption, platform).trim() : item.caption.trim();
+  const caption = platform ? attributeLinks(item.caption, platform, code).trim() : item.caption.trim();
   return tags ? `${caption}\n\n${tags}` : caption;
 }
 
+/** Full caption for platforms that take one text field (IG caption, TikTok title). */
+export function composeCaption(item: CaptionItem, platform?: AttributionPlatform, limit?: number): string {
+  const coded = captionWith(item, platform, codeOf(item));
+  if (limit === undefined || coded.length <= limit) return coded;
+  return captionWith(item, platform, undefined).slice(0, limit);
+}
+
 /** YouTube description: the CoLateral lead line, then caption plus hashtags on their own line. */
-export function composeDescription(item: Pick<QueueItem, "caption" | "hashtags">): string {
-  return youtubeDescription(composeCaption(item));
+export function composeDescription(item: CaptionItem, limit?: number): string {
+  const coded = youtubeDescription(composeCaption(item), codeOf(item));
+  if (limit === undefined || coded.length <= limit) return coded;
+  return youtubeDescription(composeCaption(item)).slice(0, limit);
 }
 
 /** Bare tag words (no #) for YouTube's snippet.tags. */
