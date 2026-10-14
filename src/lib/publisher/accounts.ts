@@ -1,7 +1,7 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { configuredPlatforms, publisherConfig } from "@/lib/publisher/config";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteFile } from "@/lib/storage/atomic-json";
 import { mediaHost } from "@/lib/publisher/hosting";
 import { getCachedToken } from "@/lib/publisher/tokens";
 import { ALL_PLATFORMS, type PlatformId, type QueueItem } from "@/lib/publisher/types";
@@ -147,15 +147,7 @@ async function writeStored(accounts: SocialAccount[]): Promise<void> {
       return;
     }
   }
-  await mkdir(path.dirname(FILE_PATH), { recursive: true });
-  const tmp = `${FILE_PATH}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  try {
-    await writeFile(tmp, text, "utf8");
-    await rename(tmp, FILE_PATH);
-  } catch (error) {
-    await rm(tmp, { force: true }).catch(() => undefined);
-    throw error;
-  }
+  await atomicWriteFile(FILE_PATH, text);
 }
 
 export async function listAccounts(): Promise<SocialAccount[]> {

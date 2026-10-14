@@ -1,6 +1,7 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
+import { withFileLock } from "@/lib/storage/file-lock";
 
 /**
  * The autopilot's heartbeat.
@@ -38,11 +39,10 @@ export async function readThreadsState(): Promise<ThreadsState> {
 }
 
 export async function recordThreadsState(patch: ThreadsState): Promise<void> {
-  const next = { ...(await readThreadsState()), ...patch };
-  await mkdir(path.dirname(FILE_PATH), { recursive: true });
-  const tmpPath = `${FILE_PATH}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmpPath, JSON.stringify(next, null, 2), "utf8");
-  await rename(tmpPath, FILE_PATH);
+  await withFileLock(FILE_PATH, async () => {
+    const next = { ...(await readThreadsState()), ...patch };
+    await atomicWriteJson(FILE_PATH, next);
+  });
 }
 
 /**

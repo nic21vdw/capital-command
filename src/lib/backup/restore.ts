@@ -1,5 +1,5 @@
 import { connect } from "node:net";
-import { copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   archiveName,
@@ -8,6 +8,7 @@ import {
   type ManifestSecret
 } from "@/lib/backup/state-backup";
 import { openZip, writeZip, type ZipArchive } from "@/lib/backup/zip";
+import { atomicWriteFile } from "@/lib/storage/atomic-json";
 
 export const APP_PORT = 3000;
 
@@ -171,14 +172,10 @@ export async function restoreBackup(options: RestoreOptions): Promise<RestoreRes
 
   for (const relative of [...added, ...changed]) {
     const target = path.join(options.dataDir, ...relative.split("/"));
-    const temporary = `${target}.restore.${process.pid}.tmp`;
-    await mkdir(path.dirname(target), { recursive: true });
     try {
-      await copyFile(path.join(stagingDir, "data", ...relative.split("/")), temporary);
-      await rename(temporary, target);
+      await atomicWriteFile(target, await readFile(path.join(stagingDir, "data", ...relative.split("/"))));
       result.applied.push(relative);
     } catch (error) {
-      await rm(temporary, { force: true }).catch(() => undefined);
       throw new Error(`Restore stopped at ${relative}: ${error instanceof Error ? error.message : String(error)}. Files already restored: ${result.applied.length}.`);
     }
   }

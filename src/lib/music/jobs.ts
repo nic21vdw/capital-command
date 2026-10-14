@@ -1,6 +1,6 @@
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 import { saveTrackFromUrl } from "@/lib/longform/music";
 import { heuristicSongBrief } from "@/lib/music/brief";
 import { checkFalJob, falConfigured, submitFalJob } from "@/lib/music/fal";
@@ -57,15 +57,7 @@ async function readJobs(): Promise<MusicJobRecord[]> {
 
 async function writeJobs(jobs: MusicJobRecord[]) {
   const write = async () => {
-    await mkdir(path.dirname(jobsFile), { recursive: true });
-    const tmpPath = `${jobsFile}.${process.pid}.tmp`;
-    await writeFile(tmpPath, JSON.stringify(jobs, null, 2), "utf8");
-    try {
-      await rename(tmpPath, jobsFile);
-    } catch {
-      await writeFile(jobsFile, JSON.stringify(jobs, null, 2), "utf8");
-      await unlink(tmpPath).catch(() => undefined);
-    }
+    await atomicWriteJson(jobsFile, jobs);
   };
   writeQueue = writeQueue.then(write, write);
   await writeQueue;

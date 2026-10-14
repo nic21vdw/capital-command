@@ -232,7 +232,7 @@ async function main() {
   }
 
   if (command === "instagram") {
-    const { connectInstagram, envUpdatesFor, applyEnvUpdates, inspectInstagram, REQUIRED_SCOPES } = await import(
+    const { connectInstagram, envUpdatesFor, saveEnvUpdates, inspectInstagram, REQUIRED_SCOPES } = await import(
       "@/lib/publisher/instagramConnect"
     );
     const sub = args.positional[1] ?? "connect";
@@ -326,10 +326,8 @@ async function main() {
 
     const updates = envUpdatesFor(connection, { appId, appSecret });
     if (args.flags.has("write")) {
-      const { readFile, writeFile } = await import("node:fs/promises");
       const envPath = path.join(process.cwd(), ".env");
-      const existing = await readFile(envPath, "utf8").catch(() => "");
-      await writeFile(envPath, applyEnvUpdates(existing, updates), "utf8");
+      await saveEnvUpdates(envPath, updates);
       console.log(`[publisher] wrote ${Object.keys(updates).join(", ")} to ${envPath}`);
       console.log("[publisher] confirm with `npm run publish:instagram:check`, then add instagram to PUBLISH_PLATFORMS.");
     } else {
@@ -771,7 +769,8 @@ async function main() {
   }
 
   if (command === "thin") {
-    const { readFile, writeFile } = await import("node:fs/promises");
+    const { readFile } = await import("node:fs/promises");
+    const { atomicWriteJson } = await import("@/lib/storage/atomic-json");
     const { FileQueueStore } = await import("@/lib/publisher/store");
     const { PublishQueue } = await import("@/lib/publisher/queue");
     const { shortsLimit } = await import("@/lib/publisher/shortsCap");
@@ -799,7 +798,7 @@ async function main() {
       const plan = thin.planUnpark(parked, live, { now, ids });
       for (const skip of plan.skipped) console.log(`[publisher]   ${skip.id} not restored: ${skip.reason}`);
       const restored = await queue.addMany(plan.restore, "cli-unpark");
-      await writeFile(parkedPath, JSON.stringify({ parked: plan.stay }, null, 2), "utf8");
+      await atomicWriteJson(parkedPath, { parked: plan.stay });
       console.log(`[publisher] restored ${restored.length} parked post${restored.length === 1 ? "" : "s"} to ${queuePath}; ${plan.stay.length} still parked.`);
       return;
     }
@@ -834,7 +833,7 @@ async function main() {
     const existing = await thin.readParked(parkedPath);
     const parkedAt = now.toISOString();
     const entries = plan.park.map((item) => ({ parkedAt, reason: `over ${limit} shorts a day`, item }));
-    await writeFile(parkedPath, JSON.stringify({ parked: [...existing.parked, ...entries] }, null, 2), "utf8");
+    await atomicWriteJson(parkedPath, { parked: [...existing.parked, ...entries] });
     const removed = await queue.removeMany(plan.park.map((item) => item.id), "cli-thin");
     console.log(`[publisher] parked ${removed.length} post${removed.length === 1 ? "" : "s"} in ${parkedPath}.`);
     return;

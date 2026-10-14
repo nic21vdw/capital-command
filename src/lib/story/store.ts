@@ -1,6 +1,7 @@
-import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 import type { StoryOverrides } from "@/lib/story/types";
 
 export const STORY_ROOT_PARTS = ["longform-story"] as const;
@@ -51,10 +52,7 @@ export async function readJson<T>(file: string): Promise<T | null> {
 }
 
 export async function writeJson(file: string, value: unknown): Promise<void> {
-  await mkdir(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.tmp`;
-  await writeFile(temp, JSON.stringify(value, null, 2), "utf8");
-  await rename(temp, file);
+  await atomicWriteJson(file, value);
 }
 
 export async function exists(file: string): Promise<boolean> {

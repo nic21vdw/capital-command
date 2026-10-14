@@ -1,7 +1,7 @@
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 import { historyDetail, recordAutomationEventSafely } from "@/lib/automations/history";
 import { AUTOMATION_IDS, type AutomationControl, type AutomationId, type AutomationOutcome } from "@/lib/automations/types";
 
@@ -16,18 +16,6 @@ const outcomeSchema = z.object({
   detail: z.string().max(1200)
 });
 let writes = Promise.resolve();
-
-async function writeAtomic(file: string, value: unknown): Promise<void> {
-  await mkdir(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  await writeFile(temp, JSON.stringify(value, null, 2), "utf8");
-  try {
-    await rename(temp, file);
-  } catch (error) {
-    await unlink(temp).catch(() => undefined);
-    throw error;
-  }
-}
 
 export async function readAutomationControls(): Promise<Partial<Record<AutomationId, AutomationControl>>> {
   try {
@@ -52,7 +40,7 @@ export async function setAutomationPaused(id: AutomationId, paused: boolean): Pr
   const pending = writes.then(async () => {
     const controls = await readAutomationControls();
     changed = (controls[id]?.paused ?? false) !== paused;
-    await writeAtomic(dataPath("automations", "control.json"), { ...controls, [id]: control });
+    await atomicWriteJson(dataPath("automations", "control.json"), { ...controls, [id]: control });
   });
   writes = pending.catch(() => undefined);
   await pending;
@@ -63,7 +51,7 @@ export async function setAutomationPaused(id: AutomationId, paused: boolean): Pr
 export async function recordAutomationOutcome(id: AutomationId, outcome: AutomationOutcome): Promise<void> {
   const saved = outcomeSchema.parse({ ...outcome, detail: historyDetail(outcome.detail) });
   await recordAutomationEventSafely({ automationId: id, scope: "worker", kind: saved.status, at: saved.at, detail: saved.detail, key: `${saved.at}:${saved.detail}` });
-  await writeAtomic(dataPath("automations", `${id}-outcome.json`), saved);
+  await atomicWriteJson(dataPath("automations", `${id}-outcome.json`), saved);
 }
 
 export async function readAutomationOutcome(id: AutomationId): Promise<AutomationOutcome | null> {

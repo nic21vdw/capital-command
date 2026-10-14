@@ -1,6 +1,6 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 import { defaultOutlierStore, outlierStoreSchema, type OutlierStore } from "@/lib/youtube/outliers";
 
 /**
@@ -25,10 +25,7 @@ export async function readOutlierStore(): Promise<OutlierStore> {
 
 export async function writeOutlierStore(store: OutlierStore): Promise<void> {
   const write = async () => {
-    await mkdir(path.dirname(dataFilePath), { recursive: true });
-    const tmpPath = `${dataFilePath}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tmpPath, JSON.stringify(outlierStoreSchema.parse(store), null, 2), "utf8");
-    await rename(tmpPath, dataFilePath);
+    await atomicWriteJson(dataFilePath, outlierStoreSchema.parse(store));
   };
   writeQueue = writeQueue.then(write, write);
   await writeQueue;

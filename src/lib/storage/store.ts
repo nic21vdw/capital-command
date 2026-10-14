@@ -1,7 +1,9 @@
-import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataPath } from "@/lib/paths";
 import { emptyData, seedData } from "@/lib/mockData/seed";
+import { atomicWriteFile } from "@/lib/storage/atomic-json";
+import { withFileLock } from "@/lib/storage/file-lock";
 import { appDataSchema } from "@/lib/storage/schemas";
 import type { AppData } from "@/types/domain";
 
@@ -191,10 +193,8 @@ async function keepSnapshot(serialized: string) {
   await mkdir(snapshotDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const target = path.join(snapshotDir, `${snapshotPrefix}${stamp}${snapshotSuffix}`);
-  const tmpPath = `${target}.${process.pid}.tmp`;
 
-  await writeFile(tmpPath, serialized, "utf8");
-  await rename(tmpPath, target);
+  await atomicWriteFile(target, serialized);
   try {
     JSON.parse(await readFile(target, "utf8"));
   } catch (error) {
@@ -206,33 +206,9 @@ async function keepSnapshot(serialized: string) {
   await Promise.all(stale.map((snapshot) => rm(snapshot.path, { force: true })));
 }
 
-async function commitTmpFile(tmpPath: string) {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      await rename(tmpPath, dataFilePath);
-      return;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      const retriable = code === "EPERM" || code === "EACCES" || code === "EBUSY";
-      if (!retriable || attempt >= 4) {
-        throw error;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 40 * (attempt + 1)));
-    }
-  }
-}
-
 async function commit(data: AppData): Promise<string> {
-  await ensureStore();
   const serialized = JSON.stringify(appDataSchema.parse(data), null, 2);
-  const tmpPath = `${dataFilePath}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmpPath, serialized, "utf8");
-  try {
-    await commitTmpFile(tmpPath);
-  } catch (error) {
-    await rm(tmpPath, { force: true });
-    throw error;
-  }
+  await atomicWriteFile(dataFilePath, serialized);
   return serialized;
 }
 
@@ -245,7 +221,7 @@ async function enqueueWrite(commitWrite: () => Promise<string>) {
   queuedWrites += 1;
   const write = async () => {
     try {
-      return await commitWrite();
+      return await withFileLock(dataFilePath, commitWrite);
     } finally {
       queuedWrites -= 1;
     }
@@ -273,7 +249,8 @@ export async function writeAppData(data: AppData) {
  * Read, change and commit one document inside this process's existing write
  * queue. The synchronous updater sees every write ahead of it, so concurrent
  * append operations cannot replace each other's additions. It must not call
- * store writes itself. This is not a lock shared with other processes.
+ * store writes itself. The write also holds a lock file, so a CLI changing the
+ * same document in another process waits its turn instead of interleaving.
  */
 export async function mutateAppData(update: (current: AppData) => AppData): Promise<AppData> {
   let updated!: AppData;
@@ -304,7 +281,7 @@ export async function restoreLastGoodSnapshot(): Promise<{ snapshot: AppDataSnap
   // readable file copied to `.unreadable-…` would be evidence of nothing.
   if (!(await currentDocumentParses())) await keepCorruptCopy();
 
-  const restore = () => commit(data);
+  const restore = () => withFileLock(dataFilePath, () => commit(data));
   const done = writeQueue.then(restore, restore);
   writeQueue = done.then(
     () => undefined,

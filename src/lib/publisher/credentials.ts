@@ -1,6 +1,6 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { dataPath, dataRoot } from "@/lib/paths";
+import { readFile } from "node:fs/promises";
+import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 
 /**
  * Credentials the owner of this install entered, kept beside their data.
@@ -134,16 +134,7 @@ export async function saveCredentials(updates: Record<string, string>) {
       else delete current[key];
     }
 
-    await mkdir(dataRoot(), { recursive: true });
-    const target = dataPath(FILE);
-    const tmp = path.join(dataRoot(), `.${FILE}.${process.pid}.${crypto.randomUUID()}.tmp`);
-    try {
-      await writeFile(tmp, JSON.stringify(current, null, 2), "utf8");
-      await rename(tmp, target);
-    } catch (error) {
-      await rm(tmp, { force: true }).catch(() => undefined);
-      throw error;
-    }
+    await atomicWriteJson(dataPath(FILE), current);
 
     cache = current;
     for (const [key, value] of Object.entries(requested)) {

@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- A failed or interrupted save can no longer empty the publish queue, and two programs saving the queue at once (the app and a booking script, say) no longer wipe out each other's changes. Every data file, and the `.env` that Settings edits, is now written the same safe way (two Settings saves at once both land, and a duplicated setting line is updated everywhere), and the leftover half-written files in `data/` are cleaned up each time the app starts.
+
 - When Threads, YouTube, Instagram, Facebook or TikTok rejects an account's token, the app now says so instead of failing silently. A red banner on every screen names the account, the date it broke and a Reconnect button into Settings > Accounts, and a Windows toast tells you even with the app closed: once when it breaks, then at most once a day while it stays broken. Only the broken account stops; the others keep posting, and its queued posts stay pending with their retries instead of being marked failed (Threads had failed 542 of 558 that way). It tries again every half hour and clears itself when the token changes or a post goes through. The toast needs the scheduled tasks to run while you are logged on. The old failed Threads posts are not re-queued.
 
 - The Threads autopilot no longer goes quiet when its token runs out. Threads tokens expire 60 days after you make them, and nothing renewed yours, so posting just stopped. Every tick now renews each account's token once a week for another 60 days (`THREADS_TOKEN_REFRESH_DAYS` changes how often), and a failed renewal shows in `threads-autopilot.log`. A token that has already expired cannot be renewed: paste a new one into `.env` once and it stays alive from then on.

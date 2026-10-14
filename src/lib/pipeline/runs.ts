@@ -1,6 +1,7 @@
-import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataPath } from "@/lib/paths";
+import { atomicWriteJson } from "@/lib/storage/atomic-json";
 import { runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { createJobFromUpload, getJob } from "@/lib/clipping/jobs";
 import { readSourceMeta, saveSourceFromUrl } from "@/lib/clipping/sources";
@@ -121,24 +122,8 @@ async function loadRuns() {
 
 async function persistRuns() {
   const write = async () => {
-    await mkdir(pipelineRoot, { recursive: true });
     const list = [...runs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, MAX_RUNS);
-    const payload = JSON.stringify(list, null, 2);
-    const tmpPath = `${runsFile}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tmpPath, payload, "utf8");
-    // Windows refuses the atomic replace while a reader has the file open, and
-    // the poller reads it constantly. Retrying the rename keeps the swap atomic;
-    // the old in-place fallback is what let readers see a half-written file.
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      try {
-        await rename(tmpPath, runsFile);
-        return;
-      } catch {
-        await delay(25 * (attempt + 1));
-      }
-    }
-    await writeFile(runsFile, payload, "utf8");
-    await unlink(tmpPath).catch(() => undefined);
+    await atomicWriteJson(runsFile, list);
   };
   persistQueue = persistQueue.then(write, write);
   await persistQueue;
