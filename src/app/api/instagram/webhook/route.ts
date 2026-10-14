@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
+import { ingestInstagramEvent } from "@/lib/inbox/webhook";
 import { publisherConfig } from "@/lib/publisher/config";
 
 export const runtime = "nodejs";
@@ -33,11 +34,13 @@ function isValidSignature(rawBody: string, signatureHeader: string | null, appSe
 }
 
 /**
- * POST /api/instagram/webhook — receives subscribed events (comments,
- * mentions, messages, etc). Meta expects a fast 200; the payload signature
- * is verified against IG_APP_SECRET before anything is trusted, and every
- * event is refused while that secret is unset. This route is exempt from the
- * loopback origin guard in src/middleware.ts for exactly that reason.
+ * POST /api/instagram/webhook — receives subscribed events. Comment and
+ * mention events are written to the inbox (src/lib/inbox); the poll in
+ * src/lib/inbox/sync.ts is the backstop for anything a failed write loses.
+ * Meta expects a fast 200; the payload signature is verified against
+ * IG_APP_SECRET before anything is trusted, and every event is refused while
+ * that secret is unset. This route is exempt from the loopback origin guard
+ * in src/middleware.ts for exactly that reason.
  */
 export async function POST(request: Request) {
   const rawBody = await request.text();
@@ -47,11 +50,19 @@ export async function POST(request: Request) {
     return new NextResponse("Invalid signature", { status: 401 });
   }
 
+  let payload: unknown;
   try {
-    const payload = JSON.parse(rawBody) as unknown;
-    console.log("Instagram webhook event:", JSON.stringify(payload));
+    payload = JSON.parse(rawBody) as unknown;
   } catch {
     console.warn("Instagram webhook: received non-JSON body");
+    return new NextResponse("OK", { status: 200 });
+  }
+
+  try {
+    const stored = await ingestInstagramEvent(payload);
+    if (stored > 0) console.log(`[inbox] Instagram webhook stored ${stored} new item(s).`);
+  } catch (error) {
+    console.warn(`[inbox] Instagram webhook event was not stored (${error instanceof Error ? error.name : "error"}); the next sync will find it.`);
   }
 
   return new NextResponse("OK", { status: 200 });

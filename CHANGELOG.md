@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Comments and replies on your posts now land in one Inbox.** A new Inbox screen (Studio, with an unread count in the sidebar) collects the comments on your published YouTube videos, Instagram posts, Facebook posts and Threads posts, grouped by post, and every Instagram comment or mention now arrives the moment Meta sends it instead of being thrown away. It checks every 30 minutes while the app is running, only on posts from the last 30 days or ones that just got a new comment, and `npm run inbox:sync` or the Refresh button does it on demand. Press Draft reply to get an answer written in your voice, edit it, and press Send reply to post it; nothing is ever sent unless you press that button. If a platform's login lacks the comment permission, the Inbox says "Reconnect <platform> with comment permission" instead of staying empty. Needs the comment permissions added when you reconnect Instagram (`instagram_manage_comments`), Facebook (`pages_read_user_content`, `pages_manage_engagement`) and Threads (`threads_read_replies`).
+
 ## 2026-10-13
 
 - A dead Threads token now shows up the moment the app tries to renew it, not hours later when a post fails. Before, the red banner and the Windows toast only fired when a post was rejected, so with the day's posts already scheduled an expired token sat unreported while `threads-autopilot.log` said "Session has expired". A renewal that Meta turns down for a bad or expired token now marks that account as broken straight away, the same as a failed post; a Meta outage or a dropped connection does not. YouTube and TikTok do the same when Google or TikTok refuses to renew their login. A renewal that works clears the banner.
