@@ -62,7 +62,27 @@ function Get-ToastDecision {
 
 function ConvertTo-ToastText([string]$Text) {
   $spaced = [regex]::Replace($Text, '[\t\r\n]+', ' ')
-  return [regex]::Replace($spaced, '[\x00-\x1F\x7F]', '')
+  $clean = [regex]::Replace($spaced, '[\x00-\x1F\x7F\uFFFE\uFFFF]', '')
+  return [regex]::Replace($clean, '[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]', '')
+}
+
+function Get-CodePointCount([string]$Text) {
+  $count = 0
+  for ($i = 0; $i -lt $Text.Length; $i++) {
+    if ([char]::IsHighSurrogate($Text[$i]) -and ($i + 1) -lt $Text.Length -and [char]::IsLowSurrogate($Text[$i + 1])) { $i++ }
+    $count++
+  }
+  return $count
+}
+
+function Limit-CodePoints([string]$Text, [int]$Max) {
+  $count = 0
+  $index = 0
+  while ($index -lt $Text.Length -and $count -lt $Max) {
+    if ([char]::IsHighSurrogate($Text[$index]) -and ($index + 1) -lt $Text.Length -and [char]::IsLowSurrogate($Text[$index + 1])) { $index += 2 } else { $index += 1 }
+    $count++
+  }
+  return $Text.Substring(0, $index)
 }
 
 function Format-SinceDate([string]$Since) {
@@ -243,7 +263,7 @@ function New-LeadToastContent {
   $entries = @($Due)
   $title = if ($entries.Count -eq 1) { "1 new lead" } else { "$($entries.Count) new leads" }
   $first = ConvertTo-ToastText ([string]$entries[0].title)
-  if ($first.Length -gt 90) { $first = $first.Substring(0, 87) + "..." }
+  if ((Get-CodePointCount $first) -gt 90) { $first = (Limit-CodePoints $first 87) + "..." }
   $more = if ($entries.Count -gt 1) { " and $($entries.Count - 1) more" } else { "" }
   $body = "`"$first`"$more. Open Listening to send them to Outreach."
   $launch = "$($BaseUrl.TrimEnd('/'))/listening"

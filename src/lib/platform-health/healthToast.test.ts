@@ -183,6 +183,16 @@ describe.skipIf(process.platform !== "win32")("health-toast.ps1 decides when to 
     expect(decision.toast?.xml).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/);
   });
 
+  it("strips a lone surrogate and the two non-characters from an account name", () => {
+    rmSync(statePath(), { force: true });
+
+    const decision = run([{ ...threadsPrimary, displayName: `Threads \uD83D\uFFFE primary` }], 0);
+
+    expect(decision.toast?.xml).not.toMatch(/[\uFFFE\uFFFF]/);
+    expect(decision.toast?.xml).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+    expect(decision.toast?.xml).toContain("Threads");
+  });
+
   it("treats an unreadable state file as empty instead of failing the tick", () => {
     writeFileSync(statePath(), "{not json", "utf8");
 

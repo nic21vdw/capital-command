@@ -116,8 +116,9 @@ export type SourceSwitches = z.infer<typeof sourceSwitchesSchema>;
 
 export const DEFAULT_SOURCE_SWITCHES: SourceSwitches = { hn: true, reddit: true, youtube: false, bluesky: true, x: false };
 
-export const CONFIG_VERSION = 2;
-const STRUCTURAL_GROUP_ID = "structural-ai";
+export const CONFIG_VERSION = 3;
+export const MAX_KEYWORD_GROUPS = 20;
+const BARRED_FROM_LEADS = ["structural-ai", "competitors"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -129,20 +130,23 @@ function withinTermLimit(group: unknown): unknown {
 
 export function migrateConfig(raw: unknown): unknown {
   if (!isRecord(raw)) return raw;
-  const groups = Array.isArray(raw.groups) ? raw.groups.map(withinTermLimit) : raw.groups;
   const version = typeof raw.version === "number" ? raw.version : 1;
-  if (version >= CONFIG_VERSION) return { ...raw, groups };
+  const listed = Array.isArray(raw.groups) ? raw.groups.slice(0, MAX_KEYWORD_GROUPS).map(withinTermLimit) : raw.groups;
+  if (version >= CONFIG_VERSION) return { ...raw, groups: listed };
+  const groups = Array.isArray(listed)
+    ? listed.map((group) => (isRecord(group) && BARRED_FROM_LEADS.includes(String(group.id)) ? { ...group, canLead: false } : group))
+    : listed;
   return {
     ...raw,
     version: CONFIG_VERSION,
-    groups: Array.isArray(groups) ? groups.map((group) => (isRecord(group) && group.id === STRUCTURAL_GROUP_ID ? { ...group, canLead: false } : group)) : groups,
-    sources: isRecord(raw.sources) ? { ...raw.sources, youtube: false } : raw.sources
+    groups,
+    sources: version < 2 && isRecord(raw.sources) ? { ...raw.sources, youtube: false } : raw.sources
   };
 }
 
 const listeningConfigShape = z.object({
   version: z.number().int().default(CONFIG_VERSION),
-  groups: z.array(keywordGroupSchema).default(DEFAULT_KEYWORD_GROUPS),
+  groups: z.array(keywordGroupSchema).max(MAX_KEYWORD_GROUPS).default(DEFAULT_KEYWORD_GROUPS),
   sources: sourceSwitchesSchema.default(DEFAULT_SOURCE_SWITCHES),
   autoScan: z.boolean().default(true)
 });
@@ -261,9 +265,13 @@ export function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+export function clipText(text: string, max: number): string {
+  const characters = Array.from(text);
+  return characters.length > max ? `${characters.slice(0, max - 3).join("")}...` : text;
+}
+
 export function excerptOf(text: string): string {
-  const plain = plainText(text);
-  return plain.length > 280 ? `${plain.slice(0, 277)}...` : plain;
+  return clipText(plainText(text), 280);
 }
 
 /**

@@ -84,6 +84,11 @@ describe("PATCH /api/listening", () => {
     expect((await (await PATCH(request("PATCH", { autoScan: false }))).json()).autoScan).toBe(false);
   });
 
+  it("refuses more keyword groups than the limit", async () => {
+    const groups = Array.from({ length: 21 }, (_, i) => ({ id: `g${i}`, name: `G${i}`, intent: "pain", canLead: true, terms: [`t${i}`] }));
+    expect((await PATCH(request("PATCH", { groups }))).status).toBe(400);
+  });
+
   it("refuses a keyword group with more terms than the limit", async () => {
     const terms = Array.from({ length: 13 }, (_, i) => `term ${i}`);
     const response = await PATCH(request("PATCH", { groups: [{ id: "big", name: "Big", intent: "pain", canLead: true, terms }] }));

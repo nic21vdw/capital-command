@@ -321,9 +321,10 @@ async function scanReddit(terms: string[], cursor: number, deps: ScanDeps): Prom
           continue;
         }
         const asked = wait !== undefined ? ` Reddit asked for a wait of ${Math.ceil(wait / 1000)} s.` : "";
+        const rateLimited = error instanceof SourceHttpError && error.status === 429;
         return {
           hits,
-          redditQueried: searched,
+          redditQueried: searched + (rateLimited ? 0 : 1),
           report: {
             source: "reddit",
             ok: false,

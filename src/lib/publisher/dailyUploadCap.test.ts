@@ -107,8 +107,11 @@ describe("the day's YouTube upload allowance", () => {
     }
     await updateListeningStore((store) => ({ ...store, youtube: { day: quotaDate(NOW), units: 100, cursor: 0 } }));
     const todays = countingAdapter("youtube");
-    await runDue(NOW, { config, queue: fresh, log: () => {}, adapters: { youtube: todays } });
+    const report = await runDue(NOW, { config, queue: fresh, log: () => {}, adapters: { youtube: todays } });
     expect(todays.calls).toHaveLength(2);
+    const deferral = report.outcomes.find((outcome) => outcome.outcome === "deferred");
+    expect(deferral?.detail).toContain("YouTube's 2 uploads for today are used");
+    expect(deferral?.detail).not.toContain("YouTube's 3 uploads");
   });
 
   it("counts what today already sent, so a second run does not top the day up", async () => {

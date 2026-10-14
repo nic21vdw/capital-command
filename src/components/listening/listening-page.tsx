@@ -18,6 +18,7 @@ import {
   HIT_CATEGORIES,
   LISTENING_INTENTS,
   LISTENING_SOURCES,
+  MAX_KEYWORD_GROUPS,
   MAX_TERMS_PER_GROUP,
   REPLY_CHECKLIST,
   RESULT_STATUSES,
@@ -344,6 +345,10 @@ export function ListeningPage() {
   const addGroup = () => {
     const name = newGroup.name.trim();
     if (!name) return;
+    if (groups.length >= MAX_KEYWORD_GROUPS) {
+      toast.error(`You already have ${MAX_KEYWORD_GROUPS} topics. Remove one before adding another.`);
+      return;
+    }
     const group: KeywordGroup = { id: `group-${crypto.randomUUID()}`, name, intent: newGroup.intent, canLead: true, terms: [] };
     void saveGroups([...groups, group], "Group added").then((ok) => {
       if (ok) setNewGroup({ name: "", intent: newGroup.intent });

@@ -3,6 +3,7 @@ import {
   DEFAULT_OUTREACH_TEMPLATE,
   DEFAULT_THREAD_TEMPLATE,
   applyStatus,
+  hasUnfilledPlaceholder,
   countByStatus,
   dueForFollowUp,
   mergeContacts,
@@ -140,6 +141,20 @@ describe("outreach template", () => {
     const text = renderOutreachTemplate(DEFAULT_THREAD_TEMPLATE, contact({ kind: "thread", topic: "Need a Cursor alternative" }));
     expect(text).toContain('"Need a Cursor alternative"');
     expect(text).not.toMatch(/\{thread\}|\{name\}|\{video\}/);
+  });
+
+  it("is not ready to send while the bracketed line in the thread template is still there", () => {
+    const untouched = renderOutreachTemplate(DEFAULT_THREAD_TEMPLATE, contact({ kind: "thread", topic: "Need a Cursor alternative" }));
+    expect(hasUnfilledPlaceholder(untouched)).toBe(true);
+
+    const answered = untouched.replace(/\[Answer[^\]]*\]/, "Worktrees plus a canvas of cards would do it.");
+    expect(answered).not.toBe(untouched);
+    expect(hasUnfilledPlaceholder(answered)).toBe(false);
+  });
+
+  it("does not mistake brackets in an ordinary message, or the creator template, for the placeholder", () => {
+    expect(hasUnfilledPlaceholder("See [1] and [the docs] for more.")).toBe(false);
+    expect(hasUnfilledPlaceholder(renderOutreachTemplate(DEFAULT_OUTREACH_TEMPLATE, contact()))).toBe(false);
   });
 
   it("says 'your post' when a thread contact has no topic", () => {

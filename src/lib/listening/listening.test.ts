@@ -4,6 +4,8 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_KEYWORD_GROUPS,
+  CONFIG_VERSION,
+  MAX_KEYWORD_GROUPS,
   MAX_RESULTS,
   MAX_TERMS_PER_GROUP,
   RESULT_STATUSES,
@@ -76,6 +78,10 @@ describe("default keyword groups", () => {
   it("never searches the bare word collateral, which is mostly loans", () => {
     expect(TERMS.map((term) => term.toLowerCase())).not.toContain("colateral");
     expect(TERMS.map((term) => term.toLowerCase())).not.toContain("collateral");
+  });
+
+  it("keeps the groups about structural software and structural engineering AI out of the leads, and no others", () => {
+    expect(DEFAULT_KEYWORD_GROUPS.filter((group) => !group.canLead).map((group) => group.id)).toEqual(["competitors", "structural-ai"]);
   });
 
   it("gives every hit one of four statuses", () => {
@@ -410,7 +416,37 @@ describe("listening config", () => {
     expect(config.sources).toEqual({ hn: true, reddit: false, youtube: false, bluesky: true, x: false });
     expect(config.groups.find((group) => group.id === "structural-ai")?.canLead).toBe(false);
     expect(config.groups.find((group) => group.id === "long")?.terms).toEqual(terms.slice(0, MAX_TERMS_PER_GROUP));
-    expect(config.version).toBe(2);
+    expect(config.version).toBe(CONFIG_VERSION);
+  });
+
+  it("takes the structural software group out of the leads for a config saved before that rule, and keeps YouTube as it was", async () => {
+    await writeConfigFile({
+      version: 2,
+      groups: [
+        { id: "competitors", name: "Structural software", intent: "competitor", canLead: true, terms: ["ETABS"] },
+        { id: "mine", name: "Mine", intent: "pain", canLead: true, terms: ["my term"] }
+      ],
+      sources: { hn: true, reddit: true, youtube: true, bluesky: true, x: false },
+      autoScan: true
+    });
+
+    const config = await readListeningConfig();
+
+    expect(config.groups.find((group) => group.id === "competitors")?.canLead).toBe(false);
+    expect(config.groups.find((group) => group.id === "mine")?.canLead).toBe(true);
+    expect(config.sources.youtube).toBe(true);
+    expect(config.version).toBe(CONFIG_VERSION);
+  });
+
+  it("limits the number of keyword groups, cutting a longer saved list to the limit on read", async () => {
+    const group = (i: number) => ({ id: `g${i}`, name: `G${i}`, intent: "pain", canLead: true, terms: [`t${i}`] });
+    await writeConfigFile({ version: CONFIG_VERSION, groups: Array.from({ length: MAX_KEYWORD_GROUPS + 5 }, (_, i) => group(i)), sources: {}, autoScan: true });
+
+    const config = await readListeningConfig();
+
+    expect(MAX_KEYWORD_GROUPS).toBe(20);
+    expect(config.groups).toHaveLength(MAX_KEYWORD_GROUPS);
+    expect(config.groups[MAX_KEYWORD_GROUPS - 1].id).toBe(`g${MAX_KEYWORD_GROUPS - 1}`);
   });
 
   it("leaves YouTube on when a current config says so", async () => {

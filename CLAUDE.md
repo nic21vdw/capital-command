@@ -583,9 +583,10 @@ News, Reddit, YouTube and Bluesky. It reads and classifies; it never posts.
   of the failure in memory for when the store itself is what broke, so the next
   attempt is two hours later and not ten minutes later.
 - TWO FILES. Keywords, source switches and the schedule switch live in
-  `data/listening/config.json` (versioned: `migrateConfig` switches YouTube off,
-  cuts groups to `MAX_TERMS_PER_GROUP` and keeps the structural group out of the
-  leads for a file saved before those rules; the first read also builds the file
+  `data/listening/config.json` (versioned: `migrateConfig` switches YouTube off
+  for a file older than version 2, keeps the structural groups out of the leads
+  for one older than version 3, and always cuts groups to `MAX_TERMS_PER_GROUP`
+  terms and the list to `MAX_KEYWORD_GROUPS`; the first read also builds the file
   from the keywords and switches of the old single-file Listening if
   `data/listening.json` still holds them). Hits, the last scan, the YouTube
   ledger and the Reddit cursor live in `data/listening.json`. Defaults are in
@@ -598,10 +599,12 @@ News, Reddit, YouTube and Bluesky. It reads and classifies; it never posts.
   heuristic for anything the model did not answer, so a dead model never stops a
   scan. A "high" lead is `category === "lead" && score >= 70 && status === "new"`
   (`leads.ts`), and the sidebar badge, the toast and the page all use that one
-  definition. A group with `canLead: false` (the structural engineering AI group)
-  can only produce a mention or a competitor hit: CoLateral does not market
-  itself as engineering software (`docs/colateral-messaging.md`), and the
-  classifier prompt follows that file.
+  definition. A hit is a lead only if EVERY group it matches allows leads. The
+  structural engineering AI group and the structural software group (ETABS,
+  SAP2000, RISA, Tekla, Revit) have `canLead: false`, so a post about them is a
+  mention or a competitor hit even when it asks for an alternative: CoLateral does
+  not market itself as engineering software (`docs/colateral-messaging.md`), and
+  the classifier prompt follows that file.
 - YOUTUBE SPENDS THE UPLOAD QUOTA, SO IT IS OFF BY DEFAULT. `search.list` is 100
   units out of the daily 10,000 that uploads share (about 1,700 each, and
   `YOUTUBE_DAILY_UPLOAD_BUDGET` is 6). When switched on it makes one search per
@@ -617,7 +620,9 @@ News, Reddit, YouTube and Bluesky. It reads and classifies; it never posts.
 - REDDIT IS SLOW ON PURPOSE. Requests are 6 seconds apart, a scan searches 8
   terms and carries on from where the last scan stopped (`redditCursor`, advanced
   by a delta), and a `Retry-After` of 30 seconds or less is waited out once;
-  longer, or a second refusal, ends Reddit's part of the scan.
+  longer, or a second refusal, ends Reddit's part of the scan. A term that fails
+  for any reason other than a 429 is stepped past, so one bad term cannot hold
+  the rotation on itself.
 - BLUESKY needs no sign-in, but `public.api.bsky.app` answered 403 from this
   network while `api.bsky.app` answered 200, so the scan tries `api.bsky.app` first
   and moves to the other host on a 401 or 403. Authors who set `!no-unauthenticated`
@@ -628,7 +633,10 @@ News, Reddit, YouTube and Bluesky. It reads and classifies; it never posts.
   `thread`, with the post's title as `topic` and no `recentVideo`, so it uses the
   thread template (which claims to have watched nothing) rather than the creator
   template. It reuses a contact already on that url instead of overwriting what
-  was written on it.
+  was written on it. The thread template ships with one bracketed line to be
+  replaced by an answer (`THREAD_ANSWER_PLACEHOLDER`); the Outreach page shows a
+  thread message in an editable box and will not copy it or mark it sent until
+  that line is gone (`hasUnfilledPlaceholder`).
 
 ## Launch Pad (`src/lib/launch`)
 

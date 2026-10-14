@@ -12,7 +12,7 @@ export const DEFAULT_KEYWORD_GROUPS: KeywordGroup[] = [
     id: "competitors",
     name: "Structural software",
     intent: "competitor",
-    canLead: true,
+    canLead: false,
     terms: ["ETABS", "SAP2000", "RISA", "Tekla", "Revit"]
   },
   {

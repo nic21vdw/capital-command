@@ -26,9 +26,9 @@ function hit(overrides: Partial<ListeningHit> = {}): ListeningHit {
 }
 
 const asking = hit({
-  title: "Anyone know a structural engineering AI that can check a Revit model?",
-  excerpt: "Looking for a tool that sanity checks beam sizes. Has anyone tried one? Drowning in RFIs.",
-  matchedTerms: ["structural engineering AI", "Revit"]
+  title: "Anyone know a cursor alternative that runs Claude Code and Codex side by side?",
+  excerpt: "Looking for a tool that keeps my agents in one place. Has anyone tried one? Drowning in terminals.",
+  matchedTerms: ["cursor alternative", "multiple claude code"]
 });
 
 type RunAi = (request: AiRequest) => Promise<AiResult | null>;
@@ -54,13 +54,14 @@ describe("the keyword heuristic", () => {
     expect(result.reason).not.toBe("");
   });
 
-  it("treats someone asking for an alternative to a competitor as a lead, and a plain mention of one as a competitor hit", () => {
+  it("never calls a question about a competitor a lead: asking for a better alternative to ETABS is a competitor hit", () => {
     const question = heuristicClassify(
-      hit({ title: "Is there an alternative to ETABS for small firms?", excerpt: "ETABS pricing is crazy, what do you use instead?", matchedTerms: ["ETABS"] }),
+      hit({ title: "Anyone know a better alternative to ETABS", excerpt: "ETABS pricing is crazy, what do you use instead? Looking for something cheaper.", matchedTerms: ["ETABS"] }),
       DEFAULT_KEYWORD_GROUPS,
       NOW
     );
-    expect(question.category).toBe("lead");
+    expect(question.category).toBe("competitor");
+    expect(question.score).toBeLessThan(HIGH_LEAD_SCORE);
 
     const statement = heuristicClassify(
       hit({ title: "ETABS 22 released", excerpt: "CSI shipped a new version of ETABS this week with updated steel design codes.", matchedTerms: ["ETABS"] }),
@@ -128,7 +129,7 @@ describe("parsing the model's reply", () => {
 describe("classifying with the model", () => {
   it("sends the hits in small batches and uses the model's answers", async () => {
     const runAi = vi.fn(allLeads);
-    const hits = Array.from({ length: 17 }, () => hit({ matchedTerms: ["Revit"] }));
+    const hits = Array.from({ length: 17 }, () => hit({ matchedTerms: ["cursor alternative"] }));
     const out = await classifyHits(hits, DEFAULT_KEYWORD_GROUPS, { runAi, now: () => NOW });
 
     expect(runAi).toHaveBeenCalledTimes(3);
@@ -144,7 +145,7 @@ describe("classifying with the model", () => {
     const request = runAi.mock.calls[0][0];
     expect(request.system).toMatch(/untrusted/i);
     expect(request.system).toMatch(/JSON/);
-    expect(request.messages[0].content).toContain("structural engineering AI that can check a Revit model");
+    expect(request.messages[0].content).toContain("cursor alternative that runs Claude Code and Codex side by side");
   });
 
   it("falls back to the keyword heuristic when no model answers, and asks only once", async () => {
@@ -226,8 +227,14 @@ describe("the structural engineering AI group", () => {
     expect(result.score).toBeLessThan(HIGH_LEAD_SCORE);
   });
 
-  it("still lets a post that also matches a group that can lead be a lead", () => {
+  it("is not a lead even when the post also matches a group that can lead: every group it touches must allow one", () => {
     const result = heuristicClassify({ ...structuralOnly, matchedTerms: ["structural engineering AI", "cursor alternative"] }, DEFAULT_KEYWORD_GROUPS, NOW);
+    expect(result.category).not.toBe("lead");
+    expect(result.score).toBeLessThan(HIGH_LEAD_SCORE);
+  });
+
+  it("is a lead only when every group the post matches can lead", () => {
+    const result = heuristicClassify({ ...asking, matchedTerms: ["cursor alternative", "multiple claude code"] }, DEFAULT_KEYWORD_GROUPS, NOW);
     expect(result.category).toBe("lead");
   });
 
@@ -237,6 +244,15 @@ describe("the structural engineering AI group", () => {
 
     expect(out.hits[0].classifiedBy).toBe("ai");
     expect(out.hits[0].category).toBe("mention");
+    expect(out.hits[0].score).toBeLessThan(HIGH_LEAD_SCORE);
+  });
+
+  it("turns the model's lead about a competitor into a competitor hit under the lead line", async () => {
+    const etabs = hit({ title: "Anyone know a better alternative to ETABS", excerpt: "Looking for something cheaper than ETABS.", matchedTerms: ["ETABS"] });
+    const out = await classifyHits([etabs], DEFAULT_KEYWORD_GROUPS, { runAi: vi.fn(allLeads), now: () => NOW });
+
+    expect(out.hits[0].classifiedBy).toBe("ai");
+    expect(out.hits[0].category).toBe("competitor");
     expect(out.hits[0].score).toBeLessThan(HIGH_LEAD_SCORE);
   });
 

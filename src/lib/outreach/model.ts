@@ -64,11 +64,17 @@ If it looks like a fit for your audience, I'd be happy to send you a free licenc
 Either way, thanks for the video.
 Nic`;
 
+export const THREAD_ANSWER_PLACEHOLDER = "[Answer their question here, in a sentence or two, before anything about CoLateral.]";
+
+export function hasUnfilledPlaceholder(message: string): boolean {
+  return /\[Answer their question here[^\]]*\]/.test(message);
+}
+
 export const DEFAULT_THREAD_TEMPLATE = `Hi,
 
 I came across {thread} and wanted to help with what you were asking.
 
-[Answer their question here, in a sentence or two, before anything about CoLateral.]
+${THREAD_ANSWER_PLACEHOLDER}
 
 Full disclosure: I'm Nic and I build CoLateral, the all-in-one agentic workspace: one desktop canvas where your Claude Code, Codex and Gemini agents work side by side, inside your real files. If that sounds like what you're after, it's a one-time licence and you bring your own AI subscriptions. If it isn't, no worries, I hope the above helps.
 

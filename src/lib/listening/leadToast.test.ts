@@ -180,6 +180,39 @@ describe.skipIf(process.platform !== "win32")("health-toast.ps1 decides when to 
     ).not.toThrow();
   });
 
+  it("cuts a long title on whole characters: an emoji on the cut stays whole", () => {
+    rmSync(statePath(), { force: true });
+    const title = `${"a".repeat(86)}\u{1F600}${"b".repeat(20)}`;
+
+    const decision = run([lead("a", title)], 0);
+
+    expect(decision.toast?.body).toContain(`${"a".repeat(86)}\u{1F600}...`);
+    expect(decision.toast?.xml).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+
+  it("leaves a title that is exactly the limit alone, emoji included", () => {
+    rmSync(statePath(), { force: true });
+    const title = `${"a".repeat(89)}\u{1F600}`;
+
+    const decision = run([lead("a", title)], 0);
+
+    expect(decision.toast?.body).toContain(title);
+    expect(decision.toast?.body).not.toContain("...");
+  });
+
+  it("strips lone surrogates and the two non-characters, keeping a surrogate pair that is whole", () => {
+    rmSync(statePath(), { force: true });
+
+    const decision = run([lead("a", `Need \uD83D help \uDE00 now \uFFFE\uFFFF \u{1F600} done`)], 0);
+
+    const markup = `${decision.toast?.xml}${decision.toast?.body}`;
+    expect(markup).toContain("\u{1F600}");
+    expect(markup).toContain("Need");
+    expect(markup).toContain("done");
+    expect(markup).not.toMatch(/[\uFFFE\uFFFF]/);
+    expect(markup).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+
   it("writes nothing to the runner log on a tick that has nothing to say: no leads, or no answer from the app", () => {
     const log = path.join(dir, "runner.log");
     rmSync(log, { force: true });

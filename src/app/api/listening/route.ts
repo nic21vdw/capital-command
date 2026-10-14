@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { updateListeningConfig } from "@/lib/listening/config";
 import { leadSummary } from "@/lib/listening/leads";
-import { keywordGroupSchema } from "@/lib/listening/model";
+import { MAX_KEYWORD_GROUPS, keywordGroupSchema } from "@/lib/listening/model";
 import { sendHitToOutreach } from "@/lib/listening/outreach";
 import { runListeningScan } from "@/lib/listening/run";
 import { readListeningSnapshot, readListeningStore, updateListeningStore } from "@/lib/listening/store";
@@ -67,7 +67,7 @@ const patchSchema = z.union([
     status: z.enum(["new", "seen", "dismissed"]).optional(),
     note: z.string().optional()
   }),
-  z.object({ groups: z.array(keywordGroupSchema) }),
+  z.object({ groups: z.array(keywordGroupSchema).max(MAX_KEYWORD_GROUPS) }),
   z.object({ sources: z.object({ hn: z.boolean(), reddit: z.boolean(), youtube: z.boolean(), bluesky: z.boolean(), x: z.boolean() }).partial() }),
   z.object({ autoScan: z.boolean() })
 ]);

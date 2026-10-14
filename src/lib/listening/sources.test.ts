@@ -349,6 +349,35 @@ describe("scanning Reddit", () => {
     expect(collected.redditQueried).toBe(0);
   });
 
+  it("moves past a term that failed for any reason other than a 429, so one bad term cannot hold the rotation forever", async () => {
+    const failures: [string, () => Response | Promise<Response>][] = [
+      ["a server error", () => new Response("{}", { status: 500 })],
+      ["a bad request", () => new Response("{}", { status: 400 })],
+      ["an answer that is not JSON", () => new Response("<html>oops</html>", { status: 200 })]
+    ];
+    for (const [, failure] of failures) {
+      let calls = 0;
+      const server = recorder(() => {
+        calls += 1;
+        return calls === 1 ? jsonResponse(listing) : failure();
+      });
+      const collected = await collectScan(only("reddit", ["a1", "b2", "c3"]), { fetch: server.fetch, sleep, now });
+      expect(collected.sources[0].report.ok).toBe(false);
+      expect(collected.redditQueried).toBe(2);
+    }
+  });
+
+  it("moves past a term whose request threw, such as a timeout", async () => {
+    let calls = 0;
+    const server = recorder(() => {
+      calls += 1;
+      if (calls === 1) throw new TypeError("fetch failed");
+      return jsonResponse(listing);
+    });
+    const collected = await collectScan(only("reddit", ["a1", "b2"]), { fetch: server.fetch, sleep, now });
+    expect(collected.redditQueried).toBe(1);
+  });
+
   it("gives up after a second refusal in a row, and counts only the terms it did search", async () => {
     let calls = 0;
     const server = recorder(() => {
@@ -364,6 +393,29 @@ describe("scanning Reddit", () => {
 
 describe("parsing Bluesky", () => {
   const hits = parseBlueskyResponse(fixture("bluesky-search.json"), TERMS);
+
+  it("cuts a long title on whole characters, so an emoji on the cut is kept or dropped and never split", () => {
+    const text = `Revit ${"a".repeat(80)}\u{1F600}${"b".repeat(30)}`;
+    const long = { posts: [{ uri: "at://did:plc:e/app.bsky.feed.post/3kemoji", author: { handle: "e.bsky.social" }, record: { text, createdAt: "2026-10-12T10:00:00.000Z" } }] };
+
+    const [post] = parseBlueskyResponse(long, TERMS);
+
+    expect([...post.title]).toHaveLength(90);
+    expect(post.title.endsWith("...")).toBe(true);
+    expect(post.title).toMatch(/\u{1F600}\.\.\.$/u);
+    expect(post.title).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+
+  it("cuts an excerpt on whole characters too", () => {
+    const text = `Revit ${"a".repeat(270)}\u{1F600}${"b".repeat(30)}`;
+    const long = { posts: [{ uri: "at://did:plc:e/app.bsky.feed.post/3kemoji", author: { handle: "e.bsky.social" }, record: { text, createdAt: "2026-10-12T10:00:00.000Z" } }] };
+
+    const [post] = parseBlueskyResponse(long, TERMS);
+
+    expect([...post.excerpt]).toHaveLength(280);
+    expect(post.excerpt).toMatch(/\u{1F600}\.\.\.$/u);
+    expect(post.excerpt).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
 
   it("keeps matching posts, links them on bsky.app, and skips authors who opted out of logged-out viewing", () => {
     expect(hits).toHaveLength(1);

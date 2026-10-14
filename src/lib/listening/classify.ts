@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { runAi as defaultRunAi, type AiRequest, type AiResult } from "@/lib/ai/provider";
-import { HIT_CATEGORIES, intentOfTerms, type HitCategory, type KeywordGroup, type ListeningHit } from "@/lib/listening/model";
+import { HIT_CATEGORIES, clipText, intentOfTerms, type HitCategory, type KeywordGroup, type ListeningHit } from "@/lib/listening/model";
 
 export const CLASSIFY_BATCH_SIZE = 8;
 export const MAX_CLASSIFIED_PER_SCAN = 40;
@@ -51,15 +51,19 @@ function sentimentOf(text: string): number {
   return round2((positive - negative) / Math.max(1, positive + negative));
 }
 
-function canLead(hit: ListeningHit, groups: KeywordGroup[]): boolean {
+function touchingGroups(hit: ListeningHit, groups: KeywordGroup[]): KeywordGroup[] {
   const matched = new Set(hit.matchedTerms.map((term) => term.toLowerCase()));
-  const touching = groups.filter((group) => group.terms.some((term) => matched.has(term.toLowerCase())));
-  return touching.length === 0 || touching.some((group) => group.canLead);
+  return groups.filter((group) => group.terms.some((term) => matched.has(term.toLowerCase())));
 }
 
-function keepOutOfLeads(answer: Classification): Classification {
+function canLead(hit: ListeningHit, groups: KeywordGroup[]): boolean {
+  return touchingGroups(hit, groups).every((group) => group.canLead);
+}
+
+function keepOutOfLeads(answer: Classification, hit: ListeningHit, groups: KeywordGroup[]): Classification {
   if (answer.category !== "lead") return answer;
-  return { ...answer, category: "mention", score: Math.min(answer.score, 60), reason: answer.reason ? `${answer.reason} (not a lead for this topic)` : "Not a lead for this topic" };
+  const category = touchingGroups(hit, groups).some((group) => group.intent === "competitor") ? "competitor" : "mention";
+  return { ...answer, category, score: Math.min(answer.score, 60), reason: answer.reason ? `${answer.reason} (not a lead for this topic)` : "Not a lead for this topic" };
 }
 
 export function heuristicClassify(hit: ListeningHit, groups: KeywordGroup[], now: Date = new Date()): Classification {
@@ -133,8 +137,7 @@ const SYSTEM_PROMPT = [
 ].join("\n");
 
 function flat(value: string, max: number): string {
-  const text = value.replace(/\s+/g, " ").trim();
-  return text.length > max ? `${text.slice(0, max - 3)}...` : text;
+  return clipText(value.replace(/\s+/g, " ").trim(), max);
 }
 
 function promptFor(batch: ListeningHit[]): string {
@@ -177,7 +180,7 @@ export async function classifyHits(
       const answer = answers.get(index + 1);
       if (answer) ai += 1;
       else heuristic += 1;
-      out.push({ ...hit, ...(answer ? (canLead(hit, groups) ? answer : keepOutOfLeads(answer)) : heuristicClassify(hit, groups, now)) });
+      out.push({ ...hit, ...(answer ? (canLead(hit, groups) ? answer : keepOutOfLeads(answer, hit, groups)) : heuristicClassify(hit, groups, now)) });
     });
   }
   return { hits: out, ai, heuristic };

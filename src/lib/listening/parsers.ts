@@ -1,4 +1,4 @@
-import { excerptOf, matchingTerms, plainText, str, type ListeningHit } from "@/lib/listening/model";
+import { clipText, excerptOf, matchingTerms, plainText, str, type ListeningHit } from "@/lib/listening/model";
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -77,7 +77,7 @@ export function parseBlueskyResponse(json: unknown, terms: string[]): ListeningH
     if (matched.length === 0) continue;
     out.push({
       source: "bluesky",
-      title: text.length > 90 ? `${text.slice(0, 87)}...` : text,
+      title: clipText(text, 90),
       url: `https://bsky.app/profile/${handle}/post/${rkey}`,
       author: handle,
       createdAt: str(body.createdAt) || str(post?.indexedAt) || new Date(0).toISOString(),
