@@ -498,6 +498,46 @@ pauses the others.
 - There is no email, push or other notification code: the banner and that toast
   are the only alerts.
 
+## Post analytics (`src/lib/analytics`, `/performance`)
+
+Every published post is read back from its platform into `data/analytics/metrics.json`
+(`store.ts`: `atomicWriteJson` under `withFileLock`, compact JSON, one process-wide
+write queue). A record per post keeps the latest numbers plus one snapshot per UTC day,
+capped at 90 (`metrics.ts`). Numbers a platform did not report are absent, never zero.
+
+- **What is read** (`targets.ts`): every publish-queue leg that is `published` with a
+  `postId`, and every published Threads item. The Threads queue keeps 14 days, so the
+  store, not the queue, is the long-term record of a Threads post.
+- **Per platform**, each a pure parser plus a fetcher over an injectable `fetch`:
+  YouTube reads Data API counts in batches of 50 and, when the token has
+  `yt-analytics.readonly`, Analytics watch time and average view duration (a 403 on that
+  scope drops back to the Data API for the rest of the run; `source` on the record says
+  which). Instagram, Facebook and Threads read insights with a metric-set ladder and fall
+  back to likes and comments when the token has no insights permission. TikTok is marked
+  unsupported until the app's scope (`TIKTOK_SCOPE`) includes `video.list`.
+  Production's YouTube grant today is `youtube.upload`, `youtube.readonly` and
+  `youtube.force-ssl`, so watch time does not arrive until YouTube is reconnected with the
+  extra scope; Connect YouTube does not ask for it.
+- **Failures** (`http.ts`, `classifyFailure`): a 429 backs off (honouring `Retry-After`
+  up to 60 s, else the account is left alone for the advised time and shown as rate
+  limited); an auth failure goes through the platform-health breaker per account
+  (`recordAuthFailure`, and `accountAuthBlocked` skips it until the next trial), exactly
+  like posting; a missing permission is a note on the account, not a break. Five failed
+  reads in a row stop an account for the run.
+- **When** (`schedule.ts`, started from `src/instrumentation.ts`): the running server checks every
+  15 minutes and syncs when the last completed sync is 6 hours old (30 minutes after a failed one),
+  first check 2 minutes after start. Single-flight in the process (`globalThis`) and across
+  processes (a `sync.running` marker with pid and 30-minute staleness). `ANALYTICS_SYNC=off`
+  disables it. Posts are read every cycle in their first week, daily to day 30, every third
+  day to day 90, and once more after day 90 (`final`); a post missing three times is `gone`.
+  `npm run analytics:sync [-- --force]` and the page's Sync now (`POST /api/analytics/sync`,
+  202, runs in the background) use the same code.
+- **For later slices**: `queryAnalytics`, `queryRows`, `topRows`, `platformTotals` and
+  `getPostMetrics` are exported from `src/lib/analytics/index.ts`; `GET /api/analytics`
+  takes `platform` (comma list), `since` (`28d` or a date), `top` and `sort`. The page
+  declares its filters, Sync now and a reading of the totals through
+  `buildPerformanceSurface` (`surface.ts`).
+
 ## Launch Pad (`src/lib/launch`)
 
 Product Hunt launch planning at `/launch`. Product Hunt has NO write API for

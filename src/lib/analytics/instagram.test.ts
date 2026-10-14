@@ -1,0 +1,130 @@
+import { describe, expect, it } from "vitest";
+import { fetchInstagramMetrics, parseInstagramInsights } from "@/lib/analytics/instagram";
+import { httpDeps } from "@/lib/analytics/test-helpers";
+
+const GRAPH = "https://graph.facebook.com/v23.0";
+const creds = { token: "ig-token", graphBase: GRAPH };
+
+function insights(values: Record<string, number>) {
+  return {
+    data: Object.entries(values).map(([name, value]) => ({ name, period: "lifetime", values: [{ value }], id: `1/insights/${name}/lifetime` }))
+  };
+}
+
+const metricsOf = (url: string) => new URL(url).searchParams.get("metric")?.split(",") ?? [];
+
+describe("parseInstagramInsights", () => {
+  it("maps Instagram's names to ours and ignores what it does not know", () => {
+    expect(
+      parseInstagramInsights(insights({ views: 812, reach: 600, likes: 40, comments: 5, shares: 3, saved: 9, total_interactions: 57, weird: 1 }))
+    ).toEqual({ views: 812, reach: 600, likes: 40, comments: 5, shares: 3, saves: 9 });
+  });
+
+  it("treats the older plays metric as views", () => {
+    expect(parseInstagramInsights(insights({ plays: 77, reach: 50 }))).toEqual({ views: 77, reach: 50 });
+  });
+
+  it("skips values that are not numbers", () => {
+    expect(parseInstagramInsights({ data: [{ name: "reach", values: [{ value: "n/a" }] }] })).toEqual({});
+    expect(parseInstagramInsights(null)).toEqual({});
+  });
+});
+
+describe("fetchInstagramMetrics", () => {
+  it("reads views, reach, likes, comments, shares and saves for each media id", async () => {
+    const { deps, calls } = httpDeps([
+      { match: "/m1/insights", reply: { body: insights({ views: 100, reach: 80, likes: 10, comments: 2, shares: 1, saved: 4 }) } },
+      { match: "/m2/insights", reply: { body: insights({ views: 5, reach: 5, likes: 0, comments: 0, shares: 0, saved: 0 }) } }
+    ]);
+
+    const outcome = await fetchInstagramMetrics(creds, ["m1", "m2"], deps);
+
+    expect(outcome.results.get("m1")).toEqual({
+      source: "instagram-insights",
+      metrics: { views: 100, reach: 80, likes: 10, comments: 2, shares: 1, saves: 4 }
+    });
+    expect(outcome.results.get("m2")?.metrics.likes).toBe(0);
+    expect(calls).toHaveLength(2);
+    expect(new URL(calls[0].url).searchParams.get("access_token")).toBe("ig-token");
+    expect(metricsOf(calls[0].url)).toEqual(["views", "reach", "likes", "comments", "shares", "saved"]);
+  });
+
+  it("retries with the older plays metric when this media type rejects views", async () => {
+    const { deps, calls } = httpDeps([
+      {
+        match: "/m1/insights",
+        reply: (call) =>
+          metricsOf(call.url).includes("views")
+            ? { status: 400, body: { error: { code: 100, message: "(#100) metric[0] must be one of the following values: plays, reach" } } }
+            : { body: insights({ plays: 61, reach: 40, likes: 3, comments: 1, shares: 0, saved: 2 }) }
+      }
+    ]);
+
+    const outcome = await fetchInstagramMetrics(creds, ["m1"], deps);
+
+    expect(calls).toHaveLength(2);
+    expect(metricsOf(calls[1].url)).toContain("plays");
+    expect(outcome.results.get("m1")?.metrics).toMatchObject({ views: 61, reach: 40, saves: 2 });
+  });
+
+  it("falls back to likes and comments when the token has no insights permission, and stops asking for insights", async () => {
+    const { deps, calls } = httpDeps([
+      {
+        match: "/insights",
+        reply: { status: 400, body: { error: { code: 10, message: "(#10) Application does not have permission for this action" } } }
+      },
+      { match: /\/m\d\?fields=/, reply: (call) => ({ body: { like_count: Number(call.url.match(/m(\d)\?/)![1]) * 10, comments_count: 2 } }) }
+    ]);
+
+    const outcome = await fetchInstagramMetrics(creds, ["m1", "m2", "m3"], deps);
+
+    expect(calls.filter((call) => call.url.includes("/insights"))).toHaveLength(1);
+    expect(calls.filter((call) => call.url.includes("fields="))).toHaveLength(3);
+    expect(outcome.results.get("m2")).toEqual({ source: "instagram-basic", metrics: { likes: 20, comments: 2 } });
+    expect(outcome.notes.join(" ")).toMatch(/instagram_manage_insights/);
+    expect(outcome.stopped).toBeNull();
+  });
+
+  it("reports a media id Instagram no longer has as gone, without trying every metric set", async () => {
+    const { deps, calls } = httpDeps([
+      {
+        match: "/m1/insights",
+        reply: {
+          status: 400,
+          body: { error: { code: 100, error_subcode: 33, message: "Unsupported get request. Object with ID 'm1' does not exist" } }
+        }
+      },
+      { match: "/m2/insights", reply: { body: insights({ views: 3, reach: 3, likes: 1, comments: 0, shares: 0, saved: 0 }) } }
+    ]);
+
+    const outcome = await fetchInstagramMetrics(creds, ["m1", "m2"], deps);
+
+    expect(outcome.gone).toEqual(["m1"]);
+    expect(outcome.results.has("m2")).toBe(true);
+    expect(calls.filter((call) => call.url.includes("/m1/"))).toHaveLength(1);
+  });
+
+  it("stops at the first expired-token answer and hands the error to the breaker", async () => {
+    const { deps, calls } = httpDeps([
+      {
+        match: "/insights",
+        reply: { status: 400, body: { error: { code: 190, message: "Error validating access token: Session has expired" } } }
+      }
+    ]);
+
+    const outcome = await fetchInstagramMetrics(creds, ["m1", "m2", "m3"], deps);
+
+    expect(outcome.stopped?.kind).toBe("auth");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("stops when Instagram says the app is rate limited", async () => {
+    const { deps } = httpDeps([
+      { match: "/insights", reply: { status: 400, body: { error: { code: 4, message: "(#4) Application request limit reached" } } } }
+    ]);
+
+    const outcome = await fetchInstagramMetrics(creds, ["m1", "m2"], deps);
+
+    expect(outcome.stopped?.kind).toBe("rate");
+  });
+});

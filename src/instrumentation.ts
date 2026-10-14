@@ -38,5 +38,8 @@ export async function register() {
 
     const { startPipelineHeartbeat } = await import("@/lib/pipeline/heartbeat");
     startPipelineHeartbeat();
+
+    const { startAnalyticsSync } = await import("@/lib/analytics/schedule");
+    startAnalyticsSync();
   }
 }

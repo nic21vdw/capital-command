@@ -27,6 +27,7 @@
     "ai:check": "tsx scripts/ai-health.ts",
     "backup:state": "tsx scripts/backup-state.ts",
     "backup:restore": "tsx scripts/restore-state.ts",
+    "analytics:sync": "tsx scripts/analytics-sync.ts",
     "backup:register": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\register-backup-task.ps1",
     "tiktok:audit": "tsx src/lib/publisher/auditCheck.ts",
     "tiktok:watch:register": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\register-tiktok-audit-task.ps1",
