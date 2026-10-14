@@ -197,6 +197,14 @@ export const PROMPT_CASES: PromptCase[] = [
     }
   },
   {
+    id: "outreach-thread-template",
+    run: async () => {
+      const { DEFAULT_THREAD_TEMPLATE } = await import("@/lib/outreach/model");
+      const { captureText } = await import("@/lib/brand/prompt-capture");
+      captureText(DEFAULT_THREAD_TEMPLATE);
+    }
+  },
+  {
     id: "outreach-template",
     run: async () => {
       const { DEFAULT_OUTREACH_TEMPLATE } = await import("@/lib/outreach/model");

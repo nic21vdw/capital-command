@@ -133,6 +133,7 @@ const ANALYSIS_ONLY: Record<string, string> = {
   "src/lib/master-calendar/planner.ts#generateCalendarPlan": "suggests which idea goes in which gap; schedule entries, not copy",
   "src/lib/voice/textAgent.ts#runVoiceTurn": "its system prompt is built by voiceInstructions, which includes the kit block",
   "src/lib/longform/highlights.ts#askEditor": "chooses which passages of a stream make the edit; the reply is passage ids, and it reads the kit context directly",
+  "src/lib/listening/classify.ts#ask": "sorts public posts into lead, mention, competitor or noise; the reply is labels and scores, and its product line comes from the kit",
   "src/lib/story/ai.ts#askStory": "plans the edit of a stream from its own moments; the reply is moment ids and quotes copied from the transcript"
 };
 

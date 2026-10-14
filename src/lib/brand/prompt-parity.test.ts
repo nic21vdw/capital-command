@@ -45,7 +45,8 @@ const BLOCKS: Record<string, BlockUse[] | null> = {
   "voice-console-armed": [{ channel: "voice" }],
   "voice-console-readonly": [{ channel: "voice" }],
   "voice-realtime-session": [{ channel: "voice" }, { channel: "voice" }],
-  "outreach-template": null
+  "outreach-template": null,
+  "outreach-thread-template": null
 };
 
 const HYPE_RULES = [
