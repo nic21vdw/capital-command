@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { postCode } from "@/lib/attribution/code";
-import { PermanentError } from "@/lib/publisher/http";
-import { ContainerPendingError, ContainerRejectedError, ThreadsPublishPausedError } from "@/lib/threads/api";
+import { PermanentError, TransientError } from "@/lib/publisher/http";
+import { ContainerPendingError, ContainerRejectedError, ThreadsPublishPausedError, postToThreads } from "@/lib/threads/api";
 import { isAutomationPaused } from "@/lib/automations/store";
 import { plugReplyFor } from "@/lib/threads/plug";
 import { threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
@@ -12,6 +12,7 @@ vi.mock("@/lib/automations/store", () => ({ isAutomationPaused: vi.fn(async () =
 vi.mock("@/lib/automations/history", () => ({ recordAutomationEventSafely: vi.fn(async () => {}) }));
 afterEach(() => {
   vi.mocked(isAutomationPaused).mockResolvedValue(false);
+  vi.unstubAllGlobals();
 });
 
 function account(overrides: Partial<ThreadsAccount> = {}): ThreadsAccount {
@@ -75,6 +76,39 @@ function deps(items: ThreadsQueueItem[], post?: ThreadsRunDeps["post"]) {
 const silent = () => {};
 
 describe("runDue", () => {
+  it.each([false, true])("holds an ambiguous %s reply send after restart, without consuming attempts", async (reply) => {
+    const now = new Date("2026-07-22T07:20:00Z");
+    let saved = [item(reply ? { status: "published", postId: "parent", publishedAt: "2026-07-22T07:16:00Z", plugText: "saved reply" } : {})];
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/threads")) return new Response(JSON.stringify({ id: "saved-container" }));
+      expect(saved[0][reply ? "plugPublishAttemptedAt" : "publishAttemptedAt"]).toBeTruthy();
+      throw new Error("response lost after acceptance");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const restartDeps = (): ThreadsRunDeps => ({
+      read: async () => structuredClone(saved), write: async (rows) => { saved = structuredClone(rows); },
+      post: (input) => postToThreads(input, config())
+    });
+    const first = await runDue(now, { config: config(), deps: restartDeps(), log: silent });
+    expect(reply ? first.replies?.failed : first.failed).toBe(1);
+    expect(saved[0][reply ? "plugPublishAttemptedAt" : "publishAttemptedAt"]).toBeTruthy();
+    expect(saved[0][reply ? "plugAttempts" : "attempts"] ?? 0).toBe(0);
+    const before = structuredClone(saved);
+    await runDue(new Date("2026-07-22T09:20:00Z"), { config: config(), deps: restartDeps(), log: silent });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(saved).toEqual(before);
+  });
+
+  it.each([false, true])("holds legacy %s reply containers because their publish phase is unknown", async (reply) => {
+    const row = item(reply ? { status: "published", postId: "parent", publishedAt: "2026-07-22T07:16:00Z",
+      plugText: "legacy reply", plugContainerId: "legacy-container" } : { containerId: "legacy-container" });
+    const post = vi.fn();
+    const { runDeps, state } = deps([row], post);
+    await runDue(new Date("2026-07-22T07:20:00Z"), { config: config(), deps: runDeps, log: silent });
+    expect(post).not.toHaveBeenCalled();
+    expect(state.items[0]).toEqual(row);
+  });
+
   it("does not send the same post twice when two runs read separate snapshots", async () => {
     let saved = [item()];
     let release!: () => void;
@@ -211,7 +245,7 @@ describe("runDue", () => {
     expect(state.items[0].note).toContain("no longer connected");
   });
 
-  it("backs off and retries a transient failure", async () => {
+  it("holds an uncertain publish instead of retrying it", async () => {
     const post = vi.fn(async () => {
       throw new ContainerPendingError("container-9", "not ready");
     });
@@ -223,14 +257,15 @@ describe("runDue", () => {
       log: silent
     });
 
-    expect(report.outcomes[0].outcome).toBe("retrying");
-    expect(state.items[0]).toMatchObject({ status: "pending", attempts: 1, containerId: "container-9" });
-    expect(state.items[0].nextAttemptAt).toBe("2026-07-22T07:21:00.000Z");
+    expect(report.outcomes[0].outcome).toBe("failed");
+    expect(state.items[0]).toMatchObject({ status: "pending", attempts: 0, containerId: "container-9" });
+    expect(state.items[0].publishAttemptedAt).toBeTruthy();
+    expect(state.items[0].nextAttemptAt).toBeUndefined();
   });
 
   it("re-uses the container from a failed attempt instead of creating a second one", async () => {
     const post = vi.fn(async () => ({ containerId: "container-9", postId: "post-1" }));
-    const { runDeps } = deps([item({ containerId: "container-9", attempts: 1 })], post);
+    const { runDeps } = deps([item({ containerId: "container-9", containerPreparedAt: "2026-07-22T07:15:00Z", attempts: 1 })], post);
 
     await runDue(new Date("2026-07-22T07:16:00.000Z"), { config: config(), deps: runDeps, log: silent });
 
@@ -260,7 +295,7 @@ describe("runDue", () => {
 
   it("gives up after the attempt limit", async () => {
     const post = vi.fn(async () => {
-      throw new ContainerPendingError("container-9", "still not ready");
+      throw new TransientError("Container creation unavailable");
     });
     const { runDeps, state } = deps([item({ attempts: 2 })], post);
 
@@ -428,30 +463,26 @@ describe("runDue reply delivery reliability", () => {
   });
 
   it("keeps reply copy fixed once an attempt or container exists", async () => {
-    const { runDeps, state, posted } = deps([published({ plugText: "approved exact reply", plugAttempts: 1, plugContainerId: "old-container" })]);
+    const { runDeps, state, posted } = deps([published({ plugText: "approved exact reply", plugAttempts: 1, plugContainerId: "old-container", plugContainerPreparedAt: "2026-07-22T07:15:00Z" })]);
     await runDue(now, { config: config(), deps: runDeps, log: silent });
     expect(posted[0].text).toBe("approved exact reply");
     expect(state.items[0].plugText).toBe("approved exact reply");
   });
 
-  it("backs off reply failures separately and reuses their container", async () => {
-    const post = vi.fn<ThreadsRunDeps["post"]>()
-      .mockRejectedValueOnce(new ContainerPendingError("reply-container", "not ready"))
-      .mockResolvedValueOnce({ containerId: "reply-container", postId: "reply" });
+  it("holds an uncertain reply without retrying its container or reposting its parent", async () => {
+    const post = vi.fn<ThreadsRunDeps["post"]>(async () => { throw new ContainerPendingError("reply-container", "Response lost"); });
     const { runDeps, state } = deps([published()], post);
     const first = await runDue(now, { config: config(), deps: runDeps, log: silent });
-    expect(first).toMatchObject({ published: 0, failed: 0, replies: { retrying: 1, failed: 0 } });
-    expect(state.items[0]).toMatchObject({ status: "published", plugAttempts: 1, plugNextAttemptAt: "2026-07-22T07:25:00.000Z" });
-    await runDue(new Date("2026-07-22T07:21:00Z"), { config: config(), deps: runDeps, log: silent });
-    expect(post).toHaveBeenCalledTimes(1);
-    await runDue(new Date("2026-07-22T07:25:00Z"), { config: config(), deps: runDeps, log: silent });
-    expect(post).toHaveBeenLastCalledWith(expect.objectContaining({ containerId: "reply-container", replyToId: "parent" }));
+    expect(first).toMatchObject({ published: 0, failed: 0, replies: { retrying: 0, failed: 1 } });
+    expect(state.items[0]).toMatchObject({ status: "published", plugContainerId: "reply-container" });
+    expect(state.items[0].plugPublishAttemptedAt).toBeTruthy();
     expect(state.items[0].plugNextAttemptAt).toBeUndefined();
-    expect(state.items[0].plugPostId).toBe("reply");
+    await runDue(new Date("2026-07-22T07:25:00Z"), { config: config(), deps: runDeps, log: silent });
+    expect(post).toHaveBeenCalledTimes(1);
   });
 
   it("respects a fresh reply lease and resumes an abandoned one", async () => {
-    const { runDeps, state, posted } = deps([published({ plugText: "claimed copy", plugClaimedAt: "2026-07-22T07:19:00Z", plugContainerId: "claimed-container" })]);
+    const { runDeps, state, posted } = deps([published({ plugText: "claimed copy", plugClaimedAt: "2026-07-22T07:19:00Z", plugContainerId: "claimed-container", plugContainerPreparedAt: "2026-07-22T07:15:00Z" })]);
     await runDue(now, { config: config(), deps: runDeps, log: silent });
     expect(posted).toHaveLength(0);
     await runDue(new Date("2026-07-22T07:30:00Z"), { config: config(), deps: runDeps, log: silent });
@@ -507,6 +538,7 @@ describe("runDue reply delivery reliability", () => {
     expect(state.items[0].plugAttempts).toBeUndefined();
     expect(state.items[0].plugClaimedAt).toBeUndefined();
     vi.mocked(isAutomationPaused).mockResolvedValue(false);
+  vi.unstubAllGlobals();
     await runDue(now, { config: live, deps: runDeps, log: silent });
     expect(state.items[0].plugPostId).toBe("reply");
     expect(post).toHaveBeenCalledTimes(2);

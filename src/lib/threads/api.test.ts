@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { accountUserId, createTextContainer, postToThreads, ContainerRejectedError, ThreadsPublishPausedError } from "@/lib/threads/api";
+import { accountUserId, createTextContainer, postToThreads, ContainerPendingError, ContainerRejectedError, ThreadsPublishPausedError } from "@/lib/threads/api";
 import type { ThreadsAccount, ThreadsConfig } from "@/lib/threads/config";
 
 function config(): ThreadsConfig {
@@ -137,19 +137,34 @@ describe("postToThreads delivery safety", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("checks controls after a publish retry wait instead of retrying after pause", async () => {
-    vi.useFakeTimers();
-    let allowed = true;
+  it.each(["network", "timeout", "500", "408", "empty", "malformed"])("makes only one publish request after %s uncertainty", async (kind) => {
     const fetchMock = vi.fn(async () => {
-      allowed = false;
-      return new Response(JSON.stringify({ error: "busy" }), { status: 503 });
+      if (kind === "network" || kind === "timeout") throw new Error(kind);
+      return new Response(kind === "malformed" ? "{broken" : "{}", { status: kind === "500" ? 500 : kind === "408" ? 408 : 200 });
     });
     vi.stubGlobal("fetch", fetchMock);
-    const posting = postToThreads({ account: account({ userId: "1" }), text: "the post", containerId: "existing", shouldPublish: async () => allowed }, config());
-    const rejection = expect(posting).rejects.toMatchObject({ containerId: "existing" });
-    await vi.advanceTimersByTimeAsync(5_000);
-    await rejection;
+    const onBeforePublish = vi.fn(async () => {});
+    await expect(postToThreads({ account: account({ userId: "1" }), text: "the post", containerId: "existing", onBeforePublish }, config()))
+      .rejects.toBeInstanceOf(ContainerPendingError);
+    expect(onBeforePublish).toHaveBeenCalledWith("existing");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("checks pause again after saving the send guard", async () => {
+    const fetchMock = platformResponses([]);
+    let allowed = true;
+    await expect(postToThreads({ account: account({ userId: "1" }), text: "the post", containerId: "existing",
+      shouldPublish: async () => allowed, onBeforePublish: async () => { allowed = false; } }, config()))
+      .rejects.toBeInstanceOf(ThreadsPublishPausedError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("waits for the durable send guard and refuses to publish if saving it fails", async () => {
+    const fetchMock = platformResponses([]);
+    const failure = new Error("guard save failed");
+    await expect(postToThreads({ account: account({ userId: "1" }), text: "the post", containerId: "existing",
+      onBeforePublish: async () => { throw failure; } }, config())).rejects.toBe(failure);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

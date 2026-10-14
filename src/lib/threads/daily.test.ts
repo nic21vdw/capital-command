@@ -90,7 +90,7 @@ function nowish(): Date {
 }
 
 describe("planTodaysBatch", () => {
-  it.each(["claimedAt", "containerId", "postId"] as const)("keeps an in-flight %s slot and the other account's pending version during replanning", async (handle) => {
+  it.each(["claimedAt", "containerId", "postId", "publishAttemptedAt"] as const)("keeps an in-flight %s slot and the other account's pending version during replanning", async (handle) => {
     const { planTodaysBatch } = await import("@/lib/threads/daily");
     const { threadsConfig } = await import("@/lib/threads/config");
     const now = nowish();
@@ -107,6 +107,19 @@ describe("planTodaysBatch", () => {
     const result = await planTodaysBatch({ now, config, startNow: true, log: () => undefined });
     expect(result.created).toBe(0);
     expect(result.skipped).toContain("started sending");
+    expect(store.items).toEqual(before);
+  });
+
+  it("does not replace a failed or attempted slot with a fresh forced send", async () => {
+    const { planTodaysBatch } = await import("@/lib/threads/daily");
+    const now = nowish();
+    const original: ThreadsQueueItem = { id: "failed-original", batchDate: todayKey(), slot: 1,
+      accountId: "primary", version: "text", topic: "fixture", format: "insight", text: "Saved failed copy",
+      publishAt: now.toISOString(), createdAt: now.toISOString(), status: "failed", attempts: 1 };
+    store.items = [original];
+    const before = structuredClone(store.items);
+    const result = await planTodaysBatch({ now, force: true, startNow: true, log: () => {} });
+    expect(result.created).toBe(0);
     expect(store.items).toEqual(before);
   });
 

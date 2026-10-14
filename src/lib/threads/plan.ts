@@ -152,7 +152,8 @@ function packGapMinutes(pack: XDailyPack): number {
  */
 function startNowTimes(pack: XDailyPack, config: ThreadsConfig, now: Date, count: number, minGap: number) {
   const first = now.getTime() + FIRST_POST_DELAY_MINUTES * 60_000;
-  const endOfDay = endOfPostingDay(now, config).getTime();
+  // Reserve the account stagger so every version still fits before the stop.
+  const endOfDay = endOfPostingDay(now, config).getTime() - Math.max(0, ...config.accounts.map((account) => account.offsetMinutes)) * 60_000;
 
   const room = Math.max(0, endOfDay - first);
   const maxGap = count > 1 ? Math.floor(room / (count - 1) / 60_000) : DEFAULT_GAP_MINUTES;
@@ -197,7 +198,9 @@ export function planBatch({
     // The slot is judged by its own time, not each account's offset, so the two
     // accounts always stay in step: a slot is either scheduled for everyone or
     // dropped for everyone.
-    if (!slotAt || slotAt.getTime() <= now.getTime()) {
+    const latestAccountAt = slotAt ? slotAt.getTime() + Math.max(0, ...config.accounts.map((account) => account.offsetMinutes)) * 60_000 : Infinity;
+    const postingEnd = endOfPostingDay(slotAt ?? now, config).getTime();
+    if (!slotAt || slotAt.getTime() <= now.getTime() || latestAccountAt > postingEnd) {
       droppedPastSlots += 1;
       return;
     }

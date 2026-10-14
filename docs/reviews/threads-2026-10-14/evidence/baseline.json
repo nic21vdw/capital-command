@@ -1,0 +1,31 @@
+{
+  "baseline": "59454b4464665d1dde79b4fad78eb983d86542c3",
+  "synthetic": true,
+  "liveRequests": 0,
+  "cases": [
+    {
+      "name": "Skipped-only headline",
+      "observed": "1 post today - all sent",
+      "defect": "Claims publication with no sent posts"
+    },
+    {
+      "name": "Configured posting window",
+      "window": "07:00-23:00",
+      "observedLastSlot": "23:10",
+      "defect": "Jitter escapes configured end"
+    },
+    {
+      "name": "Lost publish response",
+      "observedPublishCalls": 3,
+      "error": "Threads did not publish the container after three attempts: Response lost after simulated acceptance",
+      "defect": "Repeats an uncertain write"
+    },
+    {
+      "name": "Completely missed batch",
+      "standing": 0,
+      "hoursRemaining": 12,
+      "observedReplans": 0,
+      "defect": "Cannot recover an existing fully missed batch"
+    }
+  ]
+}

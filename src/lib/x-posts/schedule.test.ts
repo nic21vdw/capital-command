@@ -47,8 +47,18 @@ describe("scheduleTimes", () => {
 
     const minutes = scheduleTimes("2026-07-30", 24).map(minutesOf);
 
-    expect(Math.min(...minutes)).toBeGreaterThanOrEqual(8 * 60 - 10);
-    expect(Math.max(...minutes)).toBeLessThanOrEqual(20 * 60 + 10);
+    expect(Math.min(...minutes)).toBeGreaterThanOrEqual(8 * 60);
+    expect(Math.max(...minutes)).toBeLessThanOrEqual(20 * 60);
+  });
+
+  it("keeps jitter within the configured window across a month of days", () => {
+    process.env.THREADS_DAY_START = "07:00";
+    process.env.THREADS_DAY_END = "23:00";
+    for (let day = 1; day <= 31; day++) {
+      const minutes = scheduleTimes(`2026-10-${String(day).padStart(2, "0")}`).map(minutesOf);
+      expect(Math.min(...minutes)).toBeGreaterThanOrEqual(7 * 60);
+      expect(Math.max(...minutes)).toBeLessThanOrEqual(23 * 60);
+    }
   });
 
   it("reads a window that ends before it starts as the rest of the day", () => {
@@ -59,7 +69,7 @@ describe("scheduleTimes", () => {
 
     // Never wraps past midnight, which would put the later slots on the next
     // calendar day while still carrying today's batch date.
-    expect(Math.min(...minutes)).toBeGreaterThanOrEqual(22 * 60 - 10);
+    expect(Math.min(...minutes)).toBeGreaterThanOrEqual(22 * 60);
     expect(Math.max(...minutes)).toBeLessThan(24 * 60);
   });
 });

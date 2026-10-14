@@ -127,7 +127,7 @@ describe("Threads editorial contract", () => {
     [
       "retired name",
       (raw: ReturnType<typeof modelPack>) => {
-        raw.posts[0].text = raw.posts[0].text.replace("tiny tool", "Capital Command");
+        raw.posts[0].text = "Capital Command is an old name. Give a small AI tool one boring job, then compare its output with the result you expected.";
       },
       "retired product name"
     ],

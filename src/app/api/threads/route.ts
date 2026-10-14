@@ -15,6 +15,7 @@ import {
   summarizeBatches
 } from "@/lib/threads/queue";
 import { runDue } from "@/lib/threads/runner";
+import { hasStarted } from "@/lib/threads/rewrite";
 import { readThreadsState, tickHealth } from "@/lib/threads/state";
 import { localCalendarParts } from "@/lib/publisher/time";
 import { isAutomationPaused } from "@/lib/automations/store";
@@ -236,8 +237,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "skip") {
-      const found = await mutateQueue((items) => {
+      const found = await mutateQueue<boolean | "protected">((items) => {
         const item = items.find((entry) => entry.id === id);
+        // The same locked row is used for both claim and skip. A skip before
+        // claim wins; once delivery starts, a successful skip would be false.
+        if (item?.status === "pending" && hasStarted(item)) return { items, result: "protected" };
         if (item && item.status === "pending") {
           item.status = "skipped";
           item.note = "Skipped by hand from the dashboard.";
@@ -245,14 +249,21 @@ export async function POST(request: NextRequest) {
         }
         return { items, result: Boolean(item) };
       });
+      if (found === "protected") return NextResponse.json({ error: "This post has started sending and cannot be skipped. Check Threads before changing it." }, { status: 409 });
       if (!found) return NextResponse.json({ error: "No such queued post." }, { status: 404 });
       return NextResponse.json({ ok: true });
     }
 
-    const removed = await mutateQueue((items) => {
+    const removed = await mutateQueue<boolean | "protected">((items) => {
+      const item = items.find((entry) => entry.id === id);
+      if (item && ((!item.postId && (item.publishAttemptedAt || item.containerId || item.claimedAt))
+        || (!item.plugPostId && (item.plugPublishAttemptedAt || item.plugContainerId || item.plugClaimedAt)))) {
+        return { items, result: "protected" as const };
+      }
       const next = items.filter((entry) => entry.id !== id);
       return { items: next, result: next.length !== items.length };
     });
+    if (removed === "protected") return NextResponse.json({ error: "This delivery has started. Reconcile its Threads receipt before removing it." }, { status: 409 });
     if (!removed) return NextResponse.json({ error: "No such queued post." }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (error) {

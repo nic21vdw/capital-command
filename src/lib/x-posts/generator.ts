@@ -87,9 +87,8 @@ export function scheduleTimes(date: string, count = POSTS_PER_PACK): string[] {
   const gap = count > 1 ? spanMinutes / (count - 1) : 0;
   return Array.from({ length: count }, (_, index) => {
     const jitter = (hash32(`${date}:${index}`) % 21) - 10;
-    // Clamped inside the day: jitter on a slot near midnight would otherwise
-    // run off either end of the clock and render as a nonsense time.
-    const total = Math.min(1439, Math.max(0, Math.round(startMinutes + index * gap + jitter)));
+    // Keep jitter inside the posting window, including its first/last slot.
+    const total = Math.min(1439, startMinutes + spanMinutes, Math.max(startMinutes, Math.round(startMinutes + index * gap + jitter)));
     const hours = Math.floor(total / 60) % 24;
     const minutes = total % 60;
     return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
