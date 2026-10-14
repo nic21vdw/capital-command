@@ -112,7 +112,7 @@ function printRun(run: RunReport | undefined) {
     }
     console.log(`[threads] follow-up replies: ${run.replies.published} published, ${run.replies.failed} failed, ${run.replies.retrying} waiting to retry, ${run.replies.skipped} skipped`);
   }
-  if (run.persistenceError || run.authFailure || run.failed > 0 || (run.replies?.failed ?? 0) > 0) process.exitCode = 1;
+  if (run.persistenceError || run.authFailures?.length || run.failed > 0 || (run.replies?.failed ?? 0) > 0) process.exitCode = 1;
 }
 
 function printBatch(batch: BatchSummary) {

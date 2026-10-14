@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { dataPath } from "@/lib/paths";
 import { PermanentError } from "@/lib/publisher/http";
 import { recordAutomationEventSafely } from "@/lib/automations/history";
-import { threadsFingerprint } from "@/lib/platform-health/fingerprint";
+import { threadsAccountFingerprint } from "@/lib/platform-health/fingerprint";
 import { AUTH_PROBE_MINUTES, readAuthStates, recordAuthFailure } from "@/lib/platform-health/store";
-import { ContainerRejectedError } from "@/lib/threads/api";
+import { ContainerRejectedError, type ThreadsPublishInput } from "@/lib/threads/api";
 import { threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 import { runDue, type ThreadsRunDeps } from "@/lib/threads/runner";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
@@ -20,13 +20,23 @@ const NOW = new Date("2026-07-22T07:20:00.000Z");
 const MINUTE = 60_000;
 const silent = () => {};
 
-function account(overrides: Partial<ThreadsAccount> = {}): ThreadsAccount {
-  return { id: "primary", label: "primary", userId: "1", accessToken: "token-a", posts: "text", offsetMinutes: 0, ...overrides };
+function account(id: "primary" | "secondary", overrides: Partial<ThreadsAccount> = {}): ThreadsAccount {
+  return {
+    id,
+    label: id === "primary" ? "nic_vandewetering" : "second_handle",
+    userId: id === "primary" ? "1" : "2",
+    accessToken: id === "primary" ? "token-a" : "token-s",
+    posts: id === "primary" ? "text" : "variant",
+    offsetMinutes: 0,
+    ...overrides
+  };
 }
 
-function config(accounts: ThreadsAccount[] = [account()]): ThreadsConfig {
+function config(accounts: ThreadsAccount[] = [account("primary")]): ThreadsConfig {
   return { ...threadsConfig(), timezone: "UTC", accounts };
 }
+
+const both = () => config([account("primary"), account("secondary")]);
 
 function item(id: string, minute: number, overrides: Partial<ThreadsQueueItem> = {}): ThreadsQueueItem {
   return {
@@ -65,17 +75,14 @@ const withoutReplyDraft = (rows: ThreadsQueueItem[]) =>
     return copy;
   });
 
-const deadToken = () =>
-  vi.fn(async (): Promise<{ containerId: string; postId: string }> => {
-    throw new PermanentError(THREADS_401);
-  });
-
 let sent = 0;
-const goodToken = () =>
-  vi.fn(async () => {
+function posting(rejects: Array<"primary" | "secondary"> = []) {
+  return vi.fn(async (input: ThreadsPublishInput): Promise<{ containerId: string; postId: string }> => {
+    if ((rejects as string[]).includes(input.account.id)) throw new PermanentError(THREADS_401);
     sent += 1;
     return { containerId: `c-${sent}`, postId: `p-${sent}` };
   });
+}
 
 beforeEach(async () => {
   sent = 0;
@@ -84,21 +91,44 @@ beforeEach(async () => {
 });
 
 describe("the Threads auth breaker", () => {
-  it("stops at the first auth failure instead of spending every slot on a dead token", async () => {
-    const post = deadToken();
-    const items = [item("a", 1), item("b", 2), item("c", 3), item("d", 4)];
-    const { runDeps } = queue(items, post);
+  it("stops an account at its first auth failure instead of spending every slot on a dead token", async () => {
+    const post = posting(["primary"]);
+    const { runDeps } = queue([item("a", 1), item("b", 2), item("c", 3), item("d", 4)], post);
 
     const report = await runDue(NOW, { config: config(), deps: runDeps, log: silent });
 
     expect(post).toHaveBeenCalledTimes(1);
     expect(report.failed).toBe(0);
-    expect(report.authFailure).toContain("Session has expired");
+    expect(report.authFailures).toEqual([{ accountId: "primary", reason: expect.stringContaining("Session has expired") }]);
   });
 
-  it("leaves every item pending with its retries intact, including the one that hit the wall", async () => {
+  it("keeps the other account posting while one account's token is dead", async () => {
+    const post = posting(["primary"]);
+    const rows = [
+      item("a", 1),
+      item("b", 2, { accountId: "secondary", version: "variant" }),
+      item("c", 3),
+      item("d", 4, { accountId: "secondary", version: "variant" })
+    ];
+    const { runDeps, state } = queue(rows, post);
+
+    const report = await runDue(NOW, { config: both(), deps: runDeps, log: silent });
+
+    expect(report.published).toBe(2);
+    expect(report.failed).toBe(0);
+    expect(state.items.filter((row) => row.accountId === "secondary").map((row) => row.status)).toEqual(["published", "published"]);
+    expect(state.items.filter((row) => row.accountId === "primary")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "a", status: "pending", attempts: 0 }),
+        expect.objectContaining({ id: "c", status: "pending", attempts: 0 })
+      ])
+    );
+    expect(Object.keys(await readAuthStates())).toEqual(["threads:primary"]);
+  });
+
+  it("leaves every item of the broken account pending with its retries intact, including the one that hit the wall", async () => {
     const items = [item("a", 1), item("b", 2), item("c", 3)];
-    const { runDeps, state } = queue(items, deadToken());
+    const { runDeps, state } = queue(items, posting(["primary"]));
 
     await runDue(NOW, { config: config(), deps: runDeps, log: silent });
 
@@ -118,13 +148,15 @@ describe("the Threads auth breaker", () => {
     expect(state.items[1]).toMatchObject({ status: "pending", attempts: 0 });
   });
 
-  it("records the platform, when it broke, why, and the fix link", async () => {
-    const { runDeps } = queue([item("a", 1)], deadToken());
+  it("records the account, when it broke, why, and the fix link", async () => {
+    const { runDeps } = queue([item("a", 1)], posting(["primary"]));
 
     await runDue(NOW, { config: config(), deps: runDeps, log: silent });
 
-    expect((await readAuthStates()).threads).toMatchObject({
+    expect((await readAuthStates())["threads:primary"]).toMatchObject({
       platform: "threads",
+      accountId: "primary",
+      accountLabel: "nic_vandewetering",
       since: NOW.toISOString(),
       reason: expect.stringContaining("Session has expired"),
       fixUrl: "/settings#accounts"
@@ -132,7 +164,7 @@ describe("the Threads auth breaker", () => {
   });
 
   it("tells the automations history it was blocked, not that the post failed", async () => {
-    const { runDeps } = queue([item("a", 1)], deadToken());
+    const { runDeps } = queue([item("a", 1)], posting(["primary"]));
 
     await runDue(NOW, { config: config(), deps: runDeps, log: silent });
 
@@ -142,30 +174,43 @@ describe("the Threads auth breaker", () => {
     expect(recordAutomationEventSafely).not.toHaveBeenCalledWith(expect.objectContaining({ kind: "failed" }));
   });
 
-  it("makes no call at all on later ticks while the token is unchanged", async () => {
-    const first = deadToken();
-    const items = [item("a", 1), item("b", 2)];
-    const { runDeps, state } = queue(items, first);
-    await runDue(NOW, { config: config(), deps: runDeps, log: silent });
+  it("makes no call for the broken account on later ticks while its token is unchanged, but still posts the other", async () => {
+    const rows = [
+      item("a", 1),
+      item("b", 2, { accountId: "secondary", version: "variant" }),
+      item("c", 3),
+      item("e", 24, { accountId: "secondary", version: "variant" })
+    ];
+    const { runDeps, state } = queue(rows, posting(["primary"]));
+    await runDue(NOW, { config: both(), deps: runDeps, log: silent });
+    const later = posting(["primary"]);
 
-    const second = goodToken();
-    const report = await runDue(new Date(NOW.getTime() + 5 * MINUTE), {
-      config: config(),
-      deps: { ...runDeps, post: second },
-      log: silent
-    });
+    const report = await runDue(new Date(NOW.getTime() + 15 * MINUTE), { config: both(), deps: { ...runDeps, post: later }, log: silent });
+
+    expect(later).toHaveBeenCalledTimes(1);
+    expect(later.mock.calls[0][0].account.id).toBe("secondary");
+    expect(report.published).toBe(1);
+    expect(state.items.filter((row) => row.accountId === "primary").every((row) => row.status === "pending" && row.attempts === 0)).toBe(true);
+  });
+
+  it("makes no call at all once every account is held, and says where to fix it", async () => {
+    const { runDeps, state } = queue([item("a", 1), item("b", 2, { accountId: "secondary", version: "variant" })], posting(["primary", "secondary"]));
+    await runDue(NOW, { config: both(), deps: runDeps, log: silent });
+    expect(Object.keys(await readAuthStates()).sort()).toEqual(["threads:primary", "threads:secondary"]);
+    const second = posting();
+
+    const report = await runDue(new Date(NOW.getTime() + 5 * MINUTE), { config: both(), deps: { ...runDeps, post: second }, log: silent });
 
     expect(second).not.toHaveBeenCalled();
     expect(report.note).toContain("Settings");
-    expect(report.authFailure).toContain("Session has expired");
-    expect(withoutReplyDraft(state.items)).toEqual(items);
+    expect(state.items.every((row) => row.status === "pending" && row.attempts === 0)).toBe(true);
   });
 
   it("tries once after the wait and picks the feed back up when that call works", async () => {
-    const { runDeps, state } = queue([item("a", 1), item("b", 2)], deadToken());
+    const { runDeps, state } = queue([item("a", 1), item("b", 2)], posting(["primary"]));
     await runDue(NOW, { config: config(), deps: runDeps, log: silent });
 
-    const post = goodToken();
+    const post = posting();
     const report = await runDue(new Date(NOW.getTime() + (AUTH_PROBE_MINUTES + 1) * MINUTE), {
       config: config(),
       deps: { ...runDeps, post },
@@ -178,25 +223,25 @@ describe("the Threads auth breaker", () => {
   });
 
   it("pushes the next trial back when the trial fails too, and keeps the original break date", async () => {
-    const { runDeps } = queue([item("a", 1)], deadToken());
+    const { runDeps } = queue([item("a", 1)], posting(["primary"]));
     await runDue(NOW, { config: config(), deps: runDeps, log: silent });
     const trial = new Date(NOW.getTime() + (AUTH_PROBE_MINUTES + 1) * MINUTE);
 
     await runDue(trial, { config: config(), deps: runDeps, log: silent });
-    const post = goodToken();
+    const post = posting();
     await runDue(new Date(trial.getTime() + 5 * MINUTE), { config: config(), deps: { ...runDeps, post }, log: silent });
 
     expect(post).not.toHaveBeenCalled();
-    expect((await readAuthStates()).threads).toMatchObject({ since: NOW.toISOString(), failures: 2 });
+    expect((await readAuthStates())["threads:primary"]).toMatchObject({ since: NOW.toISOString(), failures: 2 });
   });
 
-  it("posts again straight away when the token changes", async () => {
-    const { runDeps, state } = queue([item("a", 1), item("b", 2)], deadToken());
+  it("posts again straight away when that account's token changes", async () => {
+    const { runDeps, state } = queue([item("a", 1), item("b", 2)], posting(["primary"]));
     await runDue(NOW, { config: config(), deps: runDeps, log: silent });
 
-    const post = goodToken();
+    const post = posting();
     const report = await runDue(new Date(NOW.getTime() + 2 * MINUTE), {
-      config: config([account({ accessToken: "token-b" })]),
+      config: config([account("primary", { accessToken: "token-b" })]),
       deps: { ...runDeps, post },
       log: silent
     });
@@ -206,24 +251,41 @@ describe("the Threads auth breaker", () => {
     expect(await readAuthStates()).toEqual({});
   });
 
-  it("clears the state when a call succeeds", async () => {
-    const live = config();
-    await recordAuthFailure("threads", "Session has expired", {
-      now: new Date(NOW.getTime() - 60 * MINUTE),
-      fingerprint: threadsFingerprint(live.accounts)
-    });
-    const { runDeps } = queue([item("a", 1)], goodToken());
+  it("does not clear one account's break because the other account posted", async () => {
+    const live = both();
+    await recordAuthFailure(
+      { platform: "threads", accountId: "primary", accountLabel: "nic_vandewetering" },
+      "Session has expired",
+      { now: NOW, fingerprint: threadsAccountFingerprint(live.accounts[0]) }
+    );
+    const { runDeps } = queue([item("a", 1), item("b", 2, { accountId: "secondary", version: "variant" })], posting());
+
+    const report = await runDue(new Date(NOW.getTime() + MINUTE), { config: live, deps: runDeps, log: silent });
+
+    expect(report.published).toBe(1);
+    expect(Object.keys(await readAuthStates())).toEqual(["threads:primary"]);
+  });
+
+  it("clears an account's state when its own call succeeds, and only that one", async () => {
+    const live = both();
+    const brokenSince = new Date(NOW.getTime() - 60 * MINUTE);
+    await recordAuthFailure({ platform: "threads", accountId: "primary" }, "x", { now: brokenSince, fingerprint: threadsAccountFingerprint(live.accounts[0]) });
+    await recordAuthFailure({ platform: "threads", accountId: "secondary" }, "y", { now: brokenSince, fingerprint: threadsAccountFingerprint(live.accounts[1]) });
+    const { runDeps } = queue([item("a", 1)], posting());
 
     const report = await runDue(NOW, { config: live, deps: runDeps, log: silent });
 
     expect(report.published).toBe(1);
-    expect(await readAuthStates()).toEqual({});
+    expect(Object.keys(await readAuthStates())).toEqual(["threads:secondary"]);
   });
 
   it("does not let a dry run trip or read the breaker", async () => {
     const live = config();
-    await recordAuthFailure("threads", "Session has expired", { now: NOW, fingerprint: threadsFingerprint(live.accounts) });
-    const post = goodToken();
+    await recordAuthFailure({ platform: "threads", accountId: "primary" }, "Session has expired", {
+      now: NOW,
+      fingerprint: threadsAccountFingerprint(live.accounts[0])
+    });
+    const post = posting();
     const { runDeps } = queue([item("a", 1)], post);
 
     const report = await runDue(new Date(NOW.getTime() + MINUTE), { config: live, deps: runDeps, dryRun: true, log: silent });
@@ -232,7 +294,7 @@ describe("the Threads auth breaker", () => {
     expect(post).not.toHaveBeenCalled();
   });
 
-  it("stops on an auth failure while sending a link reply, without spending the reply's attempts", async () => {
+  it("stops an account on an auth failure while sending a link reply, without spending the reply's attempts", async () => {
     const published = item("a", 1, {
       status: "published",
       postId: "post-main",
@@ -241,13 +303,13 @@ describe("the Threads auth breaker", () => {
       plugText: "what I'm building: https://colateralai.com"
     });
     const pending = item("b", 9);
-    const post = deadToken();
+    const post = posting(["primary"]);
     const { runDeps, state } = queue([published, pending], post);
 
     const report = await runDue(NOW, { config: config(), deps: runDeps, log: silent });
 
     expect(post).toHaveBeenCalledTimes(1);
-    expect(report.authFailure).toBeDefined();
+    expect(report.authFailures).toHaveLength(1);
     expect(state.items[0]).toMatchObject({ status: "published", postId: "post-main" });
     expect(state.items[0].plugAttempts).toBeUndefined();
     expect(state.items[0].plugDropped).toBeUndefined();
@@ -265,7 +327,7 @@ describe("the Threads auth breaker", () => {
     const report = await runDue(NOW, { config: config(), deps: runDeps, log: silent });
 
     expect(report.failed).toBe(2);
-    expect(report.authFailure).toBeUndefined();
+    expect(report.authFailures).toBeUndefined();
     expect(state.items.map((entry) => entry.status)).toEqual(["failed", "failed"]);
     expect(await readAuthStates()).toEqual({});
   });

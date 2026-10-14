@@ -137,3 +137,102 @@ describe("Threads token refresh", () => {
     expect(readStoredTokens()).toEqual({});
   });
 });
+
+describe("the refresh request's documented fallback", () => {
+  const DOCUMENTED = "https://graph.threads.net/refresh_access_token?grant_type=th_refresh_token&access_token=";
+
+  function sequence(...responses: Array<Response | Error>) {
+    const fetchMock = vi.fn(async () => {
+      const next = responses.shift();
+      if (!next) throw new Error("Unexpected extra fetch.");
+      if (next instanceof Error) throw next;
+      return next;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  const refused = (status: number, message: string) =>
+    new Response(JSON.stringify({ error: { message, type: "OAuthException", code: 190 } }), { status });
+
+  const requestsOf = (fetchMock: ReturnType<typeof sequence>) =>
+    (fetchMock.mock.calls as unknown as Array<[string, RequestInit | undefined]>).map(([url, init]) => ({
+      url: String(url),
+      headers: (init?.headers ?? {}) as Record<string, string>
+    }));
+
+  it("retries once with the access_token query form when the header form is refused for a reason other than expiry", async () => {
+    const fetchMock = sequence(refused(401, "Invalid OAuth access token - Cannot parse access token"), new Response(
+      JSON.stringify({ access_token: "refreshed-1", expires_in: 5_184_000 }), { status: 200 }
+    ));
+
+    const outcomes = await refresh(connect());
+
+    const [first, second] = requestsOf(fetchMock);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(first.headers.Authorization).toBe("Bearer env-token");
+    expect(second.url).toBe(`${DOCUMENTED}env-token`);
+    expect(second.headers.Authorization).toBeUndefined();
+    expect(outcomes[0].outcome).toBe("refreshed");
+    expect(threadsConfig().accounts[0].accessToken).toBe("refreshed-1");
+  });
+
+  it("retries on a 400 as well", async () => {
+    const fetchMock = sequence(
+      refused(400, "Unsupported get request"),
+      new Response(JSON.stringify({ access_token: "refreshed-1", expires_in: 5_184_000 }), { status: 200 })
+    );
+
+    await refresh(connect());
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry when the token has really expired, because the other form cannot fix that", async () => {
+    const fetchMock = sequence(refused(401, "Error validating access token: Session has expired on Thursday"));
+
+    const outcomes = await refresh(connect());
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(outcomes[0].outcome).toBe("failed");
+  });
+
+  it.each([403, 429, 500])("does not retry on HTTP %i", async (status) => {
+    const fetchMock = sequence(refused(status, "nope"));
+
+    await refresh(connect());
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries at most once", async () => {
+    const fetchMock = sequence(refused(400, "Unsupported get request"), refused(400, "Unsupported get request"));
+
+    const outcomes = await refresh(connect());
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(outcomes[0].outcome).toBe("failed");
+  });
+
+  it("never lets the token reach a log line, a result or the stored file, in either form", async () => {
+    const token = "TH+Q/ab=c&d e";
+    const encoded = encodeURIComponent(token);
+    const formEncoded = new URLSearchParams({ t: token }).toString().slice(2);
+    const sinks = [vi.spyOn(console, "log"), vi.spyOn(console, "error"), vi.spyOn(console, "warn"), vi.spyOn(console, "info")];
+    sequence(
+      refused(401, `Invalid OAuth access token ${token}`),
+      new TypeError(`fetch failed: GET ${DOCUMENTED}${encoded} (${formEncoded})`)
+    );
+
+    const outcomes = await refresh(connect(token));
+
+    const everything = [
+      JSON.stringify(outcomes),
+      JSON.stringify(readStoredTokens()),
+      ...sinks.flatMap((sink) => sink.mock.calls.map((call) => call.map(String).join(" ")))
+    ].join("\n");
+    for (const form of [token, encoded, formEncoded]) expect(everything).not.toContain(form);
+    expect(outcomes[0].outcome).toBe("failed");
+    sinks.forEach((sink) => sink.mockRestore());
+  });
+});

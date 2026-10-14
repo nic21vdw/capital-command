@@ -400,66 +400,59 @@ both. Two accounts posting the same wording would read as mirrored spam.
   ticks each see an empty day and every slot gets posted twice.
 - Never put a token in an API response or a log line — the route exposes only
   each account's id, label, version and offset.
-- A rejected token (HTTP 401, OAuth code 190, "Session has expired") stops the
-  tick on the spot: the post that hit it and every post behind it stay pending
-  with their attempts (and a reply's `plugAttempts`) untouched. Before this, a
-  401 was a permanent error, so one dead token failed 542 of 558 posts in
-  three weeks. Do not route an auth failure back through the `failed` /
-  `retrying` accounting in `runner.ts`. See "Platform health" below.
-- A post that did NOT come from the daily pack is marked `origin: "pipeline"`,
-  and every autopilot decision reads `autopilotItemsForDate`, never
-  `itemsForDate`. Counting an ad-hoc post as the day's batch would make the
-  planner skip writing the pack — the one thing this module exists to do. UI
-  surfaces keep using `itemsForDate`, so the post is still visible.
-- The pack's VOICE is a contract, not a preference: one thought per post,
-  short (about 70-150 characters, and a second version at 180-280), plain
-  enough for someone outside engineering, and open enough to reply to. The
-  positioning brief supplies subject matter only, and its wording is the jargon
-  to avoid. Prompt and lengths in `src/lib/x-posts/generator.ts`; the fallback
-  `library.ts` and its test hold the same shape.
-- REWRITING TODAY'S PACK (`rewrite.ts`, `POST /api/x-posts/generate` with `force`)
-  MUST KEEP THE QUEUE AND THE PACK THE SAME. The queue holds its own copy of every
-  post, so a rewrite that only replaced the pack put one set on screen and sent
-  another. `rewriteDecision` is the one answer for the button, its confirmation
-  and the route: once any autopilot row for the day has started (published,
-  `postId`, `containerId` or `claimedAt`) or failed it is refused (409), and
-  otherwise `planTodaysBatch({ replacePending })` swaps the waiting and skipped
-  rows for the new pack's. `keepWritten` stops a rewrite that could only reach the
-  idea library from replacing a model-written pack.
+- A rejected token (HTTP 401, OAuth code 190, "Session has expired") holds only
+  THAT account for the rest of the run: its posts and link replies stay pending
+  with their attempts (and a reply's `plugAttempts`) untouched, and the other
+  account keeps posting. Before this, a 401 was a permanent error, so one dead
+  token failed 542 of 558 posts in three weeks. Do not route an auth failure
+  back through the `failed` / `retrying` accounting in `runner.ts`. See
+  "Platform health" below.
 - See `src/lib/threads/README.md`.
 
 ## Platform health (`src/lib/platform-health`)
 
 A platform whose token is rejected used to fail silently: the runner kept
 spending slots on it and nothing on screen said so. Now the first auth failure
-trips a per-platform breaker.
+trips a breaker for that ACCOUNT, keyed `platform:accountId` (`threads:primary`,
+`youtube:youtube-3f9a1c2d`). One dead YouTube channel or Threads handle never
+pauses the others.
 
 - `isAuthFailure` (`auth.ts`) decides what counts, by message: `HTTP 401`,
   Meta code 190, "Session has expired", `invalid_grant`, the YouTube and TikTok
   reconnect texts. A 403, a 400 for a bad parameter or the TikTok sandbox
-  refusal is NOT an auth failure. Adding a pattern here changes what stops a
-  platform, so add a test beside it.
-- `store.ts` keeps `data/platform-auth.json`: platform, `since`, reason, fix
-  link, and a fingerprint (sha256) of the credentials in use when it broke.
-  `platformAuthBlocked` answers "hold this platform?": yes until the next trial
-  is due (30 minutes), and never once the fingerprint differs. That is how a
-  pasted or refreshed token clears it with no one telling the app. A call that
-  succeeds clears it too.
-- The Threads runner stops the whole tick. The publisher runner (`runDue`)
-  holds only the platform that failed and releases the item through
-  `queue.releaseForAuth`, which keeps attempts and sets no backoff. `force`
-  (Publish now) ignores the hold.
-- Fingerprints for YouTube, Instagram, Facebook and TikTok read the primary
-  account's credentials from `publisherConfig()`. An extra account's cached
-  token does not change them, so reconnecting only an extra account clears the
-  state at its next successful post, not before.
+  refusal is NOT an auth failure. Adding a pattern here changes what stops an
+  account, so add a test beside it.
+- `store.ts` keeps `data/platform-auth.json`: platform, account id and display
+  name, `since`, reason, fix link, and a sha256 fingerprint of that account's
+  credentials when it broke. `accountAuthBlocked` answers "hold this account?":
+  yes until the next trial is due (30 minutes), and never once the fingerprint
+  differs. That is how a pasted or refreshed token clears it with no one
+  telling the app. A call that succeeds clears it too, for that account only.
+- Fingerprints (`fingerprint.ts`): Threads reads the account's token from
+  `threadsConfig()`; YouTube and TikTok read the primary from
+  `publisherConfig()` and an added account from its cached refresh token;
+  Instagram and Facebook added accounts are manual reminders and never call the
+  API. An account that no longer exists drops out of the list.
+- The Threads runner holds the failing account and carries on with the rest.
+  The publisher runner (`runDue`) does the same per `platform + item.accountId`
+  and releases the item through `queue.releaseForAuth`, which keeps attempts and
+  sets no backoff. `force` (Publish now) ignores the hold.
 - `GET /api/health/platforms` lists what is broken (never a token or its
   fingerprint). `PlatformHealthBanner` in the root layout polls it each
   minute and sets `--platform-banner-height` so the framed screens and the
   sidebar make room for it. What it shows is decided in `banner.ts`.
-- No notification channel exists beyond that banner: no email, push or desktop
-  notification code, only `sonner` toasts inside an open page. A daily digest
-  needs a sender chosen first.
+- `scripts/health-toast.ps1` runs after the tick in `publish-runner.ps1` and
+  `threads-autopilot.ps1`. It reads the endpoint and `data/health-notified.json`
+  and shows one Windows toast for accounts that are newly broken, whose break
+  date changed, or that are still broken 24 hours after the last toast; an
+  account that recovers is forgotten. The decision logic is tested by running
+  the script with `-NoToast` / `-DryRun` (`healthToast.test.ts`). A task
+  registered "whether the user is logged on or not" (S4U, which
+  `register-*-task.ps1` picks when run elevated) has no desktop, so nothing is
+  shown AND nothing is recorded: the toast waits for a run that can show it.
+  Re-register the tasks from a normal prompt to get toasts.
+- There is no email, push or other notification code: the banner and that toast
+  are the only alerts.
 
 ## Launch Pad (`src/lib/launch`)
 

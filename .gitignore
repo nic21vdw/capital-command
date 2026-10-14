@@ -34,6 +34,7 @@ data/threads-queue.json
 data/publisher-tokens.json
 data/threads-tokens.json
 data/platform-auth.json
+data/health-notified.json
 rebuild-attempt.stamp
 data/credentials.json
 data/social-accounts.json

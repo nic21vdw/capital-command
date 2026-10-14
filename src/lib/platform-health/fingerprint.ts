@@ -1,8 +1,16 @@
 import { createHash } from "node:crypto";
+import {
+  getAccount,
+  isPrimaryAccountId,
+  primaryAccountId,
+  tiktokRefreshTokenKey,
+  youtubeRefreshTokenKey
+} from "@/lib/publisher/accounts";
 import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
+import { getCachedToken } from "@/lib/publisher/tokens";
+import type { PlatformId } from "@/lib/publisher/types";
 import { threadsConfig } from "@/lib/threads/config";
 import type { HealthPlatformId } from "@/lib/platform-health/types";
-import type { PlatformId } from "@/lib/publisher/types";
 
 export function fingerprintOf(...credentials: Array<string | null | undefined>): string | null {
   const present = credentials.filter((value): value is string => Boolean(value));
@@ -10,11 +18,11 @@ export function fingerprintOf(...credentials: Array<string | null | undefined>):
   return createHash("sha256").update([...present].sort().join("\n")).digest("hex");
 }
 
-export function threadsFingerprint(accounts: Array<{ accessToken: string }>): string | null {
-  return fingerprintOf(...accounts.map((account) => account.accessToken));
+export function threadsAccountFingerprint(account: { accessToken: string }): string | null {
+  return fingerprintOf(account.accessToken);
 }
 
-export function publisherFingerprint(platform: PlatformId, config: PublisherConfig): string | null {
+function primaryFingerprint(platform: PlatformId, config: PublisherConfig): string | null {
   switch (platform) {
     case "youtube":
       return fingerprintOf(config.youtube.refreshToken);
@@ -27,13 +35,25 @@ export function publisherFingerprint(platform: PlatformId, config: PublisherConf
   }
 }
 
-export function currentFingerprints(): Record<HealthPlatformId, string | null> {
-  const publisher = publisherConfig();
-  return {
-    threads: threadsFingerprint(threadsConfig().accounts),
-    youtube: publisherFingerprint("youtube", publisher),
-    instagram: publisherFingerprint("instagram", publisher),
-    facebook: publisherFingerprint("facebook", publisher),
-    tiktok: publisherFingerprint("tiktok", publisher)
-  };
+export async function publisherAccountFingerprint(
+  platform: PlatformId,
+  accountId: string = primaryAccountId(platform),
+  config: PublisherConfig = publisherConfig()
+): Promise<string | null> {
+  if (isPrimaryAccountId(accountId)) return primaryFingerprint(platform, config);
+  if (platform === "youtube") return fingerprintOf(await getCachedToken(youtubeRefreshTokenKey(accountId)));
+  if (platform === "tiktok") return fingerprintOf(await getCachedToken(tiktokRefreshTokenKey(accountId)));
+  return null;
+}
+
+export async function currentFingerprint(
+  platform: HealthPlatformId,
+  accountId: string
+): Promise<string | null | undefined> {
+  if (platform === "threads") {
+    const account = threadsConfig().accounts.find((candidate) => candidate.id === accountId);
+    return account ? threadsAccountFingerprint(account) : undefined;
+  }
+  if (!isPrimaryAccountId(accountId) && !(await getAccount(accountId))) return undefined;
+  return publisherAccountFingerprint(platform, accountId);
 }

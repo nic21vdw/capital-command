@@ -96,4 +96,12 @@ $body = if ($DryRun) { '{"dryRun":true}' } else { '{}' }
     Write-Host $line
     Add-Content -Path $log -Value $line -Encoding utf8
   }
-exit $LASTEXITCODE
+$tickExit = $LASTEXITCODE
+if (-not $DryRun) {
+  try {
+    & (Join-Path $PSScriptRoot "health-toast.ps1") -BaseUrl $baseUrl -Log $log
+  } catch {
+    Add-Content -Path $log -Value "Health toast failed: $($_.Exception.Message)" -Encoding utf8
+  }
+}
+exit $tickExit

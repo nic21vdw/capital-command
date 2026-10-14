@@ -4,9 +4,11 @@ import path from "node:path";
 import { isAutomationPaused, recordAutomationOutcome } from "@/lib/automations/store";
 import { recordAutomationEventSafely } from "@/lib/automations/history";
 import { authFailureReason, isAuthFailure } from "@/lib/platform-health/auth";
-import { publisherFingerprint } from "@/lib/platform-health/fingerprint";
-import { clearAuthState, platformAuthBlocked, recordAuthFailure } from "@/lib/platform-health/store";
-import { accountIdConfigured } from "@/lib/publisher/accounts";
+import { publisherAccountLabel } from "@/lib/platform-health/account";
+import { publisherAccountFingerprint } from "@/lib/platform-health/fingerprint";
+import { accountAuthBlocked, clearAuthState, recordAuthFailure } from "@/lib/platform-health/store";
+import { authStateKey } from "@/lib/platform-health/types";
+import { accountIdConfigured, itemAccountId } from "@/lib/publisher/accounts";
 import { facebookAdapter } from "@/lib/publisher/adapters/facebook";
 import { instagramAdapter } from "@/lib/publisher/adapters/instagram";
 import { tiktokAdapter } from "@/lib/publisher/adapters/tiktok";
@@ -408,14 +410,15 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
     : Math.max(0, config.tiktok.inboxLimit - tiktokDraftsWaiting);
   let facebookPollMsLeft = FACEBOOK_POLL_BUDGET_MS_PER_RUN;
   let facebookPreschedulesLeft = options.force ? Number.POSITIVE_INFINITY : FACEBOOK_PRESCHEDULES_PER_RUN;
-  const authHold = new Map<PlatformId, boolean>();
-  const platformHeld = async (platform: PlatformId): Promise<boolean> => {
+  const authHold = new Map<string, boolean>();
+  const accountHeld = async (platform: PlatformId, accountId: string): Promise<boolean> => {
     if (options.force) return false;
-    const known = authHold.get(platform);
+    const key = authStateKey(platform, accountId);
+    const known = authHold.get(key);
     if (known !== undefined) return known;
-    const held = await platformAuthBlocked(platform, publisherFingerprint(platform, config), now);
-    authHold.set(platform, held);
-    if (held) log(`[publisher]   ${platform}: held - its token was rejected, so nothing is sent until it is reconnected in Settings > Accounts.`);
+    const held = await accountAuthBlocked(platform, accountId, await publisherAccountFingerprint(platform, accountId, config), now);
+    authHold.set(key, held);
+    if (held) log(`[publisher]   ${platform} ${accountId}: held - its token was rejected, so nothing is sent until it is reconnected in Settings > Accounts.`);
     return held;
   };
   // The board's explicit "Publish now" on one post (itemId + force) - the only
@@ -429,7 +432,8 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
     let images: PublishInput["images"];
     for (const platform of platforms) {
       if (!options.itemId && await isAutomationPaused("publisher")) break;
-      if (await platformHeld(platform)) continue;
+      const accountId = itemAccountId(item, platform);
+      if (await accountHeld(platform, accountId)) continue;
       const adapter = adapters[platform];
       const record = async (outcome: RunOutcome["outcome"], detail: string) => {
         report.outcomes.push({ itemId: item.id, clip: item.clipPath, platform, outcome, detail });
@@ -544,7 +548,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
           }
         }
         await queue.recordSuccess(item, platform, result, now);
-        if (calledPlatform) await clearAuthState(platform);
+        if (calledPlatform) await clearAuthState(platform, accountId);
         await record(result.status, result.detail ?? "");
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -563,10 +567,14 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
           continue;
         }
         if (isAuthFailure(error)) {
-          authHold.set(platform, true);
+          authHold.set(authStateKey(platform, accountId), true);
           await queue.releaseForAuth(item, platform, message);
-          await recordAuthFailure(platform, authFailureReason(error), { now, fingerprint: publisherFingerprint(platform, config) });
-          await record("deferred", `${message} (token rejected - nothing more is sent to ${platform} until it is reconnected)`);
+          await recordAuthFailure(
+            { platform, accountId, accountLabel: await publisherAccountLabel(platform, accountId) },
+            authFailureReason(error),
+            { now, fingerprint: await publisherAccountFingerprint(platform, accountId, config) }
+          );
+          await record("deferred", `${message} (token rejected - nothing more is sent to this ${platform} account until it is reconnected)`);
           continue;
         }
         if (error instanceof AbandonedUploadError) await queue.clearDeadUpload(item, platform);

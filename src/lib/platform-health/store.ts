@@ -1,11 +1,17 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dataPath } from "@/lib/paths";
-import { RECONNECT_URL, type HealthPlatformId, type PlatformAuthState } from "@/lib/platform-health/types";
+import {
+  RECONNECT_URL,
+  authStateKey,
+  type AuthTarget,
+  type HealthPlatformId,
+  type PlatformAuthState
+} from "@/lib/platform-health/types";
 
 export const AUTH_PROBE_MINUTES = 30;
 
-export type AuthStates = Partial<Record<HealthPlatformId, PlatformAuthState>>;
+export type AuthStates = Record<string, PlatformAuthState>;
 
 let pending: Promise<unknown> = Promise.resolve();
 
@@ -22,7 +28,10 @@ function statePath(): string {
 export async function readAuthStates(): Promise<AuthStates> {
   try {
     const parsed = JSON.parse(await readFile(statePath(), "utf8")) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as AuthStates) : {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed as AuthStates).filter(([, state]) => typeof state?.accountId === "string")
+    );
   } catch {
     return {};
   }
@@ -37,17 +46,20 @@ async function writeAuthStates(states: AuthStates): Promise<void> {
 }
 
 export function recordAuthFailure(
-  platform: HealthPlatformId,
+  target: AuthTarget,
   reason: string,
   options: { now?: Date; fingerprint: string | null }
 ): Promise<PlatformAuthState> {
   return serialized(async () => {
     const now = options.now ?? new Date();
     const states = await readAuthStates();
-    const previous = states[platform];
+    const key = authStateKey(target.platform, target.accountId);
+    const previous = states[key];
     const sameOutage = previous !== undefined && previous.fingerprint === options.fingerprint;
     const next: PlatformAuthState = {
-      platform,
+      platform: target.platform,
+      accountId: target.accountId,
+      accountLabel: target.accountLabel ?? null,
       since: sameOutage ? previous.since : now.toISOString(),
       lastFailureAt: now.toISOString(),
       reason,
@@ -56,45 +68,47 @@ export function recordAuthFailure(
       nextProbeAt: new Date(now.getTime() + AUTH_PROBE_MINUTES * 60_000).toISOString(),
       failures: sameOutage ? previous.failures + 1 : 1
     };
-    await writeAuthStates({ ...states, [platform]: next });
+    await writeAuthStates({ ...states, [key]: next });
     return next;
   });
 }
 
-export function clearAuthState(platform: HealthPlatformId): Promise<boolean> {
+export function clearAuthState(platform: HealthPlatformId, accountId: string): Promise<boolean> {
   return serialized(async () => {
     const states = await readAuthStates();
-    if (!states[platform]) return false;
+    const key = authStateKey(platform, accountId);
+    if (!states[key]) return false;
     const rest = { ...states };
-    delete rest[platform];
+    delete rest[key];
     await writeAuthStates(rest);
     return true;
   });
 }
 
-export async function platformAuthBlocked(
+export async function accountAuthBlocked(
   platform: HealthPlatformId,
+  accountId: string,
   fingerprint: string | null,
   now: Date
 ): Promise<boolean> {
-  const state = (await readAuthStates())[platform];
+  const state = (await readAuthStates())[authStateKey(platform, accountId)];
   if (!state) return false;
   if (state.fingerprint !== fingerprint) {
-    await clearAuthState(platform);
+    await clearAuthState(platform, accountId);
     return false;
   }
   return Date.parse(state.nextProbeAt) > now.getTime();
 }
 
 export async function activeAuthStates(
-  fingerprints: Partial<Record<HealthPlatformId, string | null>>
+  currentFingerprint: (platform: HealthPlatformId, accountId: string) => Promise<string | null | undefined>
 ): Promise<PlatformAuthState[]> {
   const states = await readAuthStates();
   const active: PlatformAuthState[] = [];
   for (const state of Object.values(states)) {
-    if (!state) continue;
-    if (state.platform in fingerprints && fingerprints[state.platform] !== state.fingerprint) {
-      await clearAuthState(state.platform);
+    const current = await currentFingerprint(state.platform, state.accountId);
+    if (current === undefined || current !== state.fingerprint) {
+      await clearAuthState(state.platform, state.accountId);
       continue;
     }
     active.push(state);

@@ -76,8 +76,8 @@ export function PlatformHealthBanner() {
         </p>
         <ul className="space-y-1">
           {model.entries.map((entry) => (
-            <li key={entry.platform} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-              <span className="font-medium">{entry.label}</span>
+            <li key={entry.key} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+              {model.entries.length > 1 && <span className="font-medium">{entry.displayName}</span>}
               <span className="text-[var(--muted-foreground-2)]">
                 broke {entry.sinceLabel}
                 {entry.agoLabel ? ` (${entry.agoLabel})` : ""}

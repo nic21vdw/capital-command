@@ -1,11 +1,11 @@
-import { RECONNECT_URL, type PlatformHealthResponse } from "@/lib/platform-health/types";
+import { RECONNECT_URL, authStateKey, type PlatformHealthResponse } from "@/lib/platform-health/types";
 
 const DAY_MS = 86_400_000;
 const MAX_BANNER_REASON = 160;
 
 export type BannerEntry = {
-  platform: string;
-  label: string;
+  key: string;
+  displayName: string;
   reason: string;
   sinceLabel: string;
   agoLabel: string;
@@ -51,16 +51,16 @@ export function bannerModel(
 ): BannerModel {
   if (!response || !Array.isArray(response.broken) || response.broken.length === 0) return HIDDEN;
   const now = options.now ?? new Date();
-  const entries = response.broken.map((platform) => ({
-    platform: platform.platform,
-    label: platform.label,
-    reason: shortReason(platform.reason),
-    sinceLabel: sinceLabel(platform.since, options.timeZone),
-    agoLabel: agoLabel(platform.since, now, options.timeZone),
-    fixUrl: internalLink(platform.fixUrl),
+  const entries = response.broken.map((account) => ({
+    key: authStateKey(account.platform, account.accountId),
+    displayName: account.displayName || account.label,
+    reason: shortReason(account.reason),
+    sinceLabel: sinceLabel(account.since, options.timeZone),
+    agoLabel: agoLabel(account.since, now, options.timeZone),
+    fixUrl: internalLink(account.fixUrl),
     fixLabel: "Reconnect"
   }));
   const headline =
-    entries.length === 1 ? `${entries[0].label} has stopped posting` : `${entries.length} platforms have stopped posting`;
+    entries.length === 1 ? `${entries[0].displayName} has stopped posting` : `${entries.length} accounts have stopped posting`;
   return { visible: true, headline, entries };
 }

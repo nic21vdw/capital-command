@@ -266,14 +266,15 @@ two feeds can't drift apart at the edges of the day.
   the next open slot instead of backdating the morning.
 - **`published` and `failed` are terminal**, and a claim lease covers
   overlapping ticks, so no post can go out twice.
-- **A rejected token stops the whole run.** The first HTTP 401, OAuth code 190
-  or "Session has expired" ends the tick at once. The post that hit it and
-  every post behind it stay `pending` with their attempts untouched, the
-  state is kept in `data/platform-auth.json`, and the app shows a banner until
-  the token changes or a post goes through. Later ticks send nothing, then try
-  once every 30 minutes. Any other error still fails only its own post, and
-  one account's bad request never touches the other. An account removed from
-  `.env` has its queued posts skipped rather than left pending forever.
+- **Accounts fail independently.** One account's rejected token (HTTP 401, OAuth
+  code 190, "Session has expired") holds only that account: its posts and link
+  replies stay `pending` with their attempts untouched, the state goes to
+  `data/platform-auth.json`, and the app shows a banner (and the scheduled task a
+  Windows toast) until the token changes or a post goes through. The other
+  account keeps posting. A held account sends nothing, then makes one trial
+  call every 30 minutes. Any other error still fails only its own post. An
+  account removed from `.env` has its queued posts skipped rather than left
+  pending forever.
 
 ## Ownership
 

@@ -146,24 +146,40 @@ export async function refreshThreadsTokens(
   return outcomes;
 }
 
+type RefreshResponse = { access_token?: string; expires_in?: number };
+
+function refusedForOtherThanExpiry(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\(HTTP (?:400|401)\)/.test(message) && !/expired|revoked/i.test(message);
+}
+
 async function requestRefresh(
   account: ThreadsAccount,
   config: ThreadsConfig
 ): Promise<{ token: string; expiresInSeconds: number | null }> {
-  // The token travels in the Authorization header, never the URL, so it
-  // cannot end up in a log line or an error message.
-  const data = await fetchJson<{ access_token?: string; expires_in?: number }>(
-    `${config.apiBase}/refresh_access_token?grant_type=th_refresh_token`,
-    {
-      label: `Threads token refresh (${account.label})`,
+  const base = `${config.apiBase}/refresh_access_token?grant_type=th_refresh_token`;
+  const label = `Threads token refresh (${account.label})`;
+  let data: RefreshResponse;
+  try {
+    data = await fetchJson<RefreshResponse>(base, {
+      label,
       method: "GET",
       headers: { Authorization: `Bearer ${account.accessToken}` }
-    }
-  );
+    });
+  } catch (error) {
+    if (!refusedForOtherThanExpiry(error)) throw error;
+    data = await fetchJson<RefreshResponse>(`${base}&access_token=${encodeURIComponent(account.accessToken)}`, {
+      label,
+      method: "GET"
+    });
+  }
   if (!data.access_token) throw new Error("Threads returned no token from the refresh.");
   return { token: data.access_token, expiresInSeconds: Number(data.expires_in) || null };
 }
 
 function redact(message: string, secrets: string[]): string {
-  return secrets.filter(Boolean).reduce((text, secret) => text.split(secret).join("[token]"), message);
+  return secrets.filter(Boolean).reduce((text, secret) => {
+    const forms = new Set([secret, encodeURIComponent(secret), new URLSearchParams({ t: secret }).toString().slice(2)]);
+    return [...forms].reduce((clean, form) => clean.split(form).join("[token]"), text);
+  }, message);
 }

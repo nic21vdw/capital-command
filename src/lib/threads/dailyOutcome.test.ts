@@ -37,7 +37,7 @@ describe("Threads worker outcome includes exposure replies", () => {
 
   it("requires attention when the run stopped on a dead token, with the reason in the detail", async () => {
     mocks.runDue.mockResolvedValue({ ran: now.toISOString(), published: 0, failed: 0, skipped: 0, outcomes: [], dryRun: false,
-      authFailure: "Error validating access token: Session has expired",
+      authFailures: [{ accountId: "primary", reason: "Error validating access token: Session has expired" }],
       note: "Threads rejected its access token. Reconnect it in Settings > Accounts." });
     await threadsTick({ now, config: { ...threadsConfig(), enabled: false }, log: () => undefined });
     expect(mocks.recordAutomationOutcome).toHaveBeenCalledWith("threads", expect.objectContaining({

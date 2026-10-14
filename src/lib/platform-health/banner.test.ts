@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { bannerModel } from "@/lib/platform-health/banner";
-import type { PlatformHealthResponse } from "@/lib/platform-health/types";
+import type { BrokenPlatform, PlatformHealthResponse } from "@/lib/platform-health/types";
 
 const NOW = new Date("2026-10-13T15:00:00.000Z");
 
@@ -8,9 +8,11 @@ function response(broken: PlatformHealthResponse["broken"]): PlatformHealthRespo
   return { ok: broken.length === 0, checkedAt: NOW.toISOString(), broken };
 }
 
-const threads = {
-  platform: "threads" as const,
+const threads: BrokenPlatform = {
+  platform: "threads",
+  accountId: "primary",
   label: "Threads",
+  displayName: "Threads · nic_vandewetering",
   since: "2026-09-24T20:13:48.000Z",
   lastFailureAt: "2026-10-13T14:55:00.000Z",
   reason: "Error validating access token: Session has expired",
@@ -29,15 +31,15 @@ describe("bannerModel", () => {
     expect(bannerModel({ nonsense: true } as unknown as PlatformHealthResponse, { now: NOW }).visible).toBe(false);
   });
 
-  it("names the platform, the date it broke, and a Reconnect link into Settings > Accounts", () => {
+  it("names the account, the date it broke, and a Reconnect link into Settings > Accounts", () => {
     const model = bannerModel(response([threads]), { now: NOW, timeZone: "UTC" });
 
     expect(model.visible).toBe(true);
-    expect(model.headline).toBe("Threads has stopped posting");
+    expect(model.headline).toBe("Threads · nic_vandewetering has stopped posting");
     expect(model.entries).toEqual([
       {
-        platform: "threads",
-        label: "Threads",
+        key: "threads:primary",
+        displayName: "Threads · nic_vandewetering",
         reason: "Error validating access token: Session has expired",
         sinceLabel: "Sep 24, 2026",
         agoLabel: "19 days ago",
@@ -47,22 +49,27 @@ describe("bannerModel", () => {
     ]);
   });
 
-  it("lists every broken platform and counts them in the headline", () => {
+  it("lists every broken account by its display name, two on one platform included", () => {
     const model = bannerModel(
-      response([threads, { ...threads, platform: "instagram", label: "Instagram", since: "2026-10-13T09:00:00.000Z" }]),
+      response([
+        threads,
+        { ...threads, accountId: "secondary", displayName: "Threads · second_handle", since: "2026-10-13T09:00:00.000Z" },
+        { ...threads, platform: "youtube", accountId: "youtube-clips", displayName: "YouTube · Clips channel", since: "2026-10-12T09:00:00.000Z" }
+      ]),
       { now: NOW, timeZone: "UTC" }
     );
 
-    expect(model.headline).toBe("2 platforms have stopped posting");
-    expect(model.entries.map((entry) => [entry.label, entry.agoLabel])).toEqual([
-      ["Threads", "19 days ago"],
-      ["Instagram", "today"]
+    expect(model.headline).toBe("3 accounts have stopped posting");
+    expect(model.entries.map((entry) => [entry.key, entry.displayName, entry.agoLabel])).toEqual([
+      ["threads:primary", "Threads · nic_vandewetering", "19 days ago"],
+      ["threads:secondary", "Threads · second_handle", "today"],
+      ["youtube:youtube-clips", "YouTube · Clips channel", "yesterday"]
     ]);
   });
 
-  it("says yesterday for a break a day old", () => {
-    const model = bannerModel(response([{ ...threads, since: "2026-10-12T09:00:00.000Z" }]), { now: NOW, timeZone: "UTC" });
-    expect(model.entries[0].agoLabel).toBe("yesterday");
+  it("falls back to the platform name when an older answer has no display name", () => {
+    const model = bannerModel(response([{ ...threads, displayName: "" }]), { now: NOW, timeZone: "UTC" });
+    expect(model.entries[0].displayName).toBe("Threads");
   });
 
   it("only ever links inside the app", () => {
