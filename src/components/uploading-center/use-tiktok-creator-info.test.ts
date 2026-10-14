@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const INFO = {
-  nickname: "Nic",
-  handle: "nicvandewetering",
-  avatarUrl: "https://p16.tiktokcdn.example/a.jpeg",
+  nickname: "Fixture creator",
+  handle: "fixture_creator",
+  avatarUrl: "https://example.invalid/avatar.png",
   privacyLevels: ["SELF_ONLY"],
   commentDisabled: false,
   duetDisabled: false,
@@ -85,6 +85,51 @@ describe("loadCreatorInfo", () => {
 
     expect(failed).toEqual({ status: "error", message: "TikTok would not answer.", cannotPostNow: false });
     expect(retried.status).toBe("ready");
+  });
+
+  it("keeps a newer answer cached when an expired lookup fails late", async () => {
+    let failOld!: (error: Error) => void;
+    const oldResponse = new Promise<Response>((_resolve, reject) => { failOld = reject; });
+    const fetchMock = vi.fn()
+      .mockReturnValueOnce(oldResponse)
+      .mockResolvedValue(answer(INFO));
+    vi.stubGlobal("fetch", fetchMock);
+    const loadCreatorInfo = await load();
+
+    const oldLookup = loadCreatorInfo("tiktok");
+    vi.advanceTimersByTime(30_000);
+    const fresh = await loadCreatorInfo("tiktok");
+    failOld(new Error("Old request lost its connection."));
+    expect((await oldLookup).status).toBe("error");
+
+    // A burst of panels must not spend more of TikTok's 20 calls/minute limit
+    // because an unrelated, older lookup failed after this answer arrived.
+    const panels = await Promise.all(Array.from({ length: 25 }, () => loadCreatorInfo("tiktok")));
+    expect(panels.every((state) => state === fresh)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("shares a newer pending lookup after the expired lookup fails", async () => {
+    let finishOld!: (response: Response) => void;
+    let finishNew!: (response: Response) => void;
+    const fetchMock = vi.fn()
+      .mockReturnValueOnce(new Promise<Response>((resolve) => { finishOld = resolve; }))
+      .mockReturnValueOnce(new Promise<Response>((resolve) => { finishNew = resolve; }))
+      .mockResolvedValue(answer(INFO));
+    vi.stubGlobal("fetch", fetchMock);
+    const loadCreatorInfo = await load();
+
+    const oldLookup = loadCreatorInfo("tiktok");
+    vi.advanceTimersByTime(30_000);
+    const newLookup = loadCreatorInfo("tiktok");
+    finishOld(answer({ error: "Old lookup failed." }, 502));
+    expect((await oldLookup).status).toBe("error");
+
+    const panels = Array.from({ length: 25 }, () => loadCreatorInfo("tiktok"));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    finishNew(answer(INFO));
+    const fresh = await newLookup;
+    expect((await Promise.all(panels)).every((state) => state === fresh)).toBe(true);
   });
 
   it("marks an account TikTok will not let post right now", async () => {

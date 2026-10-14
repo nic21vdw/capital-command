@@ -1,0 +1,36 @@
+{
+  "results": [
+    {
+      "name": "Account outage, malformed response and retry at 1440px",
+      "passed": true
+    },
+    {
+      "name": "Account outage, malformed response and retry at 400px",
+      "passed": true
+    },
+    {
+      "name": "Stale accounts remain visible and recover after failure",
+      "passed": true
+    },
+    {
+      "name": "A hanging account read stops and offers recovery",
+      "passed": true
+    },
+    {
+      "name": "Editor clip library failure, valid empty and populated retry",
+      "passed": true
+    },
+    {
+      "name": "Editor full captions refusal and retry preserves saved edited words",
+      "passed": true
+    },
+    {
+      "name": "Failed saves retain local edits, block leaving, and recover after reload",
+      "passed": true
+    }
+  ],
+  "exceptions": [],
+  "mutations": [],
+  "output": "/tmp/marketing-usability-browser-r4",
+  "mode": "isolated next dev; fixture data; not deployment/performance evidence"
+}
