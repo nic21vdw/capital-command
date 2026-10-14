@@ -45,6 +45,7 @@ import { UpdateBanner } from "@/components/layout/update-banner";
 import { UpdateCheckButton } from "@/components/layout/update-check";
 import { StreamBanner } from "@/components/layout/stream-banner";
 import { StreamCard } from "@/components/layout/stream-card";
+import { ListeningLeadsProvider, useListeningLeads } from "@/components/listening/leads-badge";
 import { useInboxUnread } from "@/components/inbox/unread";
 import { PipelineAttentionProvider, usePipelineAttention } from "@/components/pipeline/attention";
 import { useAppData } from "@/components/providers/app-provider";
@@ -183,9 +184,11 @@ function isPipelineHref(href: string): boolean {
  */
 function navAttention(
   href: string,
-  breakdown: { pipeline: number; publish: number; threads: number }
+  breakdown: { pipeline: number; publish: number; threads: number },
+  newLeads = 0
 ): { count: number; noun: string } {
   if (isPipelineHref(href)) return { count: breakdown.pipeline, noun: "needing attention" };
+  if (href === "/listening") return { count: newLeads, noun: "new leads" };
   if (href === "/uploading-center") return { count: breakdown.publish, noun: "failed" };
   if (href === "/x-posts") return { count: breakdown.threads, noun: "failed" };
   return { count: 0, noun: "" };
@@ -648,8 +651,9 @@ function NavLink({ item, active, collapsed = false }: { item: NavItem; active: b
   // A stage that broke overnight has to be visible from wherever he is, not
   // only from the run he would have to think to open.
   const { breakdown } = usePipelineAttention();
+  const newLeads = useListeningLeads();
   const inboxUnread = useInboxUnread();
-  const flagged = navAttention(item.href, breakdown);
+  const flagged = navAttention(item.href, breakdown, newLeads);
   const attention = item.href === "/inbox" ? inboxUnread : flagged.count;
   const noun = item.href === "/inbox" ? "unread" : flagged.noun;
   // Walking down the flow keeps the stream you are working on. Every screen
@@ -1028,9 +1032,10 @@ function NarrowChrome({ pathname }: { pathname: string }) {
 function NarrowNavItem({ item, active, onSelect }: { item: NavItem; active: boolean; onSelect: () => void }) {
   const Icon = item.icon;
   const { breakdown } = usePipelineAttention();
+  const newLeads = useListeningLeads();
   const inboxUnread = useInboxUnread();
   const { stream } = useStream();
-  const attention = item.href === "/inbox" ? inboxUnread : navAttention(item.href, breakdown).count;
+  const attention = item.href === "/inbox" ? inboxUnread : navAttention(item.href, breakdown, newLeads).count;
   return (
     <Link
       href={streamHref(item.href, stream)}
@@ -1092,11 +1097,13 @@ export function AppShell({ children, frame = false }: { children: React.ReactNod
   return (
     <ReleaseProvider>
       <PipelineAttentionProvider>
-        <StreamProvider>
-          <SetupGate>
-            <AppChrome frame={frame}>{children}</AppChrome>
-          </SetupGate>
-        </StreamProvider>
+        <ListeningLeadsProvider>
+          <StreamProvider>
+            <SetupGate>
+              <AppChrome frame={frame}>{children}</AppChrome>
+            </SetupGate>
+          </StreamProvider>
+        </ListeningLeadsProvider>
       </PipelineAttentionProvider>
     </ReleaseProvider>
   );

@@ -39,6 +39,9 @@ export async function register() {
     const { startPipelineHeartbeat } = await import("@/lib/pipeline/heartbeat");
     startPipelineHeartbeat();
 
+    const { startListeningSchedule } = await import("@/lib/listening/schedule");
+    startListeningSchedule();
+
     const { startInboxScheduler } = await import("@/lib/inbox/scheduler");
     startInboxScheduler();
   }

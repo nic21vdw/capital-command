@@ -20,7 +20,8 @@ import { imagePathsOf, isImagePost } from "@/lib/publisher/images";
 import { channelDuplicateMessage, youtubeChannelDuplicate } from "@/lib/publisher/duplicateGuard";
 import { describeMirrorPlan, planMirror } from "@/lib/publisher/mirror";
 import { AbandonedUploadError, PermanentError, StillProcessingError, ThrottledError, isTransient } from "@/lib/publisher/http";
-import { remainingYoutubeUploads } from "@/lib/publisher/quota";
+import { listeningUnitsToday } from "@/lib/listening/ledger";
+import { effectiveUploadBudget, remainingYoutubeUploads } from "@/lib/publisher/quota";
 import { outstandingTiktokDrafts, usesTiktokInbox } from "@/lib/publisher/tiktokInbox";
 import { PublishQueue, isTerminalStatus, mirroredPlatformState, publishQueue } from "@/lib/publisher/queue";
 import { formatInTimezone } from "@/lib/publisher/time";
@@ -399,9 +400,9 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
   // every file today, empties the daily allowance and locks the channel out of
   // uploading. `due` is ordered by slot, so what does go up is the soonest.
   const allItems = await queue.list();
-  let youtubeUploadsLeft = options.force
-    ? Number.POSITIVE_INFINITY
-    : remainingYoutubeUploads(allItems, now, config);
+  const listeningUnits = options.force ? 0 : await listeningUnitsToday(now);
+  const youtubeBudgetToday = effectiveUploadBudget(config, listeningUnits);
+  let youtubeUploadsLeft = options.force ? Number.POSITIVE_INFINITY : remainingYoutubeUploads(allItems, now, config, listeningUnits);
   // TikTok's ceiling counts drafts waiting in the inbox, and only a tap in the
   // app clears one — so unlike YouTube's allowance it does not reset overnight.
   const tiktokDraftsWaiting = outstandingTiktokDrafts(allItems);
@@ -484,7 +485,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
             if (youtubeUploadsLeft <= 0) {
               await record(
                 "deferred",
-                `YouTube's ${config.youtube.dailyUploadBudget} uploads for today are used — this one goes up on the next run after the quota resets.`,
+                `YouTube's ${youtubeBudgetToday} uploads for today are used${listeningUnits > 0 ? ` (${config.youtube.dailyUploadBudget} less the quota Listening spent)` : ""} — this one goes up on the next run after the quota resets.`,
                 "daily cap"
               );
               continue;

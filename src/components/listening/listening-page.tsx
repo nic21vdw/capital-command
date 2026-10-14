@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ExternalLink, Ear, Loader2, Plus, Radar, Trash2, TriangleAlert } from "lucide-react";
+import { CheckCircle2, ExternalLink, Ear, Loader2, Plus, Radar, Send, Trash2, TriangleAlert, UserPlus } from "lucide-react";
+import Link from "next/link";
 import { toast } from "sonner";
+import { useRefreshListeningLeads } from "@/components/listening/leads-badge";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -11,26 +13,46 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
 import { StatCard } from "@/components/ui/stat-card";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
+import { HIGH_LEAD_SCORE, isHighLead, leadSummary } from "@/lib/listening/leads";
 import {
+  HIT_CATEGORIES,
   LISTENING_INTENTS,
+  LISTENING_SOURCES,
+  MAX_KEYWORD_GROUPS,
+  MAX_TERMS_PER_GROUP,
   REPLY_CHECKLIST,
   RESULT_STATUSES,
+  SCAN_INTERVAL_MS,
   SOURCE_LABELS,
+  SOURCE_NOTES,
   intentOfTerms,
+  type HitCategory,
   type KeywordGroup,
   type ListeningIntent,
+  type ListeningResult,
+  type ListeningSnapshot,
   type ListeningSource,
-  type ListeningStore,
   type ResultStatus,
   type ScanReport
 } from "@/lib/listening/model";
 import { cn } from "@/lib/utils";
 
-const INTENT_LABELS: Record<ListeningIntent, string> = { pain: "Pain", comparison: "Comparison", pricing: "Pricing" };
-const INTENT_TONE: Record<ListeningIntent, BadgeTone> = { pain: "warning", comparison: "info", pricing: "accent" };
-const STATUS_LABELS: Record<ResultStatus, string> = { new: "New", replied: "Replied", ignored: "Ignored" };
+const INTENT_LABELS: Record<ListeningIntent, string> = {
+  pain: "Pain",
+  comparison: "Comparison",
+  pricing: "Pricing",
+  brand: "Brand",
+  competitor: "Competitor"
+};
+const INTENT_TONE: Record<ListeningIntent, BadgeTone> = { pain: "warning", comparison: "info", pricing: "accent", brand: "success", competitor: "neutral" };
+const STATUS_LABELS: Record<ResultStatus, string> = { new: "New", seen: "Seen", "sent-to-outreach": "In Outreach", dismissed: "Dismissed" };
+const CATEGORY_LABELS: Record<HitCategory, string> = { lead: "Lead", mention: "Mention", competitor: "Competitor", noise: "Noise" };
+const CATEGORY_TONE: Record<HitCategory, BadgeTone> = { lead: "success", mention: "info", competitor: "warning", noise: "neutral" };
+const TRIAGE_STATUSES = ["new", "seen", "dismissed"] as const;
 
 type StatusFilter = ResultStatus | "all";
+type CategoryFilter = HitCategory | "all";
+type CallResult = ListeningSnapshot & { error?: string; report?: ScanReport; joined?: boolean; newLeads?: number };
 
 const labelClass = "text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]";
 
@@ -43,45 +65,64 @@ function ago(iso: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-async function call(method: "POST" | "PATCH", body: unknown) {
+function moodOf(sentiment: number): { label: string; tone: BadgeTone } {
+  if (sentiment >= 0.25) return { label: "Positive", tone: "success" };
+  if (sentiment <= -0.25) return { label: "Negative", tone: "danger" };
+  return { label: "Neutral", tone: "neutral" };
+}
+
+async function call(method: "POST" | "PATCH", body: unknown): Promise<CallResult> {
   const response = await fetch("/api/listening", {
     method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
-  const json = (await response.json().catch(() => ({}))) as ListeningStore & { error?: string; report?: ScanReport };
+  const json = (await response.json().catch(() => ({}))) as CallResult;
   if (!response.ok) throw new Error(json.error ?? `HTTP ${response.status}`);
   return json;
 }
 
 function scanSummary(report: ScanReport | undefined): string {
   if (!report) return "Never scanned";
+  if (report.error) return `Failed: ${report.error}`;
   if (report.sources.length === 0) return "No sources switched on";
   return report.sources
-    .map((source) =>
-      source.ok
-        ? `${SOURCE_LABELS[source.source]}: ${source.added} new of ${source.matched}`
-        : `${SOURCE_LABELS[source.source]}: failed${source.httpStatus ? ` (HTTP ${source.httpStatus})` : ""}`
-    )
+    .map((source) => {
+      if (source.skipped) return `${SOURCE_LABELS[source.source]}: skipped`;
+      if (!source.ok) return `${SOURCE_LABELS[source.source]}: failed${source.httpStatus ? ` (HTTP ${source.httpStatus})` : ""}`;
+      return `${SOURCE_LABELS[source.source]}: ${source.added} new of ${source.matched}`;
+    })
     .join(" · ");
 }
 
-async function fetchListening(): Promise<ListeningStore> {
+function nextScanLabel(store: ListeningSnapshot): string {
+  if (!store.autoScan) return "Automatic scanning is off";
+  if (!store.lastScan) return "Due now";
+  const due = new Date(store.lastScan.at).getTime() + SCAN_INTERVAL_MS;
+  const minutes = Math.round((due - Date.now()) / 60_000);
+  if (minutes <= 0) return "Due now";
+  return minutes < 90 ? `Next scan in about ${minutes} min` : `Next scan in about ${Math.round(minutes / 60)} h`;
+}
+
+async function fetchListening(): Promise<ListeningSnapshot> {
   const response = await fetch("/api/listening", { cache: "no-store" });
-  const json = (await response.json().catch(() => ({}))) as ListeningStore & { error?: string };
+  const json = (await response.json().catch(() => ({}))) as ListeningSnapshot & { error?: string };
   if (!response.ok) throw new Error(json.error ?? `HTTP ${response.status}`);
   return json;
 }
 
 export function ListeningPage() {
-  const [store, setStore] = useState<ListeningStore | null>(null);
+  const [store, setStore] = useState<ListeningSnapshot | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [sendingId, setSendingId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("new");
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<ListeningSource | "all">("all");
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [termDrafts, setTermDrafts] = useState<Record<string, string>>({});
   const [newGroup, setNewGroup] = useState<{ name: string; intent: ListeningIntent }>({ name: "", intent: "pain" });
+  const refreshLeads = useRefreshListeningLeads();
 
   useEffect(() => {
     let live = true;
@@ -98,9 +139,10 @@ export function ListeningPage() {
     };
   }, []);
 
-  const run = async (action: () => Promise<ListeningStore>, success?: string) => {
+  const run = async (action: () => Promise<ListeningSnapshot>, success?: string) => {
     try {
       setStore(await action());
+      refreshLeads();
       if (success) toast.success(success);
       return true;
     } catch (error) {
@@ -114,12 +156,14 @@ export function ListeningPage() {
     try {
       const result = await call("POST", { action: "scan" });
       setStore(result);
-      const failed = result.report?.sources.filter((source) => !source.ok) ?? [];
+      refreshLeads();
+      const failed = result.report?.sources.filter((source) => !source.ok && !source.skipped) ?? [];
       const added = result.report?.sources.reduce((sum, source) => sum + source.added, 0) ?? 0;
       if (failed.length > 0) {
         toast.error(failed.map((source) => `${SOURCE_LABELS[source.source]}: ${source.error}`).join(" | "));
       } else {
-        toast.success(added === 0 ? "Scan finished - nothing new" : `Scan finished - ${added} new`);
+        const leads = result.newLeads ?? 0;
+        toast.success(added === 0 ? "Scan finished - nothing new" : `Scan finished - ${added} new${leads > 0 ? `, ${leads} high-score lead${leads === 1 ? "" : "s"}` : ""}`);
       }
     } catch (error) {
       toast.error(`Scan failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -128,59 +172,104 @@ export function ListeningPage() {
     }
   };
 
-  const setResult = (resultId: string, patch: { status?: ResultStatus; note?: string }) =>
+  const sendToOutreach = async (result: ListeningResult) => {
+    setSendingId(result.id);
+    const ok = await run(() => call("POST", { action: "send-to-outreach", resultId: result.id }), "Sent to Outreach");
+    setSendingId(null);
+    return ok;
+  };
+
+  const setResult = (resultId: string, patch: { status?: (typeof TRIAGE_STATUSES)[number]; note?: string }) =>
     run(() => call("PATCH", { resultId, ...patch }));
   const saveGroups = (groups: KeywordGroup[], success?: string) => run(() => call("PATCH", { groups }), success);
-  const setSources = (sources: ListeningStore["sources"]) => run(() => call("PATCH", { sources }));
+  const setSources = (sources: Partial<Record<ListeningSource, boolean>>) => run(() => call("PATCH", { sources }));
+  const setAutoScan = (autoScan: boolean) => run(() => call("PATCH", { autoScan }));
 
   const results = useMemo(() => store?.results ?? [], [store]);
   const groups = useMemo(() => store?.groups ?? [], [store]);
   const visible = useMemo(
     () =>
-      results.filter(
-        (result) => (statusFilter === "all" || result.status === statusFilter) && (sourceFilter === "all" || result.source === sourceFilter)
-      ),
-    [results, statusFilter, sourceFilter]
+      results
+        .filter(
+          (result) =>
+            (statusFilter === "all" || result.status === statusFilter) &&
+            (categoryFilter === "all" || result.category === categoryFilter) &&
+            (sourceFilter === "all" || result.source === sourceFilter)
+        )
+        .sort((a, b) => b.score - a.score || b.createdAt.localeCompare(a.createdAt)),
+    [results, statusFilter, categoryFilter, sourceFilter]
   );
   const counts = useMemo(() => {
-    const out: Record<ResultStatus, number> = { new: 0, replied: 0, ignored: 0 };
+    const out: Record<ResultStatus, number> = { new: 0, seen: 0, "sent-to-outreach": 0, dismissed: 0 };
     for (const result of results) out[result.status] += 1;
     return out;
   }, [results]);
+  const categoryCounts = useMemo(() => {
+    const out: Record<HitCategory, number> = { lead: 0, mention: 0, competitor: 0, noise: 0 };
+    for (const result of results) if (statusFilter === "all" || result.status === statusFilter) out[result.category] += 1;
+    return out;
+  }, [results, statusFilter]);
+  const leads = useMemo(() => leadSummary(results, 10), [results]);
   const lastScan = store?.lastScan;
-  const failedSources = lastScan?.sources.filter((source) => !source.ok) ?? [];
+  const failedSources = lastScan?.error ? [] : (lastScan?.sources.filter((source) => !source.ok && !source.skipped) ?? []);
+  const skippedSources = lastScan?.sources.filter((source) => source.skipped || source.note) ?? [];
 
   const surfaceResults = visible.slice(0, 40);
   useColateralSurface({
     route: "/listening",
     title: "Listening",
     summary:
-      "Public Hacker News and Reddit threads matching the keyword groups, to triage and answer by hand. Scan now queries both sources; nothing is ever posted from here.",
+      "Public Hacker News, Reddit, YouTube and Bluesky posts matching the keyword groups, scanned every two hours while the app runs. Each hit is classified as a lead, mention, competitor or noise with a sentiment and a score; high-score leads are what to answer. Nothing is ever posted from here.",
     fields: [
       { id: "statusFilter", label: "Show", value: statusFilter, kind: "select", options: ["all", ...RESULT_STATUSES] },
-      { id: "sourceFilter", label: "Source", value: sourceFilter, kind: "select", options: ["all", "hn", "reddit"] },
-      { id: "sourceHn", label: "Scan Hacker News", value: store?.sources.hn ?? true, kind: "boolean" },
-      { id: "sourceReddit", label: "Scan Reddit", value: store?.sources.reddit ?? true, kind: "boolean" },
-      ...surfaceResults.map((result) => ({
-        id: `status:${result.id}`,
-        label: `${result.title.slice(0, 80)} status`,
-        value: result.status,
-        kind: "select" as const,
-        options: [...RESULT_STATUSES]
-      }))
+      { id: "categoryFilter", label: "Category", value: categoryFilter, kind: "select", options: ["all", ...HIT_CATEGORIES] },
+      { id: "sourceFilter", label: "Source", value: sourceFilter, kind: "select", options: ["all", ...LISTENING_SOURCES] },
+      ...LISTENING_SOURCES.filter((source) => source !== "x").map((source) => ({
+        id: `source:${source}`,
+        label: `Scan ${SOURCE_LABELS[source]}`,
+        value: store?.sources[source] ?? true,
+        kind: "boolean" as const
+      })),
+      { id: "autoScan", label: "Scan every two hours", value: store?.autoScan ?? true, kind: "boolean" },
+      ...surfaceResults
+        .filter((result) => result.status !== "sent-to-outreach")
+        .map((result) => ({
+          id: `status:${result.id}`,
+          label: `${result.title.slice(0, 80)} status`,
+          value: result.status,
+          kind: "select" as const,
+          options: [...TRIAGE_STATUSES]
+        }))
     ],
     controls: [{ id: "scan", label: scanning ? "Scanning…" : "Scan now", group: "Scan", disabled: scanning }],
     readings: [
-      { label: "Results", value: `${results.length} (${counts.new} new, ${counts.replied} replied, ${counts.ignored} ignored)` },
+      {
+        label: "New leads",
+        value:
+          leads.newLeads === 0
+            ? "None waiting"
+            : `${leads.newLeads} waiting: ${leads.leads
+                .map((lead) => {
+                  const hit = results.find((result) => result.id === lead.id);
+                  return `[${lead.id}] ${lead.title} - ${SOURCE_LABELS[lead.source]} - score ${lead.score}, ${hit?.sentiment ?? 0} sentiment - ${hit?.reason ?? ""} - ${lead.url}`;
+                })
+                .join("; ")}`
+      },
+      { label: "Results", value: `${results.length} (${counts.new} new, ${counts.seen} seen, ${counts["sent-to-outreach"]} sent to outreach, ${counts.dismissed} dismissed)` },
       { label: "Last scan", value: lastScan ? `${lastScan.at} - ${scanSummary(lastScan)}` : "Never scanned" },
+      { label: "Next scan", value: store ? nextScanLabel(store) : "Unknown" },
       ...failedSources.map((source) => ({ label: `${SOURCE_LABELS[source.source]} error`, value: source.error ?? "failed" })),
+      ...skippedSources.map((source) => ({ label: `${SOURCE_LABELS[source.source]} note`, value: source.error ?? source.note ?? "skipped" })),
       {
         label: "Keyword groups",
         value: groups.map((group) => `${group.name} (${group.intent}): ${group.terms.join(", ")}`).join(" | ") || "None"
       },
       {
         label: "Listed results",
-        value: surfaceResults.map((result) => `[${result.id}] ${result.title} - ${result.url} - ${result.status}`).join("; ") || "None"
+        value:
+          surfaceResults
+            .map((result) => `[${result.id}] ${result.title} - ${result.url} - ${result.category}, score ${result.score}, sentiment ${result.sentiment} - ${result.status}`)
+            .join("; ") || "None"
       },
       { label: "Reply checklist", value: REPLY_CHECKLIST.join(" ") }
     ],
@@ -190,20 +279,31 @@ export function ListeningPage() {
         setStatusFilter(value as StatusFilter);
         return true;
       }
-      if (id === "sourceFilter") {
-        if (value !== "all" && value !== "hn" && value !== "reddit") return false;
-        setSourceFilter(value);
+      if (id === "categoryFilter") {
+        if (value !== "all" && !HIT_CATEGORIES.includes(value as HitCategory)) return false;
+        setCategoryFilter(value as CategoryFilter);
         return true;
       }
-      if (id === "sourceHn" || id === "sourceReddit") {
-        if (typeof value !== "boolean" || !store) return false;
-        void setSources({ ...store.sources, [id === "sourceHn" ? "hn" : "reddit"]: value });
+      if (id === "sourceFilter") {
+        if (value !== "all" && !LISTENING_SOURCES.includes(value as ListeningSource)) return false;
+        setSourceFilter(value as ListeningSource | "all");
+        return true;
+      }
+      if (id.startsWith("source:")) {
+        const source = id.slice("source:".length) as ListeningSource;
+        if (typeof value !== "boolean" || source === "x" || !LISTENING_SOURCES.includes(source)) return false;
+        void setSources({ [source]: value });
+        return true;
+      }
+      if (id === "autoScan") {
+        if (typeof value !== "boolean") return false;
+        void setAutoScan(value);
         return true;
       }
       if (id.startsWith("status:")) {
         const resultId = id.slice("status:".length);
-        if (!RESULT_STATUSES.includes(value as ResultStatus) || !results.some((result) => result.id === resultId)) return false;
-        void setResult(resultId, { status: value as ResultStatus });
+        if (!TRIAGE_STATUSES.includes(value as (typeof TRIAGE_STATUSES)[number]) || !results.some((result) => result.id === resultId)) return false;
+        void setResult(resultId, { status: value as (typeof TRIAGE_STATUSES)[number] });
         return true;
       }
       return false;
@@ -226,8 +326,12 @@ export function ListeningPage() {
   const addTerm = (group: KeywordGroup) => {
     const term = (termDrafts[group.id] ?? "").trim().toLowerCase();
     if (!term) return;
-    if (group.terms.includes(term)) {
+    if (group.terms.some((existing) => existing.toLowerCase() === term)) {
       toast.message(`"${term}" is already in ${group.name}`);
+      return;
+    }
+    if (group.terms.length >= MAX_TERMS_PER_GROUP) {
+      toast.error(`${group.name} already has ${MAX_TERMS_PER_GROUP} terms. Remove one or start another topic.`);
       return;
     }
     void saveGroups(groups.map((entry) => (entry.id === group.id ? { ...entry, terms: [...entry.terms, term] } : entry))).then((ok) => {
@@ -241,7 +345,11 @@ export function ListeningPage() {
   const addGroup = () => {
     const name = newGroup.name.trim();
     if (!name) return;
-    const group: KeywordGroup = { id: `group-${crypto.randomUUID()}`, name, intent: newGroup.intent, terms: [] };
+    if (groups.length >= MAX_KEYWORD_GROUPS) {
+      toast.error(`You already have ${MAX_KEYWORD_GROUPS} topics. Remove one before adding another.`);
+      return;
+    }
+    const group: KeywordGroup = { id: `group-${crypto.randomUUID()}`, name, intent: newGroup.intent, canLead: true, terms: [] };
     void saveGroups([...groups, group], "Group added").then((ok) => {
       if (ok) setNewGroup({ name: "", intent: newGroup.intent });
     });
@@ -252,7 +360,7 @@ export function ListeningPage() {
       <PageHeader
         eyebrow="Studio"
         title="Listening"
-        description="Hacker News and Reddit threads from the last week where someone describes the problem CoLateral solves. Read them, answer the ones you genuinely can help with, and mark the rest ignored. Nothing is posted from here."
+        description="Hacker News, Reddit, YouTube and Bluesky posts where someone describes a problem CoLateral solves, scanned every two hours while the app is open. Each one is sorted into lead, mention, competitor or noise, with a sentiment and a score. Answer the leads you genuinely can help with; nothing is posted from here."
         actions={
           <Button onClick={() => void scan()} disabled={scanning}>
             {scanning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Radar className="mr-2 h-4 w-4" />}
@@ -264,6 +372,19 @@ export function ListeningPage() {
       {loadError ? (
         <Card className="tone-danger tone-edge tone-soft mb-5">
           <p className="text-sm text-white">Could not load Listening: {loadError}</p>
+        </Card>
+      ) : null}
+
+      {lastScan?.error ? (
+        <Card className="tone-warning tone-edge tone-soft mb-5">
+          <div className="flex gap-3">
+            <TriangleAlert className="tone-text mt-0.5 h-5 w-5 shrink-0" />
+            <div className="space-y-1 text-sm text-white">
+              <p className="font-medium">The last scan did not finish.</p>
+              <p>{lastScan.error}</p>
+              <p className="text-[var(--muted-foreground)]">The next automatic attempt is two hours after that one.</p>
+            </div>
+          </div>
         </Card>
       ) : null}
 
@@ -285,14 +406,16 @@ export function ListeningPage() {
       ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Waiting for triage" value={String(counts.new)} detail={`${results.length} on the list`} icon={<Ear className="h-5 w-5" />} />
-        <StatCard label="Replied" value={String(counts.replied)} detail={`${counts.ignored} ignored`} icon={<CheckCircle2 className="h-5 w-5" />} />
-        <StatCard label="Last scan" value={lastScan ? ago(lastScan.at) || "—" : "Never"} detail={scanSummary(lastScan)} />
         <StatCard
-          label="Search terms"
-          value={String(groups.reduce((sum, group) => sum + group.terms.length, 0))}
-          detail={`${groups.length} keyword groups`}
+          label="New leads"
+          value={String(leads.newLeads)}
+          detail={`Score ${HIGH_LEAD_SCORE}+ and still new`}
+          icon={<UserPlus className="h-5 w-5" />}
+          tone={leads.newLeads > 0 ? "success" : "neutral"}
         />
+        <StatCard label="Waiting for triage" value={String(counts.new)} detail={`${results.length} on the list`} icon={<Ear className="h-5 w-5" />} />
+        <StatCard label="In Outreach" value={String(counts["sent-to-outreach"])} detail={`${counts.seen} seen, ${counts.dismissed} dismissed`} icon={<Send className="h-5 w-5" />} />
+        <StatCard label="Last scan" value={lastScan ? ago(lastScan.at) || "—" : "Never"} detail={store ? nextScanLabel(store) : scanSummary(lastScan)} />
       </div>
 
       <Card className="mt-5">
@@ -309,7 +432,7 @@ export function ListeningPage() {
 
       <Card className="mt-5">
         <div className="flex flex-wrap items-center gap-2">
-          {(["new", "replied", "ignored", "all"] as StatusFilter[]).map((option) => (
+          {(["new", "seen", "sent-to-outreach", "dismissed", "all"] as StatusFilter[]).map((option) => (
             <button
               key={option}
               type="button"
@@ -332,26 +455,52 @@ export function ListeningPage() {
             onChange={(event) => setSourceFilter(event.target.value as ListeningSource | "all")}
           >
             <option value="all">All sources</option>
-            <option value="hn">Hacker News</option>
-            <option value="reddit">Reddit</option>
+            {LISTENING_SOURCES.filter((source) => source !== "x").map((source) => (
+              <option key={source} value={source}>
+                {SOURCE_LABELS[source]}
+              </option>
+            ))}
           </Select>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {(["all", ...HIT_CATEGORIES] as CategoryFilter[]).map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setCategoryFilter(option)}
+              className={cn(
+                "rounded-lg border px-3 py-1 text-xs transition-colors",
+                categoryFilter === option
+                  ? "border-[var(--accent)] bg-white/10 text-white"
+                  : "border-[var(--border)] bg-white/5 text-[var(--muted-foreground)] hover:text-white"
+              )}
+            >
+              {option === "all" ? "Any kind" : CATEGORY_LABELS[option]}{" "}
+              <span className="text-[var(--muted-foreground)]">
+                {option === "all" ? Object.values(categoryCounts).reduce((sum, value) => sum + value, 0) : categoryCounts[option]}
+              </span>
+            </button>
+          ))}
         </div>
 
         {visible.length === 0 ? (
           <p className="mt-5 text-sm text-[var(--muted-foreground)]">
-            {results.length === 0 ? "Nothing yet. Press Scan now, or run npm run listening:scan." : "Nothing matches this filter."}
+            {results.length === 0 ? "Nothing yet. Press Scan now, or wait for the next automatic scan." : "Nothing matches this filter."}
           </p>
         ) : (
           <div className="mt-4 space-y-3">
             {visible.map((result) => {
               const intents = intentOfTerms(groups, result.matchedTerms);
               const note = noteDrafts[result.id] ?? result.note;
+              const mood = moodOf(result.sentiment);
+              const open = result.status === "new";
               return (
                 <div
                   key={result.id}
                   className={cn(
                     "rounded-lg border p-3",
-                    result.status === "new" ? "border-[var(--border)] bg-[var(--surface-2)]" : "border-[var(--border)] bg-white/[0.02] opacity-80"
+                    open ? "border-[var(--border)] bg-[var(--surface-2)]" : "border-[var(--border)] bg-white/[0.02] opacity-80",
+                    isHighLead(result) && "border-[var(--accent)]"
                   )}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -367,9 +516,13 @@ export function ListeningPage() {
                       </a>
                       <p className="mt-1 text-xs text-[var(--muted-foreground)]">
                         {SOURCE_LABELS[result.source]} · {result.author || "unknown"} · {ago(result.createdAt)}
+                        {result.alsoOn.length > 0 ? ` · also on ${[...new Set(result.alsoOn.map((other) => SOURCE_LABELS[other.source]))].join(", ")}` : ""}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
+                      <Badge tone={CATEGORY_TONE[result.category]}>{CATEGORY_LABELS[result.category]}</Badge>
+                      <Badge tone={result.score >= HIGH_LEAD_SCORE ? "accent" : "neutral"}>Score {result.score}</Badge>
+                      <Badge tone={mood.tone}>{mood.label}</Badge>
                       {intents.map((intent) => (
                         <Badge key={intent} tone={INTENT_TONE[intent]}>
                           {INTENT_LABELS[intent]}
@@ -377,13 +530,24 @@ export function ListeningPage() {
                       ))}
                     </div>
                   </div>
+                  {result.reason ? <p className="mt-2 text-xs text-[var(--muted-foreground)]">{result.reason}</p> : null}
                   {result.excerpt ? <p className="mt-2 text-sm text-[var(--muted-foreground)]">{result.excerpt}</p> : null}
                   <p className="mt-2 text-xs text-[var(--muted-foreground)]">Matched: {result.matchedTerms.join(", ")}</p>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                    {RESULT_STATUSES.map((status) => (
+                    {result.status === "sent-to-outreach" ? (
+                      <Link href="/outreach" className="inline-flex h-8 items-center rounded-lg px-3 text-xs text-[var(--accent)] hover:underline">
+                        In Outreach
+                      </Link>
+                    ) : (
+                      <Button variant="success" className="h-8 px-3 text-xs" disabled={sendingId === result.id} onClick={() => void sendToOutreach(result)}>
+                        {sendingId === result.id ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
+                        Send to Outreach
+                      </Button>
+                    )}
+                    {TRIAGE_STATUSES.map((status) => (
                       <Button
                         key={status}
-                        variant={result.status === status ? (status === "replied" ? "success" : "secondary") : "ghost"}
+                        variant={result.status === status ? "secondary" : "ghost"}
                         className="h-8 px-3 text-xs"
                         onClick={() => void setResult(result.id, { status })}
                       >
@@ -416,9 +580,9 @@ export function ListeningPage() {
 
       <div className="mt-5 grid gap-5 lg:grid-cols-[2fr_1fr]">
         <Card>
-          <h2 className="text-lg font-semibold text-white">Keyword groups</h2>
+          <h2 className="text-lg font-semibold text-white">Keywords and topics</h2>
           <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-            Every term is searched on each source. A hit is kept only when its text contains the phrase or all of its words.
+            A hit is kept only when its text contains the phrase or all of its words. A topic holds up to {MAX_TERMS_PER_GROUP} terms. Reddit searches a few terms each scan and carries on from where it stopped, so every term is covered within a day. Saved in data/listening/config.json.
           </p>
           <div className="mt-4 space-y-4">
             {groups.map((group) => (
@@ -427,6 +591,7 @@ export function ListeningPage() {
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium text-white">{group.name}</p>
                     <Badge tone={INTENT_TONE[group.intent]}>{INTENT_LABELS[group.intent]}</Badge>
+                    {group.canLead ? null : <Badge>Never a lead</Badge>}
                   </div>
                   <Button
                     variant="ghost"
@@ -472,7 +637,7 @@ export function ListeningPage() {
           <div className="mt-4 flex flex-wrap gap-2">
             <Input
               className="h-9 min-w-48 flex-1"
-              placeholder="New group name"
+              placeholder="New topic name"
               value={newGroup.name}
               onChange={(event) => setNewGroup((current) => ({ ...current, name: event.target.value }))}
             />
@@ -489,7 +654,7 @@ export function ListeningPage() {
               ))}
             </Select>
             <Button variant="secondary" className="h-9" onClick={addGroup} disabled={!newGroup.name.trim()}>
-              Add group
+              Add topic
             </Button>
           </div>
         </Card>
@@ -497,26 +662,48 @@ export function ListeningPage() {
         <Card>
           <h2 className="text-lg font-semibold text-white">Sources</h2>
           <div className="mt-3 space-y-3">
-            {(["hn", "reddit"] as const).map((source) => (
-              <label key={source} className="flex items-center justify-between gap-3 text-sm text-white">
-                {SOURCE_LABELS[source]}
-                <input
-                  type="checkbox"
-                  checked={store?.sources[source] ?? true}
-                  onChange={(event) => store && void setSources({ ...store.sources, [source]: event.target.checked })}
-                />
-              </label>
-            ))}
+            {LISTENING_SOURCES.map((source) => {
+              const note = SOURCE_NOTES[source];
+              const report = lastScan?.sources.find((entry) => entry.source === source);
+              return (
+                <div key={source}>
+                  <label className={cn("flex items-center justify-between gap-3 text-sm text-white", note && "opacity-60")}>
+                    {SOURCE_LABELS[source]}
+                    <input
+                      type="checkbox"
+                      disabled={Boolean(note)}
+                      checked={note ? false : (store?.sources[source] ?? true)}
+                      onChange={(event) => void setSources({ [source]: event.target.checked })}
+                    />
+                  </label>
+                  {note ? <p className="mt-1 text-xs text-[var(--muted-foreground)]">{note}</p> : null}
+                  {!note && report && (report.skipped || report.note) ? (
+                    <p className="mt-1 text-xs text-[var(--muted-foreground)]">{report.error ?? report.note}</p>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
+          <label className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4 text-sm text-white">
+            Scan every two hours
+            <input type="checkbox" checked={store?.autoScan ?? true} onChange={(event) => void setAutoScan(event.target.checked)} />
+          </label>
+          <p className="mt-1 text-xs text-[var(--muted-foreground)]">{store ? nextScanLabel(store) : ""}</p>
           <p className="mt-4 text-xs text-[var(--muted-foreground)]">
-            Reddit allows only a few unauthenticated requests a minute, so its queries are spaced out and a full scan takes about
-            half a minute. If it answers 403 or 429 the scan stops asking and says so above.
+            Reddit allows only a few unauthenticated requests a minute, so its queries are six seconds apart, it honours any wait Reddit asks for, and a scan searches a few terms. YouTube is off until you
+            switch it on: a search costs 100 quota units and shares the channel&apos;s daily quota with uploads, so it makes one search per scan, spread across the day, and stops at a budget of 100 units a
+            day (set YOUTUBE_LISTENING_DAILY_UNITS to change it). Bluesky search needs no sign-in.
           </p>
           <p className="mt-3 text-xs text-[var(--muted-foreground)]">
             From a terminal: <span className="text-white">npm run listening:scan</span>
           </p>
           <div className={labelClass + " mt-4"}>Last scan</div>
           <p className="mt-1 text-sm text-white">{lastScan ? new Date(lastScan.at).toLocaleString() : "Never"}</p>
+          {lastScan?.classified ? (
+            <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+              Sorted by the model: {lastScan.classified.ai}, by keywords: {lastScan.classified.heuristic}
+            </p>
+          ) : null}
         </Card>
       </div>
     </div>
