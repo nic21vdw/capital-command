@@ -1,10 +1,11 @@
 import { localCalendarParts, zonedToUtc } from "@/lib/publisher/time";
-import { threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
+import { envAccessTokens, threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
 import { endOfLocalDay, planBatch } from "@/lib/threads/plan";
 import { autopilotItemsForDate, isAutopilotItem, mutateQueue, pruneOld, readQueue } from "@/lib/threads/queue";
 import { hasStarted } from "@/lib/threads/rewrite";
 import { runDue } from "@/lib/threads/runner";
 import { readThreadsState, recordThreadsState } from "@/lib/threads/state";
+import { refreshThreadsTokens, type TokenRefreshOutcome } from "@/lib/threads/tokens";
 import type { ThreadsPlanResult, ThreadsRunReport } from "@/lib/threads/types";
 import { ensureDailyPack } from "@/lib/x-posts/daily";
 import { isAutomationPaused, recordAutomationOutcome } from "@/lib/automations/store";
@@ -270,6 +271,8 @@ export type ThreadsTickResult = {
   ahead?: ThreadsPlanResult;
   /** The re-layout, when today had fallen behind enough to need one. */
   catchUp?: ThreadsPlanResult;
+  /** Token refreshes this tick made or failed; quiet when nothing was due. */
+  tokens?: TokenRefreshOutcome[];
 };
 
 /**
@@ -290,7 +293,7 @@ export async function threadsTick(
     const result = await threadsTickInternal(options);
     if (!options.dryRun) {
       const replies = result.run.replies;
-      const needsAttention = Boolean(result.run.persistenceError) || result.run.failed > 0 || result.run.outcomes.some((outcome) => outcome.outcome === "retrying")
+      const needsAttention = Boolean(result.run.persistenceError) || Boolean(result.run.authFailures?.length) || result.run.failed > 0 || result.run.outcomes.some((outcome) => outcome.outcome === "retrying")
         || Boolean(replies && (replies.failed > 0 || replies.retrying > 0));
       await recordAutomationOutcome("threads", {
         at: new Date().toISOString(),
@@ -308,9 +311,16 @@ export async function threadsTick(
 }
 
 async function threadsTickInternal(
-  options: { config?: ThreadsConfig; now?: Date; dryRun?: boolean; log?: (line: string) => void } = {}
+  options: {
+    config?: ThreadsConfig;
+    now?: Date;
+    dryRun?: boolean;
+    log?: (line: string) => void;
+    /** Refresh tokens that are due before posting. Only the scheduled tick asks. */
+    refreshTokens?: boolean;
+  } = {}
 ): Promise<ThreadsTickResult> {
-  const config = options.config ?? threadsConfig();
+  let config = options.config ?? threadsConfig();
   const now = options.now ?? new Date();
   if (await isAutomationPaused("threads")) {
     const note = "Threads automation is paused in Automations.";
@@ -318,6 +328,14 @@ async function threadsTickInternal(
       plan: { date: localCalendarParts(now, config.timezone).dateKey, created: 0, droppedPastSlots: 0, skipped: note },
       run: { ran: now.toISOString(), published: 0, failed: 0, skipped: 0, outcomes: [], dryRun: options.dryRun ?? false, note }
     };
+  }
+  // Keep the tokens alive before anything posts with them. A long-lived token
+  // expires 60 days after it was minted, and an expired one silently stops the
+  // whole feed. Rate-limited inside, so most ticks make no call at all.
+  let tokens: TokenRefreshOutcome[] = [];
+  if (options.refreshTokens && !options.dryRun) {
+    tokens = (await refreshThreadsTokens(config, envAccessTokens(), now)).filter((entry) => entry.outcome !== "fresh");
+    if (tokens.some((entry) => entry.outcome === "refreshed")) config = threadsConfig();
   }
   const plan = await planTodaysBatch({ config, now, log: options.log });
   // Both of these change what is queued, so a dry run has to stay out of them.
@@ -338,5 +356,5 @@ async function threadsTickInternal(
     });
   }
 
-  return { plan, run, ...(ahead ? { ahead } : {}), ...(catchUp ? { catchUp } : {}) };
+  return { plan, run, ...(ahead ? { ahead } : {}), ...(catchUp ? { catchUp } : {}), ...(tokens.length ? { tokens } : {}) };
 }

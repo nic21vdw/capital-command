@@ -367,6 +367,14 @@ export class PublishQueue {
     await this.save();
   }
 
+  async releaseForAuth(item: QueueItem, platform: PlatformId, message: string): Promise<void> {
+    const state = item.platforms[platform];
+    if (!state) return;
+    state.error = message;
+    state.claimedAt = undefined;
+    await this.save();
+  }
+
   /**
    * Records a failure. Transient errors schedule a retry with exponential
    * backoff until maxAttempts, then become permanent. Permanent errors mark
