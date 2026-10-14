@@ -1,3 +1,4 @@
+import { postCode } from "@/lib/attribution/code";
 import { authFailureReason, isAuthFailure } from "@/lib/platform-health/auth";
 import { threadsAccountFingerprint } from "@/lib/platform-health/fingerprint";
 import { accountAuthBlocked, clearAuthState, readAuthStates, recordAuthFailure } from "@/lib/platform-health/store";
@@ -493,7 +494,7 @@ async function runDueInternal(
       let result;
       try {
         result = await deps.post({
-          account, text: item.text, containerId: item.containerId,
+          account, text: item.text, containerId: item.containerId, attributionCode: postCode(item.id),
           shouldPublish: () => allowed(item, false, account.accessToken),
           onContainerCreated: async (containerId) => {
             item.containerId = containerId;

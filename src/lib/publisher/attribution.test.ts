@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { postCode } from "@/lib/attribution/code";
 import { attributeLinks, youtubeDescription, YOUTUBE_LEAD_LINE } from "@/lib/publisher/attribution";
 import { composeCaption, composeDescription } from "@/lib/publisher/metadata";
 import { storyVideoBody } from "@/lib/story/youtube";
@@ -85,5 +86,98 @@ describe("composeCaption", () => {
 
   it("leaves the caption alone without a platform", () => {
     expect(composeCaption({ caption: "Try https://colateralai.com", hashtags: [] })).toBe("Try https://colateralai.com");
+  });
+});
+
+describe("per-post codes on attribution links", () => {
+  const code = postCode("clip-1");
+
+  it.each([
+    ["youtube", "yt"],
+    ["instagram", "ig"],
+    ["tiktok", "tt"],
+    ["facebook", "fb"],
+    ["threads", "th"],
+    ["x", "x"]
+  ] as const)("adds the code to the %s link", (platform, path) => {
+    expect(attributeLinks("Try https://colateralai.com", platform, code)).toBe(`Try https://colateralai.com/${path}?c=${code}`);
+  });
+
+  it("keeps trailing punctuation after the coded link", () => {
+    expect(attributeLinks("See https://colateralai.com.", "instagram", code)).toBe(`See https://colateralai.com/ig?c=${code}.`);
+    expect(attributeLinks("(colateralai.com)", "tiktok", code)).toBe(`(colateralai.com/tt?c=${code})`);
+  });
+
+  it("codes every bare link in the text", () => {
+    expect(attributeLinks("a colateralai.com b colateralai.com", "facebook", code)).toBe(
+      `a colateralai.com/fb?c=${code} b colateralai.com/fb?c=${code}`
+    );
+  });
+
+  it("is idempotent and leaves a link that already has a path or query alone", () => {
+    const once = attributeLinks("Try https://colateralai.com", "threads", code);
+    expect(attributeLinks(once, "threads", code)).toBe(once);
+    expect(attributeLinks("https://colateralai.com/yt", "youtube", code)).toBe("https://colateralai.com/yt");
+    expect(attributeLinks("https://colateralai.com/th?c=abc123", "threads", code)).toBe("https://colateralai.com/th?c=abc123");
+  });
+
+  it("falls back to the plain platform link for a missing or malformed code", () => {
+    for (const bad of [undefined, "", "ABC123", "a b", "abc123&x=1", "toolongcode1"]) {
+      expect(attributeLinks("colateralai.com", "tiktok", bad)).toBe("colateralai.com/tt");
+    }
+  });
+});
+
+describe("YouTube lead line with a post code", () => {
+  const code = postCode("clip-1");
+  const coded = `${YOUTUBE_LEAD_LINE}?c=${code}`;
+
+  it("leads with the coded line and codes the body", () => {
+    expect(youtubeDescription("Watch.\nTry https://colateralai.com", code)).toBe(
+      `${coded}\n\nWatch.\nTry https://colateralai.com/yt?c=${code}`
+    );
+  });
+
+  it("does not repeat a coded lead line", () => {
+    const already = `${coded}\n\nBody`;
+    expect(youtubeDescription(already, code)).toBe(already);
+    expect(youtubeDescription(already)).toBe(already);
+  });
+
+  it("does not stack a coded line on an uncoded one", () => {
+    const already = `${YOUTUBE_LEAD_LINE}\n\nBody`;
+    expect(youtubeDescription(already, code)).toBe(already);
+  });
+
+  it("is just the coded line for an empty description", () => {
+    expect(youtubeDescription("", code)).toBe(coded);
+  });
+
+  it("still prepends when the first line only looks similar", () => {
+    const lookalike = "Try CoLateral: https://colateralai.com/ytx";
+    expect(youtubeDescription(lookalike, code).startsWith(coded)).toBe(true);
+  });
+});
+
+describe("queue posts carry their own code", () => {
+  const item = { id: "clip-1", caption: "Clip. https://colateralai.com", hashtags: ["ai"] };
+  const code = postCode("clip-1");
+
+  it("codes the caption for each platform from the item id", () => {
+    expect(composeCaption(item, "instagram")).toBe(`Clip. https://colateralai.com/ig?c=${code}\n\n#ai`);
+    expect(composeCaption(item, "facebook")).toBe(`Clip. https://colateralai.com/fb?c=${code}\n\n#ai`);
+    expect(composeCaption(item, "tiktok")).toBe(`Clip. https://colateralai.com/tt?c=${code}\n\n#ai`);
+  });
+
+  it("codes the YouTube description", () => {
+    expect(composeDescription(item)).toBe(`${YOUTUBE_LEAD_LINE}?c=${code}\n\nClip. https://colateralai.com/yt?c=${code}\n\n#ai`);
+  });
+
+  it("gives different posts different codes", () => {
+    expect(composeCaption({ ...item, id: "clip-2" }, "instagram")).not.toBe(composeCaption(item, "instagram"));
+  });
+
+  it("leaves Buffer text without a platform untouched", () => {
+    expect(composeCaption(item)).toBe("Clip. https://colateralai.com\n\n#ai");
   });
 });

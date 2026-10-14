@@ -1,3 +1,4 @@
+import { isPostCode } from "@/lib/attribution/code";
 import { attributeLinks } from "@/lib/publisher/attribution";
 
 // Leave room for the invitation in a 500-character Threads reply. Never shorten
@@ -7,6 +8,7 @@ export const THREADS_REPLY_URL_MAX_LENGTH = 350;
 type ReplyUrlContext = {
   angle: string;
   origin?: "autopilot" | "pipeline";
+  code?: string;
 };
 
 const UNSAFE_URL_TEXT = /[\s\p{Cc}\p{Cf}\\]/u;
@@ -102,6 +104,9 @@ export function threadsReplyUrl(
   };
   for (const [key, value] of Object.entries(tracking)) {
     if (!existing.has(key)) additions.append(key, value);
+  }
+  if (url.pathname === "/" && isPostCode(context.code) && !existing.has("c")) {
+    additions.append("c", context.code);
   }
 
   const extra = additions.toString();

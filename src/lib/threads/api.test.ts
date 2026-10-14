@@ -196,4 +196,22 @@ describe("createTextContainer", () => {
     const body = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as URLSearchParams;
     expect(body.get("text")).toBe("Try it: https://colateralai.com/th");
   });
+
+  it("adds the post's code to the Threads link when one is given", async () => {
+    const fetchMock = stubFetch("container-1");
+
+    await createTextContainer(account({ userId: "1" }), "Try it: https://colateralai.com", config(), undefined, "a3f9c2");
+
+    const body = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as URLSearchParams;
+    expect(body.get("text")).toBe("Try it: https://colateralai.com/th?c=a3f9c2");
+  });
+
+  it("carries the code through postToThreads", async () => {
+    const fetchMock = stubFetch("container-1");
+
+    await postToThreads({ account: account({ userId: "1" }), text: "Try it: colateralai.com", attributionCode: "a3f9c2" }, config());
+
+    const body = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as URLSearchParams;
+    expect(body.get("text")).toBe("Try it: colateralai.com/th?c=a3f9c2");
+  });
 });

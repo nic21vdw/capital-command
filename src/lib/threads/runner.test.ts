@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { postCode } from "@/lib/attribution/code";
 import { PermanentError } from "@/lib/publisher/http";
 import { ContainerPendingError, ContainerRejectedError, ThreadsPublishPausedError } from "@/lib/threads/api";
 import { isAutomationPaused } from "@/lib/automations/store";
@@ -234,6 +235,15 @@ describe("runDue", () => {
     await runDue(new Date("2026-07-22T07:16:00.000Z"), { config: config(), deps: runDeps, log: silent });
 
     expect(post).toHaveBeenCalledWith(expect.objectContaining({ containerId: "container-9" }));
+  });
+
+  it("hands the post its own attribution code", async () => {
+    const post = vi.fn(async () => ({ containerId: "container-1", postId: "post-1" }));
+    const { runDeps } = deps([item({ id: "item-77" })], post);
+
+    await runDue(new Date("2026-07-22T07:16:00.000Z"), { config: config(), deps: runDeps, log: silent });
+
+    expect(post).toHaveBeenCalledWith(expect.objectContaining({ attributionCode: postCode("item-77") }));
   });
 
   it("fails an item permanently when the platform rejects it", async () => {

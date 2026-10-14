@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { postCode } from "@/lib/attribution/code";
 import { threadsConfig, THREADS_TEXT_LIMIT, type ThreadsConfig } from "@/lib/threads/config";
 import { mentionsColateral, plugReplyFor } from "@/lib/threads/plug";
 import { threadsReplyUrl } from "@/lib/threads/reply-attribution";
@@ -137,6 +138,26 @@ describe("contextual CoLateral self-replies", () => {
   it("respects the existing opt-out", () => {
     expect(plugReplyFor("Building CoLateral", "post-1", config({ plugReplies: false }))).toBeUndefined();
     expect(plugReplyFor("Another workflow idea", "post-1", config({ plugReplies: false }))).toBeUndefined();
+  });
+
+  it("codes the reply link with the parent post's code", () => {
+    const reply = plugReplyFor("The IDE should fit the way you think.", "post-1", config())!;
+    const url = replyUrl(reply);
+    expect(url.pathname).toBe("/th");
+    expect(url.searchParams.get("c")).toBe(postCode("post-1"));
+    expect(url.searchParams.get("utm_source")).toBe("threads");
+    expect(reply.length).toBeLessThanOrEqual(THREADS_TEXT_LIMIT);
+  });
+
+  it("gives two posts two different codes", () => {
+    const first = replyUrl(plugReplyFor("The IDE should fit the way you think.", "post-1", config())!);
+    const second = replyUrl(plugReplyFor("The IDE should fit the way you think.", "post-2", config())!);
+    expect(first.searchParams.get("c")).not.toBe(second.searchParams.get("c"));
+  });
+
+  it("does not code a configured destination that is not the bare homepage", () => {
+    const reply = plugReplyFor("Engineering review", "post-1", config({ plugUrl: "https://colateralai.com/modules" }))!;
+    expect(replyUrl(reply).searchParams.has("c")).toBe(false);
   });
 
   it.each(["", " ", "not a URL", "javascript:alert(1)", "mailto:nic@example.com", "https://user:secret@colateralai.com"])(

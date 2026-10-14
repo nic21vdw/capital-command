@@ -1,4 +1,5 @@
 import { THREADS_TEXT_LIMIT, type ThreadsConfig } from "@/lib/threads/config";
+import { postCode } from "@/lib/attribution/code";
 import { threadsReplyUrl } from "@/lib/threads/reply-attribution";
 
 // The parent stays a thought in Nic's voice. The self-reply adds a relevant way
@@ -114,7 +115,7 @@ export function plugReplyFor(
   if (!config.plugReplies || !parent) return undefined;
 
   const angle = CONTEXTS.find((context) => context.pattern.test(parent))?.angle ?? "general";
-  const url = threadsReplyUrl(config.plugUrl, { angle, origin });
+  const url = threadsReplyUrl(config.plugUrl, { angle, origin, code: postCode(seed) });
   if (!url) return undefined;
 
   const lines = REPLY_LINES[angle];

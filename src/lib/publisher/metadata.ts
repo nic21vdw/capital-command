@@ -2,6 +2,7 @@ import { runAi } from "@/lib/ai";
 import type { QueueItem } from "@/lib/publisher/types";
 import { clipDescription } from "@/lib/clipping/editor";
 import { fallbackHashtags, generateClipHashtags } from "@/lib/clipping/hashtags";
+import { postCode } from "@/lib/attribution/code";
 import { attributeLinks, youtubeDescription, type AttributionPlatform } from "@/lib/publisher/attribution";
 
 /**
@@ -21,6 +22,10 @@ export type ClipMetadata = {
 
 const MAX_TITLE_CHARS = 90; // fits YouTube's 100-char limit with room to spare
 const MAX_HASHTAGS = 6;
+
+function codeOf(item: { id?: string }): string | undefined {
+  return item.id ? postCode(item.id) : undefined;
+}
 
 function normalizeHashtags(tags: string[]): string[] {
   const seen = new Set<string>();
@@ -120,16 +125,18 @@ export async function generateClipMetadata(source: {
   }
 }
 
+type CaptionItem = Pick<QueueItem, "caption" | "hashtags"> & { id?: string };
+
 /** Full caption for platforms that take one text field (IG caption, TikTok title). */
-export function composeCaption(item: Pick<QueueItem, "caption" | "hashtags">, platform?: AttributionPlatform): string {
+export function composeCaption(item: CaptionItem, platform?: AttributionPlatform): string {
   const tags = normalizeHashtags(item.hashtags).join(" ");
-  const caption = platform ? attributeLinks(item.caption, platform).trim() : item.caption.trim();
+  const caption = platform ? attributeLinks(item.caption, platform, codeOf(item)).trim() : item.caption.trim();
   return tags ? `${caption}\n\n${tags}` : caption;
 }
 
 /** YouTube description: the CoLateral lead line, then caption plus hashtags on their own line. */
-export function composeDescription(item: Pick<QueueItem, "caption" | "hashtags">): string {
-  return youtubeDescription(composeCaption(item));
+export function composeDescription(item: CaptionItem): string {
+  return youtubeDescription(composeCaption(item), codeOf(item));
 }
 
 /** Bare tag words (no #) for YouTube's snippet.tags. */
