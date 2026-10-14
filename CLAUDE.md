@@ -387,6 +387,38 @@ pipeline's booking sheet, the ingest scan, the CLI, `/api/publish`).
   matching audit is `GET /api/publish/youtube-channel/duplicates`, which reports
   repeated titles on the channel and repeats on the queue, and changes nothing.
 
+## Experiments and learned posting times (`src/lib/experiments`, `analytics/bestTimes.ts`)
+
+Both read the analytics store (`data/analytics/metrics.json`) and neither ever acts on its own.
+
+- AN EXPERIMENT IS OPT-IN PER CLIP. `createExperiment` is called from `POST /api/experiments` and nowhere else,
+  and that is called only by Start test in the Uploading Center's `experiment-panel.tsx`. `optIn.test.ts` fails
+  if the pipeline, ingest, autopilot, runner or `enqueue` ever reach it.
+- A variant is a queue item per platform (title test: the title; hook test: the caption's opening line).
+  Every variant carries the same caption body and hashtags so only the tested thing differs.
+- THE DUPLICATE GUARD STILL MEANS WHAT IT SAYS. A clip that is already on the schedule is refused before anything
+  is booked; the first booking then goes through `enqueue` unaided and only the experiment's own later bookings
+  pass `allowDuplicate`. A hook test refuses YouTube, whose channel guard will not take one title twice in 30 days.
+  Thumbnail tests are refused: a queue item has no per-variant thumbnail.
+- NEVER TWO VARIANTS OF A VIDEO ON ONE PLATFORM AND ACCOUNT WITHIN 48 HOURS (`spacing.ts`). `plan.ts` picks open
+  slots at least 48 real hours apart (a DST change makes "two days at the same clock time" 47 hours). Schedule
+  repair and shuffle can still move an item later, so `evaluate.ts` re-checks the times the posts actually went
+  out and settles as "confounded" rather than scoring a spoiled test.
+- SCORING (`evaluate.ts`, `winner.ts`, `baselines.ts`). Each post is read at the variant's window (72 hours) by
+  `metricsAtAge`, which interpolates the daily snapshots and refuses a bracket wider than 4 days. Views and
+  engagement rate are divided by the median for the same platform and account, computed WITHOUT the experiment's
+  own posts, and need 5 earlier posts. A variant under 100 views is "not enough data"; a lead under 10% is a tie.
+  Once decided, the decision is written into `data/experiments.json` (by the GET that notices it) and never
+  recomputed, because the account median keeps moving.
+- BEST TIMES (`bestTimes.ts`). Views at 48 hours by local publish hour in PUBLISH_TIMEZONE, per platform, account
+  and weekday or weekend, log-scaled and shrunk toward the account's mean with neighbouring hours blended in.
+  An account needs 20 posts, an hour 3; the suggestion keeps the grid's size, never puts two slots in
+  neighbouring hours, and keeps the minutes of a current slot. Only hours already posted at can win. Threads and
+  long-form videos are left out (their cadence is not this grid).
+- THE ONLY WRITE IS A CLICK. Use these slots calls `PATCH /api/automations/cadence`, the cadence editor's own path
+  (`saveCadence`), from `applySuggestedSlots` in the Performance page. `bestTimesApply.test.ts` fails if the
+  learning, its read route or anything scheduled imports the writer.
+
 ## Automatic channel ingest (`src/lib/ingest`)
 
 A daily scan reads the YouTube channel and runs each NEW LIVE STREAM through

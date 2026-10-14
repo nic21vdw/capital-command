@@ -52,6 +52,8 @@ export type QueueWriter =
   | "cli-unpark"
   | "runner-mirror"
   | "adopt-channel-videos"
+  | "experiment-book"
+  | "experiment-rollback"
   | "unattributed";
 
 export type QueueAction = "add" | "remove" | "publish-time" | "purge";
