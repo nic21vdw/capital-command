@@ -643,10 +643,40 @@ export class PublishQueue {
    * Buffer delivery layer gets the same claim/backoff/idempotency guarantees.
    * The item's `buffer` field is seeded here when absent.
    */
-  async claimBuffer(item: QueueItem, now: Date): Promise<void> {
+  async claimBuffer(item: QueueItem, now: Date, allow: (current: QueueItem) => boolean = () => true): Promise<boolean> {
+    const active = (current: QueueItem) => Boolean(current.buffer?.claimedAt &&
+      now.getTime() - new Date(current.buffer.claimedAt).getTime() < this.config.claimTimeoutMinutes * 60_000);
+    if (active(item)) return false;
+    const previous = item.buffer;
+    const previousClaim = previous?.claimedAt;
     item.buffer ??= newBufferState();
     item.buffer.claimedAt = now.toISOString();
-    await this.save();
+    return this.commit({
+      allow: (stored) => {
+        const current = stored.get(item.id);
+        return current !== undefined && !active(current) && allow(current);
+      },
+      reject: () => {
+        if (previous) previous.claimedAt = previousClaim;
+        else item.buffer = undefined;
+      }
+    });
+  }
+
+  /** An authorization stop is not a failed delivery; only release our own lease. */
+  async releaseBufferClaim(item: QueueItem, claimedAt: string): Promise<void> {
+    const state = item.buffer;
+    if (!state || state.claimedAt !== claimedAt) return;
+    state.claimedAt = undefined;
+    try {
+      await this.commit({
+        allow: (stored) => stored.get(item.id)?.buffer?.claimedAt === claimedAt,
+        reject: () => { state.claimedAt = claimedAt; }
+      });
+    } catch (error) {
+      state.claimedAt = claimedAt;
+      throw error;
+    }
   }
 
   async recordBufferSuccess(

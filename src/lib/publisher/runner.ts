@@ -312,6 +312,8 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
   // so it cannot abort the direct publishes.
   const runBuffer = async () => {
     if (!config.buffer.enabled) return;
+    // Buffer's opaque fan-out cannot honor a selected direct-platform action.
+    if (options.itemId && options.force && options.platforms !== undefined) return;
     if (!options.itemId && await isAutomationPaused("publisher")) return;
     try {
       const bufferOutcomes = await syncDueToBuffer(now, { queue, config, log, itemId: options.itemId, force: options.force });

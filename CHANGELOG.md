@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Publishing holds stay in effect while Buffer prepares a post.** Existing Buffer receipts keep being tracked, and an approval stop leaves retries untouched. The canvas can place channels on Hold; setting Auto takes a person in Settings.
+
 - **A refused policy change cannot release part of your held queue.** Every requested channel is checked together before anything is saved, and the posts stay held if the policy cannot be saved. Threads also checks the latest approval policy when claiming a post and before starting delivery, so turning Hold on while a tick waits takes effect before an unsent post goes out. Posts already approved or started keep their delivery state.
 
 - **Approving held posts now saves one complete release.** Overlapping approvals reserve separate slots and cannot make two copies of the same platform leg. A post removed or already claimed before the release is saved stays untouched, and a failed save leaves its approval and schedule unchanged.

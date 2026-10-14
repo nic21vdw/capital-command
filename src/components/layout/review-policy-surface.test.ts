@@ -30,11 +30,9 @@ describe("what Settings tells the canvas about the review policy", () => {
   });
 
   it("lets the canvas hold a channel but not release one, because release posts what is waiting", () => {
-    const held = normalizeReviewPolicy({ instagram: "hold" });
-    expect(canvasMayChange(DEFAULT_REVIEW_POLICY, { channel: "instagram", mode: "hold" })).toBe(true);
-    expect(canvasMayChange(held, { channel: "instagram", mode: "hold" })).toBe(true);
-    expect(canvasMayChange(held, { channel: "instagram", mode: "auto" })).toBe(false);
-    expect(canvasMayChange(held, { channel: "tiktok", mode: "auto" })).toBe(true);
+    expect(canvasMayChange({ channel: "instagram", mode: "hold" })).toBe(true);
+    expect(canvasMayChange({ channel: "instagram", mode: "auto" })).toBe(false);
+    expect(canvasMayChange({ channel: "tiktok", mode: "auto" })).toBe(false);
   });
 
   it("leaves other fields alone and refuses a bad write", () => {

@@ -224,6 +224,25 @@ describe("a channel set to hold", () => {
 });
 
 describe("Buffer and a held channel", () => {
+  it("keeps a platform-scoped Publish now out of Buffer's wider fan-out", async () => {
+    await setPolicy({ tiktok: "hold" });
+    const config = testConfig({
+      platforms: ["instagram", "tiktok"],
+      buffer: { enabled: true, accessToken: "buf", profileIds: ["p1"], apiBase: "https://buffer.example.test", shortenLinks: true }
+    });
+    const queue = new PublishQueue(new MemoryQueueStore(), config);
+    await queue.add(testItem({ id: "a", clipPath, platformIds: ["instagram", "tiktok"] }));
+    const instagram = fakeAdapter("instagram");
+    const tiktok = fakeAdapter("tiktok");
+    const requests = mockFetchRoutes([{ match: "/updates/create.json", respond: () => jsonResponse({ success: true, updates: [{ id: "unexpected" }] }) }]);
+    await runDue(DUE, { queue, config, log: () => {}, adapters: { instagram, tiktok }, itemId: "a", force: true, platforms: ["instagram"] });
+    expect(instagram.calls).toHaveLength(1);
+    expect(tiktok.calls).toHaveLength(0);
+    expect(requests).toHaveLength(0);
+    expect((await queue.get("a"))?.buffer).toBeUndefined();
+    expect((await queue.get("a"))?.platforms.tiktok).toEqual({ status: "pending", attempts: 0 });
+  });
+
   it("does not schedule a post into Buffer while a leg of it awaits approval", async () => {
     await setPolicy({ instagram: "hold" });
     const config = testConfig({

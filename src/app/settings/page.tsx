@@ -122,7 +122,7 @@ export default function Page() {
       if (brandPatch !== undefined) return brandPatch === null ? false : patchBrandKit(brandPatch);
       const review = parseReviewField(id, value);
       if (review !== undefined) {
-        if (review === null || !canvasMayChange(reviewPolicy.policy, review)) return false;
+        if (review === null || !canvasMayChange(review)) return false;
         return changeReviewPolicy(reviewChange(review.channel, review.mode));
       }
       switch (id) {
