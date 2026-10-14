@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
+import { brandHashtagPolicy, brandKeywords, brandPromptBlock } from "@/lib/brand/kit";
 
 /**
  * Per-clip hashtags for short-form posts.
@@ -18,17 +18,20 @@ import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
  * words when it is not. Never throws — an empty list is always a safe answer.
  */
 
-/** Hashtags on every short regardless of content: the format tag platforms rank on. */
-export const BASE_HASHTAGS = ["#shorts"];
+export function baseHashtags(): string[] {
+  return brandHashtagPolicy("youtube").base;
+}
 
-/** Ceiling per post. Beyond roughly this many, tags read as spam and stop helping. */
-export const MAX_HASHTAGS = 6;
+export function maxHashtags(): number {
+  return brandHashtagPolicy("youtube").max;
+}
 
 const MAX_TRANSCRIPT_CHARS = 900;
 
-export const HASHTAG_SYSTEM_PROMPT = `You write the hashtags for a short-form vertical video posted to YouTube Shorts, Instagram Reels, TikTok and Facebook Reels.
+export function hashtagSystemPrompt(): string {
+  return `You write the hashtags for a short-form vertical video posted to YouTube Shorts, Instagram Reels, TikTok and Facebook Reels.
 
-Channel context: ${CHANNEL_CONTEXT} Recurring channel topics: ${CHANNEL_KEYWORDS.join(", ")}.
+${brandPromptBlock("youtube")}
 
 Rules:
 - Choose tags a real viewer of THIS clip would search or follow — specific to what is actually said, not a generic pile.
@@ -37,6 +40,7 @@ Rules:
 - Never invent a claim the clip does not support.
 
 You always return strict JSON.`;
+}
 
 /** Normalizes one raw tag to `#tag`, or "" when nothing usable is left. */
 export function normalizeHashtag(raw: string): string {
@@ -52,6 +56,7 @@ export function normalizeHashtag(raw: string): string {
 export function normalizeHashtags(tags: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
+  const cap = maxHashtags();
   for (const raw of tags) {
     const tag = normalizeHashtag(raw);
     if (!tag) continue;
@@ -59,7 +64,7 @@ export function normalizeHashtags(tags: string[]): string[] {
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(tag);
-    if (out.length >= MAX_HASHTAGS) break;
+    if (out.length >= cap) break;
   }
   return out;
 }
@@ -73,10 +78,10 @@ export function fallbackHashtags(source: { spokenText?: string; streamTitle?: st
   const haystack = [source.spokenText, source.streamTitle, source.topic].filter(Boolean).join(" ");
   // Whole words only. "AI" as a substring matches "said", "again" and "email",
   // which would tag every clip ever made with the channel's biggest keyword.
-  const matched = CHANNEL_KEYWORDS.filter((keyword) =>
+  const matched = brandKeywords().filter((keyword) =>
     new RegExp(`(^|\\P{L})${keyword}($|\\P{L})`, "iu").test(haystack)
   );
-  return normalizeHashtags([...BASE_HASHTAGS, ...matched]);
+  return normalizeHashtags([...baseHashtags(), ...matched]);
 }
 
 /** Pulls the tag list out of the model's reply, tolerating fences / prose. */
@@ -110,7 +115,7 @@ export function buildHashtagPrompt(source: {
       ? `What is said in the clip:\n${source.spokenText.replace(/\s+/g, " ").trim().slice(0, MAX_TRANSCRIPT_CHARS)}`
       : "",
     "",
-    `Return ONLY a JSON object: {"hashtags": string[]} — ${MAX_HASHTAGS - 1} to ${MAX_HASHTAGS} tags, each with the # prefix, strongest first.`
+    `Return ONLY a JSON object: {"hashtags": string[]} — ${maxHashtags() - 1} to ${maxHashtags()} tags, each with the # prefix, strongest first.`
   ]
     .filter(Boolean)
     .join("\n");
@@ -131,12 +136,12 @@ export async function generateClipHashtags(source: {
   try {
     const result = await runAi({
       maxTokens: 300,
-      system: HASHTAG_SYSTEM_PROMPT,
+      system: hashtagSystemPrompt(),
       messages: [{ role: "user", content: buildHashtagPrompt(source) }]
     });
     if (!result || result.refused) return fallback;
-    const tags = normalizeHashtags([...BASE_HASHTAGS, ...parseHashtags(result.text)]);
-    return tags.length > BASE_HASHTAGS.length ? tags : fallback;
+    const tags = normalizeHashtags([...baseHashtags(), ...parseHashtags(result.text)]);
+    return tags.length > baseHashtags().length ? tags : fallback;
   } catch {
     return fallback;
   }

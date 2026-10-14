@@ -1087,15 +1087,18 @@ building in public, engineering, automation). The heuristic titler in
 fallback when no API key is configured or the call fails.
 
 - Apply the SAME approach to any future clip/video metadata generation —
-  descriptions, tags, hashtags: reuse `CHANNEL_KEYWORDS` and
-  `TITLE_STYLE_EXAMPLES` from `titles.ts` and write viral, keyword-aware
-  copy with Claude rather than slicing the transcript.
+  descriptions, tags, hashtags: put `brandPromptBlock(channel)` from
+  `src/lib/brand/kit.ts` in the prompt (it carries the keywords, the voice,
+  the banned words and the hashtag policy), take the title examples from
+  `brandTitleExamples()`, run what comes back through
+  `applyBrandRules(text, channel)`, and write viral, keyword-aware copy with
+  Claude rather than slicing the transcript.
 - HASHTAGS FOLLOW THAT RULE (`hashtags.ts`). Everything the app books by itself
   — the pipeline's booking sheet, the clip job, the ingest scan — reaches the
   queue through `generateClipMetadata`, which returned `hashtags: []`, so every
   automatically scheduled short posted untagged with no YouTube `snippet.tags`
   at all; only the Uploading Center's own button (`publisher/ai-copy.ts`) ever
-  wrote them. The offline fallback matches `CHANNEL_KEYWORDS` on WHOLE WORDS —
+  wrote them. The offline fallback matches the kit's keywords on WHOLE WORDS —
   "AI" as a substring hits "said", "again" and "email", which would tag every
   clip ever made with the channel's biggest keyword.
 - Every generated clip shows its title in white text centered just above

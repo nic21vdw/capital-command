@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { THREADS_TEXT_LIMIT, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
+import { threadsAwaitingApproval, threadsUnsent, type ReviewPolicy } from "@/lib/publisher/approval";
 import type { ThreadsBatchSummary, ThreadsQueueItem } from "@/lib/threads/types";
 import { dataPath } from "@/lib/paths";
 import { atomicWriteJson } from "@/lib/storage/atomic-json";
@@ -242,6 +243,7 @@ export function retryItem(items: ThreadsQueueItem[], id: string, now: Date): Que
   }
 
   target.status = "pending";
+  if (target.attempts > 0 || target.lastFailedAt) target.approvedAt ??= now.toISOString();
   target.attempts = 0;
   if (new Date(target.publishAt).getTime() < now.getTime()) target.publishAt = now.toISOString();
   delete target.error;
@@ -273,4 +275,26 @@ export function editItemText(items: ThreadsQueueItem[], id: string, text: string
     delete target.plugText;
   }
   return { items, changed: 1 };
+}
+
+export function approveItems(
+  items: ThreadsQueueItem[],
+  filter: { id?: string; ids?: string[] },
+  now: Date,
+  policy?: ReviewPolicy
+): QueueEditResult {
+  if (filter.id !== undefined) {
+    const target = items.find((item) => item.id === filter.id);
+    if (!target) return { items, changed: 0, error: "No such queued post." };
+    if (!threadsUnsent(target)) return { items, changed: 0, error: `That post is already ${target.status}.` };
+    if (target.approvedAt) return { items, changed: 0 };
+    target.approvedAt = now.toISOString();
+    return { items, changed: 1 };
+  }
+  const named = new Set(filter.ids ?? []);
+  const waiting = items.filter(
+    (item) => named.has(item.id) && (policy ? threadsAwaitingApproval(item, policy) : threadsUnsent(item) && !item.approvedAt)
+  );
+  for (const item of waiting) item.approvedAt = now.toISOString();
+  return { items, changed: waiting.length };
 }

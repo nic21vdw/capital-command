@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
+import { brandContext, brandKeywords } from "@/lib/brand/kit";
 import { analyzeTranscript, densityScore } from "@/lib/clipping/text-signals";
 import { HOOK_PASS_SCORE, transcriptSentences } from "@/lib/longform/hook-review";
 import { MIN_LONGFORM_SEC, formatChapterTime } from "@/lib/longform/length";
@@ -178,7 +178,7 @@ export function scorePassage(
   const signals = analyzeTranscript(transcript, start, end + 0.001);
   if (!signals.hasText) return 0;
   const lower = spokenText(transcript, start, end).toLowerCase();
-  const channelHits = CHANNEL_KEYWORDS.filter((keyword) => lower.includes(keyword.toLowerCase())).length;
+  const channelHits = brandKeywords().filter((keyword) => lower.includes(keyword.toLowerCase())).length;
   const channel = clamp(channelHits / 3, 0, 1) * 100;
   let score =
     densityScore(signals.wordsPerSecond) * 0.35 +
@@ -558,9 +558,10 @@ const MAX_LABEL_CHARS = 48;
 
 const STORY_ROLES: LongformStoryRole[] = ["setup", "goal", "attempt", "problem", "turn", "payoff", "wrap"];
 
-export const HIGHLIGHT_SYSTEM_PROMPT = `You are the editor of a YouTube channel. You turn one long live stream into ONE tight long-form upload that people watch to the end.
+export function highlightSystemPrompt(): string {
+  return `You are the editor of a YouTube channel. You turn one long live stream into ONE tight long-form upload that people watch to the end.
 
-Channel context: ${CHANNEL_CONTEXT} Recurring keywords: ${CHANNEL_KEYWORDS.join(", ")}.
+Channel context: ${brandContext()} Recurring keywords: ${brandKeywords().join(", ")}.
 
 You are given the stream as numbered passages in the order they happened, each with its runtime after dead space is cut, an automatic score, and what the screen was doing when the scan noticed something. Find the story first, then cut to it.
 
@@ -580,6 +581,7 @@ Cut to it:
 - Write a chapter label for every kept passage: 2-5 words, Title Case, saying what happens there, no punctuation or emoji. Consecutive passages about the same thing share one label.
 
 You always return strict JSON.`;
+}
 
 export type HighlightRequestPassage = {
   id: string;
@@ -687,7 +689,7 @@ async function askEditor(
   try {
     const result = await runAi({
       maxTokens: 4000,
-      system: HIGHLIGHT_SYSTEM_PROMPT,
+      system: highlightSystemPrompt(),
       messages: [{ role: "user", content: buildHighlightPrompt({ streamName, targetSec, passages }) }]
     });
     if (!result || result.refused) return null;

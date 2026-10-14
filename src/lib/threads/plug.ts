@@ -1,7 +1,8 @@
+import { applyBrandRules } from "@/lib/brand/kit";
 import { THREADS_TEXT_LIMIT, type ThreadsConfig } from "@/lib/threads/config";
 import { threadsReplyUrl } from "@/lib/threads/reply-attribution";
 
-// The parent stays a thought in Nic's voice. The self-reply adds a relevant way
+// The parent stays a thought in the creator's voice. The self-reply adds a relevant way
 // into the project, without claiming the parent was made with CoLateral or
 // promising that an unfinished feature is ready. Every angle has several
 // complete invitations rather than one sales line with a swapped noun.
@@ -42,7 +43,7 @@ const REPLY_LINES = {
     "See the wider CoLateral workspace behind my marketing-tool experiments:",
     "Got a content-tool idea you actually need? Explore CoLateral's canvas for agents, files and ideas:",
     "Take a look at CoLateral if you'd like to build your own tools around making content:",
-    "My content workflow keeps giving me tool ideas. See the CoLateral workspace I'm building around them:",
+    "My content routine keeps giving me tool ideas. See the CoLateral workspace I'm building around them:",
     "Explore CoLateral for a look at how I bring content-tool ideas and agents into one workspace:",
     "See the wider project alongside my CoLateral Marketing experiments, including the canvas for agents and files:"
   ],
@@ -77,7 +78,7 @@ type ReplyOrigin = "autopilot" | "pipeline";
 
 // Match subjects rather than brand mentions. A generic observation still gets
 // a truthful project introduction; it never invents a connection to that topic.
-// A post about Nic's engineering day job gets a WORKSPACE plug: CoLateral is not
+// A post about the creator's engineering day job gets a WORKSPACE plug: CoLateral is not
 // engineering or design software, so no line here may pitch it as one.
 const CONTEXTS: ReadonlyArray<{ angle: ReplyAngle; pattern: RegExp }> = [
   { angle: "day-job", pattern: /\b(?:engineer(?:s|ing)?|structural|revit|etabs|sap2000|beam(?:s)?|column(?:s)?|slab(?:s)?|footing(?:s)?|hollowcore|joist(?:s)?|masonry|concrete|steel|cad|bim)\b/i },
@@ -118,7 +119,7 @@ export function plugReplyFor(
   if (!url) return undefined;
 
   const lines = REPLY_LINES[angle];
-  const line = lines[hash32(`${seed}:${parent}`) % lines.length];
+  const line = applyBrandRules(lines[hash32(`${seed}:${parent}`) % lines.length], "threads");
   const full = `${line}\n${url}`;
   if (full.length <= THREADS_TEXT_LIMIT) return full;
 

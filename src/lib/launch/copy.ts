@@ -1,5 +1,5 @@
 import { runAi } from "@/lib/ai";
-import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
+import { applyBrandRules, brandPromptBlock } from "@/lib/brand/kit";
 import type { LaunchCopy } from "@/lib/launch/types";
 
 /** Product Hunt truncates anything longer in the feed. */
@@ -14,17 +14,13 @@ export interface LaunchCopyInput {
   differentiator: string;
 }
 
-export const LAUNCH_COPY_SYSTEM_PROMPT = `You are a launch strategist who has shipped dozens of Product Hunt launches for small, founder-built software.
+export function launchCopySystemPrompt(): string {
+  return `You are a launch strategist who has shipped dozens of Product Hunt launches for small, founder-built software.
 
-Channel context: ${CHANNEL_CONTEXT} Recurring keywords for the social posts only, used when they genuinely fit: ${CHANNEL_KEYWORDS.join(", ")}.
-
-House rules for every piece of copy:
-- Write like the founder, not like a press release. No "revolutionary", "game-changing", "seamlessly", "empower", or "unlock".
-- Be concrete about what the product actually does. A reader who has never heard of it should understand it from the tagline alone.
-- Never ask anyone to upvote — Product Hunt penalises it.
-- No emoji in the tagline or description. At most one in a social post, and only if it earns its place.
+${brandPromptBlock("launch")}
 
 You always return strict JSON.`;
+}
 
 /** Builds the copy prompt. Pure, for tests. */
 export function buildLaunchCopyPrompt(input: LaunchCopyInput): string {
@@ -132,6 +128,23 @@ export function fallbackLaunchCopy(input: LaunchCopyInput): LaunchCopy {
   };
 }
 
+const SURFACE_CHANNELS = { x: "x", threads: "threads" } as const;
+
+export function brandLaunchCopy(copy: LaunchCopy): LaunchCopy {
+  const brand = (text: string) => applyBrandRules(text, "launch");
+  return {
+    ...copy,
+    tagline: brand(copy.tagline).slice(0, MAX_TAGLINE_CHARS),
+    description: brand(copy.description),
+    firstComment: brand(copy.firstComment),
+    galleryCaptions: copy.galleryCaptions.map(brand),
+    socialPosts: copy.socialPosts.map((post) => ({
+      ...post,
+      text: applyBrandRules(post.text, SURFACE_CHANNELS[post.surface as keyof typeof SURFACE_CHANNELS] ?? "launch")
+    }))
+  };
+}
+
 /**
  * Writes the whole listing kit. Never throws — falls back to the offline draft
  * so the page always hands back something editable.
@@ -141,15 +154,15 @@ export async function generateLaunchCopy(input: LaunchCopyInput): Promise<Launch
     const result = await runAi({
       maxTokens: 4000,
       temperature: 0.6,
-      system: LAUNCH_COPY_SYSTEM_PROMPT,
+      system: launchCopySystemPrompt(),
       messages: [{ role: "user", content: buildLaunchCopyPrompt(input) }]
     });
     const parsed = result?.text ? parseLaunchCopy(result.text) : null;
     if (parsed) {
-      return { ...parsed, name: input.product, generatedAt: new Date().toISOString(), aiGenerated: true };
+      return brandLaunchCopy({ ...parsed, name: input.product, generatedAt: new Date().toISOString(), aiGenerated: true });
     }
   } catch {
     // Fall through to the offline draft.
   }
-  return fallbackLaunchCopy(input);
+  return brandLaunchCopy(fallbackLaunchCopy(input));
 }

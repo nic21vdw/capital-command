@@ -1,3 +1,4 @@
+import { brandKit } from "@/lib/brand/kit";
 import { listRuns } from "@/lib/pipeline/runs";
 import { readAppData } from "@/lib/storage/store";
 
@@ -24,7 +25,7 @@ export async function sourceflowContext(): Promise<string> {
   return JSON.stringify(
     {
       capturedAt: new Date().toISOString(),
-      creator: data.creatorProfile?.channelName || data.settings.profile?.displayName || "Nic",
+      creator: data.creatorProfile?.channelName || data.settings.profile?.displayName || brandKit().identity.firstName,
       contentByStatus,
       recentContent,
       pipelineRuns: recentRuns,

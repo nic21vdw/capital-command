@@ -1,3 +1,6 @@
+import { applyBrandRules } from "@/lib/brand/kit";
+import type { BrandChannel } from "@/lib/brand/defaults";
+
 /**
  * Making a generated post read like a person wrote it.
  *
@@ -21,36 +24,7 @@ function hash32(input: string): number {
   return hash >>> 0;
 }
 
-/**
- * Removes em and en dashes without flattening the sentence.
- *
- * A dash doing punctuation work becomes a comma, which is what someone typing
- * quickly would have written — including when that leaves a comma splice
- * ("it's not about speed, it's about judgment"). That splice is the point: it
- * reads like a person, where the dash reads like a model.
- *
- * Line breaks are preserved. Posts are written as several short lines, and
- * collapsing those into one paragraph would be a bigger tell than the dash.
- */
-export function stripDashes(text: string): string {
-  return (
-    text
-      // A dash opening a line is a bullet, not punctuation.
-      .replace(/^([ \t]*)[—–][ \t]*/gm, "$1- ")
-      // Ranges and score-like pairs keep their meaning with a hyphen.
-      .replace(/(\d)[ \t]*[—–][ \t]*(\d)/g, "$1-$2")
-      // Everything else is punctuation. Only spaces and tabs are eaten, so a
-      // dash at the end of a line cannot swallow the newline after it.
-      .replace(/[ \t]*[—–][ \t]*/g, ", ")
-      // The replacement can land next to punctuation that was already there.
-      .replace(/,[ \t]*,+/g, ",")
-      .replace(/([,;:.!?])[ \t]*,/g, "$1")
-      .replace(/,([ \t]*[.!?])/g, "$1")
-      .replace(/[ \t]{2,}/g, " ")
-      .replace(/[ \t]+$/gm, "")
-      .trim()
-  );
-}
+export { stripDashes } from "@/lib/brand/rules";
 
 /**
  * The imperfections a real person leaves behind: a dropped apostrophe, mostly.
@@ -128,6 +102,7 @@ export function sprinkleTypo(text: string, seed: string, rate: number): string {
 export type HumanizeOptions = {
   /** Share of posts that get one small slip. 0 disables it entirely. */
   typoRate?: number;
+  channel?: BrandChannel;
 };
 
 /** How often a post picks up a slip when nothing is configured. */
@@ -140,7 +115,6 @@ export function typoRate(): number {
   return Math.min(1, Math.max(0, raw));
 }
 
-/** The full pass: always de-dashed, occasionally imperfect. */
 export function humanize(text: string, seed: string, options: HumanizeOptions = {}): string {
-  return sprinkleTypo(stripDashes(text), seed, options.typoRate ?? typoRate());
+  return sprinkleTypo(applyBrandRules(text, options.channel ?? "threads"), seed, options.typoRate ?? typoRate());
 }

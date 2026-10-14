@@ -5,7 +5,7 @@ import { attachSlideBackdrops, attachSlideImages, type CarouselImage } from "@/l
 import { deskFramesForDeck } from "@/lib/carousels/bRoll";
 import { footageKind } from "@/lib/carousels/footage";
 import { framesForSlides, framesForSource } from "@/lib/carousels/videoFrames";
-import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
+import { applyBrandRules, brandPromptBlock, brandProperNames } from "@/lib/brand/kit";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import { carouselSchema } from "@/lib/storage/schemas";
 import type { Carousel, CarouselBatch, CarouselSlide } from "@/types/domain";
@@ -55,7 +55,10 @@ export function carouselGenerationConfigured() {
   return aiConfigured();
 }
 
-export const CAROUSEL_SYSTEM_PROMPT = `You write carousel copy for this channel. ${CHANNEL_CONTEXT} The same carousel is posted across Instagram, Facebook, and TikTok, so keep the copy platform-neutral - no "Instagram" / "IG"-only references, and nothing that only makes sense on one network. Channel keywords: ${CHANNEL_KEYWORDS.join(", ")}.
+export function carouselSystemPrompt(): string {
+  return `You write carousel copy for this channel.
+
+${brandPromptBlock("carousel")}
 
 A carousel is ONE STORY told a slide at a time, and every slide exists to earn the next swipe. A reader who was not there should finish it knowing what happened, why it mattered, and what happens next.
 
@@ -89,13 +92,10 @@ Carousel rules:
 - No two slides may make the same point.
 - The last slide is the CTA: close the story's loop in one line, name what specifically comes next — the next feature, the next session's topic, the cliffhanger from this one — as the reason to follow, and invite the reader to try CoLateral. "Follow for more" on its own is not a valid slide.
 - KEYWORDS ARE BOLD. Wrap the words a skimming reader must not miss in **double asterisks**: the number, the tool or product name, the result, the thing that broke. One bolded phrase (1-3 words) in a heading at most; one to three in a body. Never bold a whole sentence, never bold filler words, and never nest or leave a ** unclosed. Bold is for the eye that only reads the bold — reading only the bold words across the deck should still tell the story.
-- The source is speech-to-text and it garbles names. Correct obvious mishearings against the real ones (Claude, Claude Code, Opus, Codex, Warp, Cursor, Grok, CoLateral, Streamer.bot, Remotion, Vandewetering). If you cannot work out what a garbled name was, write the slide without it or pick another moment — never publish the garble.
-- Never use these phrases or their variants: "building in public", "one vibe at a time", "big things coming", "this is only the beginning", "the grind", "follow the journey", "let's go", "game changer", "buckle up".
-- Write in Nic's own voice, first person: "I", "my", "we" for him and chat together. Never "he", "Nic" or "the creator" — the slides are posted from his account.
-- Plain, confident, human language — short words, active verbs, the way a sharp friend would retell the night. No hashtags on slides, no invented facts or numbers.
-- Emojis are optional seasoning: at most one per slide, only where it adds meaning (🚀 ship, 🐛 bug, 💸 money, 🤖 AI agent, ⚠️ problem, ✅ fixed), and never in place of a word. Most slides read better with none.
+- The source is speech-to-text and it garbles names. Correct obvious mishearings against the real ones (${brandProperNames().join(", ")}). If you cannot work out what a garbled name was, write the slide without it or pick another moment — never publish the garble.
 
 You always return strict JSON.`;
+}
 
 /**
  * Turns a short-form video (a clip) into carousel source material: its title
@@ -215,8 +215,8 @@ export function parseCarousel(text: string): { title: string; slides: SlideDraft
       .map((slide) => ({
         // Set as a headline here rather than at paint time, so the words in the
         // editor are the words on the slide.
-        heading: typeof slide.heading === "string" ? titleCaseHeading(slide.heading.trim()) : "",
-        body: typeof slide.body === "string" ? slide.body.trim() : "",
+        heading: typeof slide.heading === "string" ? titleCaseHeading(applyBrandRules(slide.heading, "carousel")) : "",
+        body: typeof slide.body === "string" ? applyBrandRules(slide.body, "carousel") : "",
         atSeconds: parseAtSeconds(slide.atSeconds, 0)
       }))
       .filter((slide) => slide.heading || slide.body)
@@ -252,7 +252,10 @@ export function fallbackCarousel(input: { title: string; sourceText: string; sli
       { heading: `${input.title} 🚀`, body: "" },
       ...middles.map((body, i) => ({ heading: `💡 Point ${i + 1}`, body: body.slice(0, 220) })),
       { heading: "Follow for the full build 🔨", body: "New AI + engineering videos every week ⚡" }
-    ]
+    ].map((slide) => ({
+      heading: applyBrandRules(slide.heading, "carousel"),
+      body: applyBrandRules(slide.body, "carousel")
+    }))
   };
 }
 
@@ -418,7 +421,7 @@ export async function generateCarousel(
       const result = await runAi({
         maxTokens: 6000,
         writer: "claude-code",
-        system: CAROUSEL_SYSTEM_PROMPT,
+        system: carouselSystemPrompt(),
         messages: [{ role: "user", content: prompt }]
       });
       if (!result || result.refused) {
@@ -521,7 +524,7 @@ function reviewStory(
   carousel: Carousel,
   hookCandidates: CarouselImage[] = []
 ): Promise<{ carousel: Carousel; note: string | null }> {
-  return reviewCarouselStory({ carousel, system: CAROUSEL_SYSTEM_PROMPT, hookCandidates }).catch(() => ({ carousel, note: null }));
+  return reviewCarouselStory({ carousel, system: carouselSystemPrompt(), hookCandidates }).catch(() => ({ carousel, note: null }));
 }
 
 /**

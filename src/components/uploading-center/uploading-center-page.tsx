@@ -34,6 +34,12 @@ import { OAuthLandingBanner, useOAuthLanding } from "@/components/layout/oauth-l
 import { WorkflowLoadNotice } from "@/components/marketing/workflow-load-notice";
 import { Tabs } from "@/components/ui/tabs";
 import { AccountSwitcher } from "@/components/uploading-center/account-switcher";
+import { AwaitingApprovalCard, useAwaitingApproval } from "@/components/uploading-center/awaiting-approval";
+import {
+  APPROVE_ALL_ID,
+  awaitingSurface,
+  parseEntryId
+} from "@/components/uploading-center/awaiting-surface";
 import { ClipQueue } from "@/components/uploading-center/clip-queue";
 import { NO_AI_CAPTION_SUMMARY_NOTE, zoneTimeLabel } from "@/components/uploading-center/schedule-summary";
 import { clipsNeedingCaption, nameClips, planAutoAssign, type ShortsCap } from "@/components/uploading-center/bulk";
@@ -1070,6 +1076,8 @@ export function UploadingCenterPage() {
   // reporting right now. Every setField/click below runs the exact handler
   // its on-screen counterpart runs — never a parallel path.
   const bulkBusy = busy === "auto-assign" || busy === "captions-all";
+  const approval = useAwaitingApproval();
+  const awaitingParts = awaitingSurface(approval.entries, approval.busy);
   useColateralSurface({
     route: "/uploading-center",
     title: "Uploading Center",
@@ -1104,6 +1112,7 @@ export function UploadingCenterPage() {
         kind: "select",
         options: jobsWithClips.map((job) => job.id),
       },
+      ...awaitingParts.fields,
     ],
     controls: [
       ...(loadError || accountsError ? [{ id: "retry-load", label: "Retry loading clips and schedule", group: "Recovery", disabled: refreshing || accountsRefreshing }] : []),
@@ -1132,6 +1141,7 @@ export function UploadingCenterPage() {
         group: "Queue",
         disabled: !placingClip,
       },
+      ...awaitingParts.controls,
     ],
     readings: [
       { label: "Schedule data", value: loadError || accountsError ? `Needs retry: ${loadError ?? accountsError}` : loaded ? "Loaded" : "Loading…" },
@@ -1145,8 +1155,15 @@ export function UploadingCenterPage() {
       { label: "Publishing", value: overview ? (overview.enabled ? "On" : "Off") : "—" },
       { label: "Shorts a day", value: shortsPerDay ? String(shortsPerDay) : "—" },
       { label: "Failed posts", value: String(failedLegs.length) },
+      ...awaitingParts.readings,
     ],
     setField: (id, value) => {
+      const captionTarget = parseEntryId("caption", id);
+      if (captionTarget) {
+        if (typeof value !== "string" || !value.trim()) return false;
+        if (!approval.entries.some((entry) => entry.channel === captionTarget.channel && entry.id === captionTarget.id)) return false;
+        return approval.saveCaption(captionTarget, value);
+      }
       if (id === "runPlatform") {
         if (typeof value !== "string" || !(value in PLATFORM_TARGET_LABELS)) return false;
         onRunDefaultsChange({ ...runDefaults, platform: value as PlatformTarget });
@@ -1197,6 +1214,15 @@ export function UploadingCenterPage() {
         if (!placingClip) return false;
         setPlacingKey(null);
         return true;
+      }
+      if (id === APPROVE_ALL_ID) {
+        if (approval.busy || approval.entries.length === 0) return false;
+        return approval.approveAll();
+      }
+      const approveTarget = parseEntryId("approve", id);
+      if (approveTarget) {
+        if (approval.busy || !approval.entries.some((entry) => entry.channel === approveTarget.channel && entry.id === approveTarget.id)) return false;
+        return approval.approve(approveTarget);
       }
       return false;
     },
@@ -1268,6 +1294,7 @@ export function UploadingCenterPage() {
                 onRetryConnection={() => void rearmConnectionFailures(retryPlan.targets)}
               />
             ) : null}
+            <AwaitingApprovalCard approval={approval} timezone={timezone} />
             <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(22rem,1fr)_minmax(0,2.3fr)]">
               <ClipQueue
                 jobs={jobsWithClips}

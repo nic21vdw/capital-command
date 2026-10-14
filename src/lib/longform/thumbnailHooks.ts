@@ -1,4 +1,5 @@
 import { runAi } from "@/lib/ai";
+import { applyBrandTitle, brandPromptBlock } from "@/lib/brand/kit";
 import { overlayIdeas } from "@/lib/thumbnails/suggestions";
 import type { LongformProject } from "@/lib/longform/types";
 
@@ -6,15 +7,18 @@ const MAX_WORDS = 6;
 const MAX_CHARS = 34;
 const WANTED = 3;
 
-const SYSTEM_PROMPT = [
-  "You write the words that go on a YouTube thumbnail.",
-  "Rules, all of them hard:",
-  "- 3 to 6 words. Never more.",
-  "- Only claims the transcript actually supports. Never invent a number, a result or an event.",
-  "- Present tense, first person where it fits, no title case, no trailing punctuation.",
-  "- Wrap the ONE word worth colouring in *asterisks*.",
-  "Answer with a JSON array of 3 strings and nothing else."
-].join("\n");
+function systemPrompt(): string {
+  return [
+    "You write the words that go on a YouTube thumbnail.",
+    brandPromptBlock("youtube-longform", { titleOnly: true }),
+    "Rules, all of them hard:",
+    "- 3 to 6 words. Never more.",
+    "- Only claims the transcript actually supports. Never invent a number, a result or an event.",
+    "- Present tense, first person where it fits, no title case, no trailing punctuation.",
+    "- Wrap the ONE word worth colouring in *asterisks*.",
+    "Answer with a JSON array of 3 strings and nothing else."
+  ].join("\n");
+}
 
 export type ThumbnailHookIdeas = { hooks: string[]; source: "ai" | "offline" };
 
@@ -28,7 +32,7 @@ export async function thumbnailHooks(project: LongformProject, topicId?: string 
 
   const result = await runAi({
     maxTokens: 400,
-    system: SYSTEM_PROMPT,
+    system: systemPrompt(),
     messages: [
       {
         role: "user",
@@ -76,7 +80,7 @@ export function parseHooks(text?: string | null): string[] {
 }
 
 function clampWords(line: string): string {
-  const words = line.replace(/[."]+$/g, "").split(/\s+/).filter(Boolean).slice(0, MAX_WORDS);
+  const words = applyBrandTitle(line, "youtube-longform").replace(/[."]+$/g, "").split(/\s+/).filter(Boolean).slice(0, MAX_WORDS);
   const joined = words.join(" ");
   return joined.length <= MAX_CHARS ? joined : words.slice(0, MAX_WORDS - 1).join(" ");
 }

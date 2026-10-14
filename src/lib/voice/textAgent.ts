@@ -1,4 +1,5 @@
 import { runAi } from "@/lib/ai";
+import { brandKit } from "@/lib/brand/kit";
 import type { AiMessage } from "@/lib/ai";
 import { voiceInstructions } from "@/lib/voice/prompt";
 import { VOICE_TOOLS, runVoiceTool } from "@/lib/voice/tools";
@@ -55,7 +56,7 @@ function protocolPrompt(allowActions: boolean): string {
     `{"tool":"channel_check","args":{}}`,
     "```",
     `One JSON object per line, up to ${MAX_CALLS_PER_ROUND} calls per message. Available tools: ${names.join(", ")}.`,
-    `The block is stripped before anything is spoken, so put what you want said in the prose above it. Keep calling tools until the job Nic asked for is actually done — a look is not a job. Only answer with no block once there is nothing left to do, and never call the same tool with the same arguments twice.`
+    `The block is stripped before anything is spoken, so put what you want said in the prose above it. Keep calling tools until the job ${brandKit().identity.firstName} asked for is actually done — a look is not a job. Only answer with no block once there is nothing left to do, and never call the same tool with the same arguments twice.`
   ].join("\n");
 }
 

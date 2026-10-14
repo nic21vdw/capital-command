@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_BRAND_KIT } from "@/lib/brand/defaults";
 import { addDays, daysBetween } from "@/lib/execution/dates";
 
 /**
@@ -57,12 +58,14 @@ export const DEFAULT_OUTREACH_TEMPLATE = `Hi {name},
 
 I just watched {video} and wanted to say it was genuinely useful.
 
-I'm Nic, and I build CoLateral, the all-in-one agentic workspace: you run Claude Code, Codex and Gemini side by side on one canvas, bring your own AI subscriptions, and pay once.
+I'm ${DEFAULT_BRAND_KIT.identity.firstName}, and I build CoLateral, the all-in-one agentic workspace: you run Claude Code, Codex and Gemini side by side on one canvas, bring your own AI subscriptions, and pay once.
 
 If it looks like a fit for your audience, I'd be happy to send you a free licence to try. No obligation to cover it, and if you ever did want to, I can set you up with an affiliate code.
 
 Either way, thanks for the video.
-Nic`;
+${DEFAULT_BRAND_KIT.identity.firstName}`;
+
+const PRODUCT_PITCH = `${DEFAULT_BRAND_KIT.products[0].oneLiner.charAt(0).toLowerCase()}${DEFAULT_BRAND_KIT.products[0].oneLiner.slice(1).replace(/\.$/, "")}`;
 
 export const THREAD_ANSWER_PLACEHOLDER = "[Answer their question here, in a sentence or two, before anything about CoLateral.]";
 
@@ -76,9 +79,9 @@ I came across {thread} and wanted to help with what you were asking.
 
 ${THREAD_ANSWER_PLACEHOLDER}
 
-Full disclosure: I'm Nic and I build CoLateral, the all-in-one agentic workspace: one desktop canvas where your Claude Code, Codex and Gemini agents work side by side, inside your real files. If that sounds like what you're after, it's a one-time licence and you bring your own AI subscriptions. If it isn't, no worries, I hope the above helps.
+Full disclosure: I'm ${DEFAULT_BRAND_KIT.identity.firstName} and I build CoLateral, ${PRODUCT_PITCH}. If that sounds like what you're after, it's a one-time licence and you bring your own AI subscriptions. If it isn't, no worries, I hope the above helps.
 
-Nic`;
+${DEFAULT_BRAND_KIT.identity.firstName}`;
 
 export const outreachStoreSchema = z.object({
   contacts: z.array(outreachContactSchema).default([]),

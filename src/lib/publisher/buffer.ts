@@ -1,12 +1,14 @@
 import { isAutomationPaused } from "@/lib/automations/store";
 import { recordAutomationEventSafely } from "@/lib/automations/history";
+import { REVIEW_CHANNELS, type ReviewPolicy } from "@/lib/publisher/approval";
+import { readReviewPolicy } from "@/lib/publisher/approvalStore";
 import { bufferConfigured, publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
 import { PermanentError, fetchJson, isTransient } from "@/lib/publisher/http";
 import { composeCaption } from "@/lib/publisher/metadata";
 import { newBufferState, type PublishQueue, publishQueue } from "@/lib/publisher/queue";
 import { formatInTimezone } from "@/lib/publisher/time";
-import type { QueueItem } from "@/lib/publisher/types";
+import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 
 /**
  * Buffer (buffer.com) delivery layer — the "social media manager" for the
@@ -160,6 +162,16 @@ export function bufferAction(item: QueueItem, now: Date, config: PublisherConfig
   return "schedule";
 }
 
+/** Buffer profile ids are opaque: a direct-platform claim cannot approve its fan-out. */
+function bufferAwaitingApproval(item: QueueItem, policy: ReviewPolicy): boolean {
+  return REVIEW_CHANNELS.some((channel) => {
+    if (policy[channel] !== "hold") return false;
+    const leg = channel === "threads" ? undefined : item.platforms[channel as PlatformId];
+    return !leg || (!leg.approvedAt && !(leg.attempts > 0) && !leg.postId && !leg.containerId &&
+      !leg.uploadedAt && leg.status !== "scheduled" && leg.status !== "published" && leg.status !== "uploaded");
+  });
+}
+
 /**
  * The Buffer pass: schedule every due queue item into Buffer and finalize the
  * ones whose time has passed. Isolated from the per-platform loop — a Buffer
@@ -174,6 +186,8 @@ export async function syncDueToBuffer(
     log?: (line: string) => void;
     /** Restrict to one queue item (the UI's per-post action). */
     itemId?: string;
+    /** The owner's explicit Publish now, which also releases a post held for approval. */
+    force?: boolean;
   } = {}
 ): Promise<BufferOutcome[]> {
   const config = options.config ?? publisherConfig();
@@ -191,6 +205,9 @@ export async function syncDueToBuffer(
     if (!options.itemId && await isAutomationPaused("publisher")) break;
     const action = bufferAction(item, now, config);
     if (!action) continue;
+    const authorized = (current: QueueItem) =>
+      (options.force === true && options.itemId === current.id) || !bufferAwaitingApproval(current, readReviewPolicy());
+    if (action === "schedule" && !authorized(item)) continue;
 
     const record = async (outcome: BufferOutcome["outcome"], detail: string) => {
       outcomes.push({ itemId: item.id, clip: item.clipPath, outcome, detail });
@@ -216,10 +233,20 @@ export async function syncDueToBuffer(
       continue;
     }
 
+    // Revalidate stored state and policy under the same lock that acquires the lease.
+    if (!await queue.claimBuffer(item, now, (current) =>
+      bufferAction(current, now, config) === action && (action === "finalize" || authorized(current)))) continue;
+    const claimedAt = now.toISOString();
+    const mayCreate = (current: QueueItem | undefined, paused: boolean): current is QueueItem => {
+      const unclaimed = current && { ...current, buffer: current.buffer && { ...current.buffer, claimedAt: undefined } };
+      return !paused && !!current && current.buffer?.claimedAt === claimedAt &&
+        !!unclaimed && bufferAction(unclaimed, now, config) === "schedule" && authorized(current);
+    };
+    let authorizationStopped = false;
+    let createDispatched = false;
     try {
       if (action === "finalize") {
         item.buffer ??= newBufferState();
-        await queue.claimBuffer(item, now);
         const ids = item.buffer.updateIds ?? [];
         const statuses = await Promise.all(ids.map((id) => getBufferUpdateStatus(id, config)));
         const allSent = statuses.length > 0 && statuses.every((s) => s === "sent");
@@ -234,21 +261,38 @@ export async function syncDueToBuffer(
         continue;
       }
 
-      await queue.claimBuffer(item, now);
       const publicUrl = item.mediaKey ? ((await mediaHost(config)?.publicUrl(item.mediaKey)) ?? undefined) : undefined;
-      const ids = await createBufferUpdate(item, config, publicUrl);
-      await queue.recordBufferSuccess(item, { status: "scheduled", updateIds: ids }, now);
-      await record(
-        "scheduled",
-        `Buffer scheduled ${ids.length} update(s) for ${formatInTimezone(new Date(item.publishAt), config.timezone)}.`
-      );
+      const paused = !options.itemId && await isAutomationPaused("publisher");
+      const current = await queue.get(item.id);
+      // Mask only our lease when checking state. No await separates this policy
+      // read from createBufferUpdate's request; a stop spends no retry attempt.
+      if (!mayCreate(current, paused)) {
+        authorizationStopped = true;
+      } else {
+        createDispatched = true;
+        const ids = await createBufferUpdate(current, config, publicUrl);
+        await queue.recordBufferSuccess(current, { status: "scheduled", updateIds: ids }, now);
+        await record(
+          "scheduled",
+          `Buffer scheduled ${ids.length} update(s) for ${formatInTimezone(new Date(current.publishAt), config.timezone)}.`
+        );
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const transient = isTransient(error);
-      await queue.recordBufferFailure(item, { message, transient }, now);
-      const failed = item.buffer?.status === "failed";
-      await record(failed ? "failed" : "retrying", failed ? message : `${message} (will retry)`);
+      if (action === "schedule" && !createDispatched) {
+        const paused = !options.itemId && await isAutomationPaused("publisher");
+        const current = await queue.get(item.id);
+        authorizationStopped = !mayCreate(current, paused);
+      }
+      if (!authorizationStopped) {
+        const message = error instanceof Error ? error.message : String(error);
+        const transient = isTransient(error);
+        await queue.recordBufferFailure(item, { message, transient }, now);
+        const failed = item.buffer?.status === "failed";
+        await record(failed ? "failed" : "retrying", failed ? message : `${message} (will retry)`);
+      }
     }
+    // Persistence errors here must surface without being counted as delivery failures.
+    if (authorizationStopped) await queue.releaseBufferClaim(item, claimedAt);
   }
 
   return outcomes;

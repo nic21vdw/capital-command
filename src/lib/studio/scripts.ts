@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
+import { brandPromptBlock } from "@/lib/brand/kit";
 import { SFX_SOUNDS } from "@/lib/sfx/types";
 import { videoScriptSchema } from "@/lib/storage/schemas";
 import type { ScriptGraphic, ScriptSection, ScriptSfx, VideoIdea, VideoScript } from "@/types/domain";
@@ -21,9 +21,10 @@ export function scriptGenerationConfigured() {
 
 const GRAPHIC_KINDS = ["b-roll", "screen-recording", "diagram", "text-overlay", "meme", "photo"] as const;
 
-export const SCRIPT_SYSTEM_PROMPT = `You are the scriptwriter for a YouTube channel about building software with AI.
+export function scriptSystemPrompt(): string {
+  return `You are the scriptwriter for a YouTube channel about building software with AI.
 
-Channel context: ${CHANNEL_CONTEXT} Channel keywords to weave in naturally: ${CHANNEL_KEYWORDS.join(", ")}.
+${brandPromptBlock("script")}
 
 You write COMPLETE scripts — the actual words to say, not outlines. Rules:
 - Follow the creator's script framework exactly (provided with each request): its sections, its ordering, its voice rules.
@@ -36,6 +37,7 @@ You also propose the production kit:
 - "sfx": sound-effect cues — the exact line/moment and the sound. Prefer the built-in sounds when they fit: ${SFX_SOUNDS.map((s) => `"${s.label}" (${s.description})`).join("; ")}. Use them sparingly — 3-6 cues per video, on punchlines and reveals.
 
 You always return strict JSON.`;
+}
 
 /** Builds the script prompt. Pure, for tests. */
 export function buildScriptPrompt(input: {
@@ -208,7 +210,7 @@ export async function generateScript(input: {
   try {
     const result = await runAi({
       maxTokens: 16000,
-      system: SCRIPT_SYSTEM_PROMPT,
+      system: scriptSystemPrompt(),
       messages: [
         {
           role: "user",

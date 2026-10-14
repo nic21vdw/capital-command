@@ -4,19 +4,23 @@ import {
   CHANNEL_KEYWORDS,
   COLATERAL_DESCRIPTION,
   TITLE_STYLE_EXAMPLES,
-  VIRAL_TITLE_SYSTEM_PROMPT,
+  viralTitleSystemPrompt,
   buildViralTitleUserPrompt,
   cleanViralTitle,
   parseViralTitles
 } from "./titles";
 
-describe("VIRAL_TITLE_SYSTEM_PROMPT", () => {
+describe("viralTitleSystemPrompt", () => {
+  const VIRAL_TITLE_SYSTEM_PROMPT = viralTitleSystemPrompt();
+
   it("uses CoLateral's current discipline-neutral positioning", () => {
     expect(COLATERAL_DESCRIPTION).toContain("desktop agentic workspace");
     expect(COLATERAL_DESCRIPTION).toContain("developers, creators and engineers");
     expect(CHANNEL_CONTEXT).toContain("founder and builder");
     expect(CHANNEL_CONTEXT).toContain("Claude Code, Codex");
-    expect(VIRAL_TITLE_SYSTEM_PROMPT).not.toMatch(/structural engineer/i);
+    const structural = VIRAL_TITLE_SYSTEM_PROMPT.split("\n").filter((line) => /structural/i.test(line));
+    expect(structural.length).toBeGreaterThan(0);
+    for (const line of structural) expect(line).toMatch(/^- Never /);
   });
 
   it("carries the channel keywords and the style examples", () => {

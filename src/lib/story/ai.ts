@@ -1,5 +1,5 @@
 import { runAi } from "@/lib/ai/provider";
-import { CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
+import { applyBrandRules, applyBrandTitle, brandPromptBlock, brandTitleExamples } from "@/lib/brand/kit";
 import { formatClock, locateQuote } from "@/lib/story/story";
 import type { Moment, OpenLoop, SectionRole, StoryCopy, StoryPlan, StorySection, TitleStyle, Unit } from "@/lib/story/types";
 
@@ -111,7 +111,8 @@ export async function askStory(input: {
   return parseStory(result.text, input.moments, input.units, input.targetSec);
 }
 
-export const COPY_SYSTEM_PROMPT = `You write YouTube packaging for a creator who builds software live on stream ("vibe coding" with AI agents) and documents the grind of moving out of his mom's basement.
+export function copySystemPrompt(): string {
+  return `You write YouTube packaging for a creator who builds software live on stream ("vibe coding" with AI agents) and documents the grind of moving out of his mom's basement.
 
 You are given the FINAL sections of a 10 minute edit with the words actually spoken in each, plus the edited transcript. Everything you write must be true of THOSE words: do not describe anything that is not said in them, do not credit the creator with something a viewer or someone else made, and do not call something built when it was only asked for. Write:
 - titles: exactly 5, each UNDER 60 characters, one per style: curiosity, outcome, contrarian, number, direct. Accurate to what the video actually shows - no clickbait it does not deliver. A title may only claim an outcome that happens in these words: "considering X" is not "did X", asking an agent to fix something is not fixing it, and praising someone else's work is not making it.
@@ -123,11 +124,13 @@ You are given the FINAL sections of a 10 minute edit with the words actually spo
 - hashtags: 3 to 5, and tags: 10-15 search tags from the key topics.
 - thumbnails: exactly 3 concepts, each {emotion, frame, overlay, layout, colors}. overlay is 2-4 words and must NOT repeat words from any title. frame names the spoken moment to grab (quote a few words) and the expression to look for; do not invent props or actions.
 
+${brandPromptBlock("youtube-longform")}
+
 Channel title style examples:
-${TITLE_STYLE_EXAMPLES.join("\n")}
-Channel keywords: ${CHANNEL_KEYWORDS.join(", ")}
+${brandTitleExamples().join("\n")}
 
 Return ONLY minified JSON with keys: titles (array of {style,title}), recommended, recommendedReason, hookSentence, arc, takeaways, chapterTitles, hashtags, tags, thumbnails.`;
+}
 
 export function buildCopyPrompt(input: { title: string; outline: string; chapterKeys: Array<{ key: string; summary: string }>; transcript: string }): string {
   return [
@@ -152,7 +155,7 @@ export function parseCopy(text: string): StoryCopy | null {
   const titles = raw.titles
     .map((option, index) => ({
       style: (STYLES.includes(option.style as TitleStyle) ? option.style : STYLES[index % STYLES.length]) as TitleStyle,
-      title: (option.title ?? "").trim()
+      title: applyBrandTitle(option.title ?? "", "youtube-longform")
     }))
     .filter((option) => option.title)
     .slice(0, 5);
@@ -160,9 +163,9 @@ export function parseCopy(text: string): StoryCopy | null {
     titles,
     recommended: Math.min(titles.length - 1, Math.max(0, Number(raw.recommended) || 0)),
     recommendedReason: String(raw.recommendedReason ?? "").trim(),
-    hookSentence: String(raw.hookSentence ?? "").trim(),
-    arc: String(raw.arc ?? "").trim(),
-    takeaways: (raw.takeaways ?? []).map(String).slice(0, 5),
+    hookSentence: applyBrandRules(String(raw.hookSentence ?? ""), "youtube-longform"),
+    arc: applyBrandRules(String(raw.arc ?? ""), "youtube-longform"),
+    takeaways: (raw.takeaways ?? []).map((line) => applyBrandRules(String(line), "youtube-longform")).slice(0, 5),
     hashtags: (raw.hashtags ?? []).map(String).slice(0, 5),
     tags: (raw.tags ?? []).map(String).slice(0, 15),
     chapterTitles: (raw.chapterTitles ?? {}) as Record<string, string>,
@@ -179,7 +182,7 @@ export function parseCopy(text: string): StoryCopy | null {
 export async function askCopy(input: Parameters<typeof buildCopyPrompt>[0]): Promise<StoryCopy | null> {
   const result = await runAi({
     maxTokens: 4000,
-    system: COPY_SYSTEM_PROMPT,
+    system: copySystemPrompt(),
     messages: [{ role: "user", content: buildCopyPrompt(input) }]
   });
   if (!result || result.refused) return null;

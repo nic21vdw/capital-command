@@ -43,5 +43,5 @@ export function planAddedPost(input: {
   }
   const [item] = planAdhocPosts({ texts: [text], config: input.config, now: input.now, taken: input.taken, startAt, newId: input.newId });
   if (!item) return { ok: false, error: "That post came out empty once cleaned up. Check the wording." };
-  return { ok: true, item };
+  return { ok: true, item: { ...item, approvedAt: input.now.toISOString() } };
 }

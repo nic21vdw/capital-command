@@ -1,4 +1,5 @@
 import { runAi } from "@/lib/ai";
+import { applyBrandTitle, brandHashtagPolicy, brandPromptBlock } from "@/lib/brand/kit";
 import type { QueueItem } from "@/lib/publisher/types";
 import { clipDescription } from "@/lib/clipping/editor";
 import { fallbackHashtags, generateClipHashtags } from "@/lib/clipping/hashtags";
@@ -21,7 +22,6 @@ export type ClipMetadata = {
 };
 
 const MAX_TITLE_CHARS = 90; // fits YouTube's 100-char limit with room to spare
-const MAX_HASHTAGS = 6;
 
 function codeOf(item: { id?: string }): string | undefined {
   return item.id ? postCode(item.id) : undefined;
@@ -30,6 +30,7 @@ function codeOf(item: { id?: string }): string | undefined {
 function normalizeHashtags(tags: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
+  const cap = brandHashtagPolicy("youtube").max;
   for (const raw of tags) {
     const tag = `#${raw.replace(/^#+/, "").replace(/[^\p{L}\p{N}_]/gu, "")}`;
     if (tag.length < 2) continue;
@@ -37,7 +38,7 @@ function normalizeHashtags(tags: string[]): string[] {
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(tag);
-    if (out.length >= MAX_HASHTAGS) break;
+    if (out.length >= cap) break;
   }
   return out;
 }
@@ -53,7 +54,7 @@ export function fallbackMetadata(source: {
   const base = source.streamTitle?.trim() || source.topic?.trim() || "New clip";
   const title = base.length > MAX_TITLE_CHARS ? `${base.slice(0, MAX_TITLE_CHARS - 1)}…` : base;
   return {
-    title,
+    title: applyBrandTitle(title, "youtube"),
     description: clipDescription(),
     hashtags: fallbackHashtags(source)
   };
@@ -95,6 +96,7 @@ export async function generateClipMetadata(source: {
   try {
     const result = await runAi({
       maxTokens: 400,
+      system: brandPromptBlock("youtube", { titleOnly: true }),
       messages: [
         {
           role: "user",
@@ -114,7 +116,7 @@ export async function generateClipMetadata(source: {
     if (!result || result.refused) return fallback;
     const parsed = parseMetadata(result.text);
     if (!parsed?.title) return fallback;
-    const title = parsed.title.slice(0, MAX_TITLE_CHARS + 10);
+    const title = applyBrandTitle(parsed.title, "youtube").slice(0, MAX_TITLE_CHARS + 10);
     return {
       title,
       description: clipDescription(),

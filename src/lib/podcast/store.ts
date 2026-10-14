@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { DEFAULT_BRAND_KIT } from "@/lib/brand/defaults";
 import { dataPath } from "@/lib/paths";
 import { atomicWriteJson } from "@/lib/storage/atomic-json";
 import type {
@@ -13,7 +14,7 @@ export const DEFAULT_SHOW: PodcastShow = {
   title: "CoLateral Marketing",
   description:
     "Live builds, AI agents and the business of shipping software. Every stream from the channel, in full, as audio.",
-  author: "Nic",
+  author: DEFAULT_BRAND_KIT.identity.firstName,
   email: "",
   link: "https://www.youtube.com/",
   language: "en",

@@ -3,6 +3,8 @@ import { authFailureReason, isAuthFailure } from "@/lib/platform-health/auth";
 import { threadsAccountFingerprint } from "@/lib/platform-health/fingerprint";
 import { accountAuthBlocked, clearAuthState, readAuthStates, recordAuthFailure } from "@/lib/platform-health/store";
 import { authStateKey } from "@/lib/platform-health/types";
+import { threadsAwaitingApproval } from "@/lib/publisher/approval";
+import { readReviewPolicy } from "@/lib/publisher/approvalStore";
 import { isTransient } from "@/lib/publisher/http";
 import { formatInTimezone } from "@/lib/publisher/time";
 import { ContainerPendingError, ContainerRejectedError, ThreadsPublishPausedError, postToThreads, type ThreadsPublishInput } from "@/lib/threads/api";
@@ -131,6 +133,7 @@ async function runDueInternal(
   const outcomes: ThreadsOutcome[] = [];
   const replyOutcomes: ThreadsOutcome[] = [];
   let note: string | undefined;
+  let heldForApproval = 0;
   let persistenceError: string | undefined;
   const authFailures: Array<{ accountId: string; reason: string }> = [];
   const heldAccounts = new Set<string>();
@@ -147,6 +150,7 @@ async function runDueInternal(
       skipped: replyOutcomes.filter((outcome) => outcome.outcome === "skipped").length,
       outcomes: replyOutcomes
     } } : {}),
+    ...(heldForApproval ? { heldForApproval } : {}),
     ...(note ? { note } : {}),
     ...(persistenceError ? { persistenceError } : {}),
     ...(authFailures.length ? { authFailures } : {}),
@@ -196,13 +200,19 @@ async function runDueInternal(
     }
   };
 
+  const awaitingApproval = (item: ThreadsQueueItem, ownClaim = false) => threadsAwaitingApproval(
+    ownClaim ? { ...item, claimedAt: undefined } : item, readReviewPolicy()
+  );
   const allowed = async (item: ThreadsQueueItem, reply: boolean, expectedToken?: string): Promise<boolean> => {
     const live = currentConfig();
     if (threadsBlockedReason(live) || (reply && (!live.plugReplies || !live.plugUrl))) return false;
     const original = findAccount(config, item.accountId);
     const account = findAccount(live, item.accountId);
     if (!account || account.accessToken !== (expectedToken ?? original?.accessToken)) return false;
-    return dryRun || !await isAutomationPaused("threads");
+    if (!dryRun && await isAutomationPaused("threads")) return false;
+    // A lease is not approval. Recheck after every async control wait, ignoring
+    // only this runner's claim while retaining actual delivery evidence.
+    return reply || !awaitingApproval(item, true);
   };
 
   const observe = (item: ThreadsQueueItem, outcome: ThreadsOutcome["outcome"], detail: string, reply = false) => {
@@ -251,6 +261,7 @@ async function runDueInternal(
 
   let replySends = 0;
   const prepareReply = (item: ThreadsQueueItem): boolean => {
+    if (awaitingApproval(item)) return false;
     const age = item.publishedAt ? (now.getTime() - new Date(item.publishedAt).getTime()) / 60_000 : NaN;
     const canPrepare = item.status === "pending" || (item.status === "published" && Number.isFinite(age) && age >= 0 && age <= config.plugWindowMinutes);
     if (!currentConfig().plugReplies || !currentConfig().plugUrl || !canPrepare || item.plugPostId || item.plugDropped || item.plugContainerId || item.plugClaimedAt || (item.plugAttempts ?? 0)) return false;
@@ -261,16 +272,20 @@ async function runDueInternal(
   };
   const hasLiveClaim = (at?: string) => Boolean(at && now.getTime() - new Date(at).getTime() < config.claimTimeoutMinutes * 60_000);
   const retryWaiting = (at?: string) => Boolean(at && new Date(at).getTime() > now.getTime());
-  const claimLatest = async (item: ThreadsQueueItem): Promise<"post" | "reply" | "unclaimed" | "missing"> => {
+  const claimLatest = async (item: ThreadsQueueItem): Promise<"post" | "reply" | "held" | "unclaimed" | "missing"> => {
     if (!deps.claim || dryRun) return "unclaimed";
-    let claimed: "post" | "reply" | "unclaimed" = "unclaimed";
+    let claimed: "post" | "reply" | "held" | "unclaimed" = "unclaimed";
     let latest;
     try { latest = await deps.claim(item.id, (fresh) => {
       if (threadsBlockedReason(currentConfig())) return false;
       const account = findAccount(currentConfig(), fresh.accountId);
       if (!account) return false;
-      const prepared = prepareReply(fresh);
       const dueAt = new Date(fresh.publishAt).getTime();
+      if (awaitingApproval(fresh) && now.getTime() - dueAt <= config.lateGraceMinutes * 60_000) {
+        claimed = "held";
+        return false;
+      }
+      const prepared = prepareReply(fresh);
       if (fresh.status === "pending" && !fresh.postId && Number.isFinite(dueAt) && dueAt <= now.getTime()
         && now.getTime() - dueAt <= config.lateGraceMinutes * 60_000
         && !retryWaiting(fresh.nextAttemptAt) && !hasLiveClaim(fresh.claimedAt)) {
@@ -440,8 +455,21 @@ async function runDueInternal(
       if (item.status === "published" && (!currentConfig().plugReplies || !item.plugText || item.plugPostId || item.plugDropped || !item.postId || !item.publishedAt)) continue;
       if (item.status === "pending" && !item.postId && (new Date(item.publishAt).getTime() > now.getTime() || retryWaiting(item.nextAttemptAt) || hasLiveClaim(item.claimedAt))) continue;
       if (item.status === "published" && (retryWaiting(item.plugNextAttemptAt) || hasLiveClaim(item.plugClaimedAt))) continue;
+      if (
+        item.status === "pending" &&
+        !item.postId &&
+        awaitingApproval(item) &&
+        now.getTime() - new Date(item.publishAt).getTime() <= config.lateGraceMinutes * 60_000
+      ) {
+        heldForApproval += 1;
+        continue;
+      }
       const claimed = await claimLatest(item);
       if (claimed === "missing") continue;
+      if (claimed === "held") {
+        heldForApproval += 1;
+        continue;
+      }
       if (item.status === "published") {
         await sendPlug(item, claimed === "reply");
         continue;
@@ -462,8 +490,12 @@ async function runDueInternal(
       if (dueAt > now.getTime()) continue;
       const lateMinutes = (now.getTime() - dueAt) / 60_000;
       if (lateMinutes > config.lateGraceMinutes) {
+        const slotAt = formatInTimezone(new Date(item.publishAt), config.timezone);
+        const lead = awaitingApproval(item)
+          ? `Not approved before its slot at ${slotAt}`
+          : `Missed its ${slotAt} slot by ${Math.round(lateMinutes)} min`;
         item.status = "skipped";
-        item.note = `Missed its ${formatInTimezone(new Date(item.publishAt), config.timezone)} slot by ${Math.round(lateMinutes)} min — skipped so the feed doesn't get a backlog all at once.`;
+        item.note = `${lead} — skipped so the feed doesn't get a backlog all at once.`;
         delete item.claimedAt;
         await persist();
         await record(item, "skipped", item.note);
@@ -490,6 +522,14 @@ async function runDueInternal(
         item.claimedAt = now.toISOString();
         await persist();
       }
+      if (!await allowed(item, false, account.accessToken)) {
+        const held = awaitingApproval(item, true);
+        delete item.claimedAt;
+        await persist();
+        if (held) { heldForApproval += 1; continue; }
+        note = "Threads delivery was paused or switched off before publishing.";
+        break;
+      }
       const key = deliveryKey(item, false);
       let result;
       try {
@@ -510,6 +550,7 @@ async function runDueInternal(
         delete item.claimedAt;
         if (error instanceof ThreadsPublishPausedError) {
           await persist();
+          if (awaitingApproval(item)) { heldForApproval += 1; continue; }
           note = error.message;
           break;
         }
@@ -551,5 +592,6 @@ async function runDueInternal(
     persistenceError = error.message;
     log(`[threads] ${note}`);
   }
+  if (heldForApproval > 0) log(`[threads] held for approval ${heldForApproval}`);
   return report();
 }

@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { DEFAULT_REVIEW_POLICY, legAwaitingApproval, type HeldSince, type ReviewPolicy } from "@/lib/publisher/approval";
+import { readReviewPolicy } from "@/lib/publisher/approvalStore";
 import { recordQueueMutations, type QueueWriter } from "@/lib/publisher/audit";
 import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
@@ -6,6 +8,10 @@ import { preSchedulesItem } from "@/lib/publisher/nativeScheduling";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
 import { mergeById, snapshotById } from "@/lib/publisher/queueMerge";
 import { rearmItem, type RearmScope } from "@/lib/publisher/rearm";
+import { ReleaseUnplacedError, planRelease, type ReleaseMove, type ReleaseTarget } from "@/lib/publisher/release";
+import { shortsLimit } from "@/lib/publisher/shortsCap";
+import { REARM_MAX_SLOT_AGE_MS } from "@/lib/publisher/slotAge";
+import { generateSlots, slotGrid } from "@/lib/publisher/slots";
 import { FileQueueStore, R2QueueStore, type QueueStore } from "@/lib/publisher/store";
 import type { BufferState, PlatformId, PlatformState, PostResult, QueueItem } from "@/lib/publisher/types";
 
@@ -75,14 +81,14 @@ export class PublishQueue {
     this.version = version;
   }
 
-  private adopt(raw: string | null): void {
+  private adopt(raw: string | null, base: ReadonlyMap<string, string> = this.synced): void {
     const hash = hashText(raw);
     if (this.loaded && hash === this.syncedHash) return;
     const stored = new Map<string, QueueItem>();
     if (raw !== null) {
       for (const item of JSON.parse(raw) as QueueItem[]) stored.set(item.id, item);
     }
-    const merged = mergeById(this.synced, this.items, stored);
+    const merged = mergeById(base, this.items, stored);
     for (const [id, item] of merged) {
       const held = this.items.get(id);
       if (!held) this.items.set(id, item);
@@ -102,9 +108,12 @@ export class PublishQueue {
 
   private commit(gate?: SaveGate): Promise<boolean> {
     const changedAt = new Date().toISOString();
+    return this.writeLocked(() => this.persist(changedAt, gate));
+  }
+
+  private writeLocked<T>(work: () => Promise<T>): Promise<T> {
     const pending = this.saves.then(() => {
-      const write = () => this.persist(changedAt, gate);
-      return this.store.withLock ? this.store.withLock(write) : write();
+      return this.store.withLock ? this.store.withLock(work) : work();
     });
     this.saves = pending.then(
       () => undefined,
@@ -289,7 +298,8 @@ export class PublishQueue {
    */
   async rearm(item: QueueItem, scope: RearmScope = {}): Promise<PlatformId[]> {
     await this.load();
-    const revived = rearmItem(item, scope);
+    const policy = readReviewPolicy();
+    const revived = rearmItem(item, { keepReleased: (platform) => policy[platform] === "hold", ...scope });
     if (revived.length > 0) await this.save();
     return revived;
   }
@@ -305,11 +315,14 @@ export class PublishQueue {
    *    can verify the platform really made them public (and force it if not);
    *  - a scheduled long-form YouTube upload is due immediately, so the runner
    *    can clear its go-live time and leave it private;
-   *  - respects retry backoff (nextAttemptAt) and soft claims.
+   *  - respects retry backoff (nextAttemptAt) and soft claims;
+   *  - leaves a leg alone while its channel is set to hold and nobody has
+   *    approved it (approval.ts).
    */
-  duePlatforms(item: QueueItem, now: Date): PlatformId[] {
+  duePlatforms(item: QueueItem, now: Date, policy: ReviewPolicy = readReviewPolicy()): PlatformId[] {
     const due: PlatformId[] = [];
     for (const [platform, state] of Object.entries(item.platforms) as [PlatformId, PlatformState][]) {
+      if (legAwaitingApproval(state, platform, policy)) continue;
       const heldReview =
         platform === "youtube" && state.status === "scheduled" && youtubeHoldsForReview(item);
       const awaitingFlip = state.status === "scheduled" && !heldReview;
@@ -332,12 +345,170 @@ export class PublishQueue {
 
   async dueItems(now: Date): Promise<Array<{ item: QueueItem; platforms: PlatformId[] }>> {
     await this.load();
+    const policy = readReviewPolicy();
     const due: Array<{ item: QueueItem; platforms: PlatformId[] }> = [];
     for (const item of this.items.values()) {
-      const platforms = this.duePlatforms(item, now);
+      const platforms = this.duePlatforms(item, now, policy);
       if (platforms.length > 0) due.push({ item, platforms });
     }
     return due.sort((a, b) => a.item.publishAt.localeCompare(b.item.publishAt));
+  }
+
+  async heldForApproval(now: Date): Promise<number> {
+    await this.load();
+    const policy = readReviewPolicy();
+    let held = 0;
+    for (const item of this.items.values()) {
+      held += this.duePlatforms(item, now, DEFAULT_REVIEW_POLICY).length - this.duePlatforms(item, now, policy).length;
+    }
+    return held;
+  }
+
+  async awaitingApproval(policy: ReviewPolicy = readReviewPolicy()): Promise<Array<{ item: QueueItem; platform: PlatformId }>> {
+    await this.load();
+    const waiting: Array<{ item: QueueItem; platform: PlatformId }> = [];
+    for (const item of sortedByPublishAt(this.items.values())) {
+      for (const [platform, leg] of Object.entries(item.platforms) as [PlatformId, PlatformState][]) {
+        if (legAwaitingApproval(leg, platform, policy)) waiting.push({ item, platform });
+      }
+    }
+    return waiting;
+  }
+
+  async releaseLegs(
+    targets: ReleaseTarget[],
+    now: Date
+  ): Promise<{ approved: number; moves: ReleaseMove[]; skipped: ReleaseTarget[] }> {
+    return this.releaseTransaction(() => targets, now);
+  }
+
+  /** Auto authorizes these legs through the saved policy, not permanent approval stamps. */
+  async releaseForPolicyChange(
+    channels: PlatformId[],
+    before: ReviewPolicy,
+    heldSince: HeldSince,
+    now: Date,
+    commitPolicy: () => Promise<ReviewPolicy>
+  ): Promise<{ policy: ReviewPolicy; approved: number; moves: ReleaseMove[]; skipped: ReleaseTarget[] }> {
+    let policy = before;
+    const result = await this.releaseTransaction((items) => items.flatMap((item) => channels.flatMap((platform) => {
+      const leg = item.platforms[platform];
+      const since = heldSince[platform] === undefined ? Number.NEGATIVE_INFINITY : Date.parse(heldSince[platform]!);
+      return leg && legAwaitingApproval(leg, platform, before) && Date.parse(item.publishAt) >= since
+        ? [{ id: item.id, platform }] : [];
+    })), now, { approve: false, requireAll: true, commit: async () => { policy = await commitPolicy(); } });
+    return { ...result, policy };
+  }
+
+  private async releaseTransaction(
+    targets: (items: QueueItem[]) => ReleaseTarget[],
+    now: Date,
+    options: { approve?: boolean; requireAll?: boolean; commit?: () => Promise<void> } = {}
+  ): Promise<{ approved: number; moves: ReleaseMove[]; skipped: ReleaseTarget[] }> {
+    await this.load();
+    const { result, mutations } = await this.writeLocked(async () => {
+      // Eligibility, slot reservations and splits use the latest locked file.
+      // Work on copies: a failed atomic write must leave no live approval behind.
+      const raw = await this.store.load();
+      const before = snapshotById(this.items.values());
+      const changedAt = new Date().toISOString();
+      const local = new Map([...this.items].map(([id, item]) => [id, structuredClone(item)]));
+      for (const item of local.values()) {
+        if (JSON.stringify(item) !== this.synced.get(item.id)) item.updatedAt = changedAt;
+      }
+      const staged = mergeById(this.synced, local, parseStored(raw));
+      const config = this.config;
+      const slots = generateSlots({
+        timeZone: config.timezone,
+        days: config.bookingHorizonDays,
+        now,
+        ...slotGrid(config)
+      })
+        .filter((slot) => slot.bookable)
+        .map((slot) => slot.utc);
+      const cap = shortsLimit(config);
+      const rows = [...staged.values()];
+      const plan = planRelease(rows, targets(rows), {
+        now,
+        timeZone: config.timezone,
+        slots,
+        dailyCap: (platform) => (platform === "youtube" ? Math.min(cap, config.youtube.dailyUploadBudget) : cap),
+        maxSlotAgeMs: REARM_MAX_SLOT_AGE_MS
+      });
+      // A multi-channel policy change must place everything before writing anything.
+      if (options.requireAll && plan.skipped.length > 0) throw new ReleaseUnplacedError(plan.skipped);
+      const mutations: Array<Parameters<typeof recordQueueMutations>[0][number]> = [];
+      if (plan.release.length === 0) {
+        this.adopt(raw);
+        this.version = null;
+        await options.commit?.();
+        return { result: { approved: 0, moves: [], skipped: plan.skipped }, mutations };
+      }
+
+      const stamp = now.toISOString();
+      const moveFor = new Map(plan.moves.map((move) => [`${move.id}:${move.platform}`, move]));
+      for (const target of plan.release) {
+        const item = staged.get(target.id)!;
+        const leg = item.platforms[target.platform]!;
+        if (options.approve !== false) {
+          leg.approvedAt = stamp;
+          item.updatedAt = changedAt;
+        }
+        const move = moveFor.get(`${target.id}:${target.platform}`);
+        if (!move) continue;
+        item.updatedAt = changedAt;
+        if (Object.keys(item.platforms).length === 1) {
+          item.publishAt = move.publishAt;
+          mutations.push({ action: "publish-time", writer: "api-review-approve", id: item.id, clipPath: item.clipPath, publishAt: item.publishAt });
+          continue;
+        }
+        const { platforms: _platforms, buffer: _buffer, failedSeenAt: _failedSeenAt, updatedAt: _updatedAt, ...rest } = structuredClone(item);
+        void [_platforms, _buffer, _failedSeenAt, _updatedAt];
+        const detached: QueueItem = {
+          ...rest,
+          id: crypto.randomUUID().slice(0, 8),
+          publishAt: move.publishAt,
+          createdAt: stamp,
+          updatedAt: changedAt,
+          platforms: { [target.platform]: leg }
+        };
+        delete item.platforms[target.platform];
+        staged.set(detached.id, detached);
+        mutations.push({ action: "add", writer: "api-review-approve", id: detached.id, clipPath: detached.clipPath, publishAt: detached.publishAt });
+      }
+      const text = JSON.stringify(sortedByPublishAt(staged.values()), null, 2);
+      await this.store.save(text);
+      // Preserve caller-held references and edits made while the save awaited.
+      // Refresh metadata on the next load instead of failing after a durable save.
+      this.adopt(text, before);
+      this.version = null;
+      if (options.commit) {
+        // Queue preparation is durable even if the policy write fails. Audit it,
+        // keep its legs unstamped, and retain the queue lock through that write.
+        await recordQueueMutations(mutations);
+        mutations.length = 0;
+        await options.commit();
+      }
+      return { result: { approved: plan.release.length, moves: plan.moves, skipped: plan.skipped }, mutations };
+    });
+    await recordQueueMutations(mutations);
+    return result;
+  }
+
+  async releaseAwaiting(
+    now: Date,
+    platform?: PlatformId,
+    policy: ReviewPolicy = readReviewPolicy(),
+    heldSince?: string
+  ): Promise<{ approved: number; moves: ReleaseMove[]; skipped: ReleaseTarget[] }> {
+    const waiting = await this.awaitingApproval(policy);
+    const since = heldSince === undefined ? Number.NEGATIVE_INFINITY : Date.parse(heldSince);
+    return this.releaseLegs(
+      waiting
+        .filter((entry) => (!platform || entry.platform === platform) && Date.parse(entry.item.publishAt) >= since)
+        .map((entry) => ({ id: entry.item.id, platform: entry.platform })),
+      now
+    );
   }
 
   /** Marks a platform as being processed right now (soft lease). */
@@ -472,10 +643,40 @@ export class PublishQueue {
    * Buffer delivery layer gets the same claim/backoff/idempotency guarantees.
    * The item's `buffer` field is seeded here when absent.
    */
-  async claimBuffer(item: QueueItem, now: Date): Promise<void> {
+  async claimBuffer(item: QueueItem, now: Date, allow: (current: QueueItem) => boolean = () => true): Promise<boolean> {
+    const active = (current: QueueItem) => Boolean(current.buffer?.claimedAt &&
+      now.getTime() - new Date(current.buffer.claimedAt).getTime() < this.config.claimTimeoutMinutes * 60_000);
+    if (active(item)) return false;
+    const previous = item.buffer;
+    const previousClaim = previous?.claimedAt;
     item.buffer ??= newBufferState();
     item.buffer.claimedAt = now.toISOString();
-    await this.save();
+    return this.commit({
+      allow: (stored) => {
+        const current = stored.get(item.id);
+        return current !== undefined && !active(current) && allow(current);
+      },
+      reject: () => {
+        if (previous) previous.claimedAt = previousClaim;
+        else item.buffer = undefined;
+      }
+    });
+  }
+
+  /** An authorization stop is not a failed delivery; only release our own lease. */
+  async releaseBufferClaim(item: QueueItem, claimedAt: string): Promise<void> {
+    const state = item.buffer;
+    if (!state || state.claimedAt !== claimedAt) return;
+    state.claimedAt = undefined;
+    try {
+      await this.commit({
+        allow: (stored) => stored.get(item.id)?.buffer?.claimedAt === claimedAt,
+        reject: () => { state.claimedAt = claimedAt; }
+      });
+    } catch (error) {
+      state.claimedAt = claimedAt;
+      throw error;
+    }
   }
 
   async recordBufferSuccess(

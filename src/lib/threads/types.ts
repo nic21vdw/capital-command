@@ -76,6 +76,12 @@ export type ThreadsQueueItem = {
   /** Soft lease so two overlapping ticks don't both post one item. */
   claimedAt?: string;
   publishedAt?: string;
+  /**
+   * When someone released this post from the review hold. A post typed by hand
+   * is stamped as it is queued; the rest wait for a person while Threads is set
+   * to hold.
+   */
+  approvedAt?: string;
   createdAt: string;
 };
 
@@ -104,6 +110,8 @@ export type ThreadsRunReport = {
     outcomes: ThreadsOutcome[];
   };
   dryRun: boolean;
+  /** Posts left untouched because they are waiting for approval. */
+  heldForApproval?: number;
   /** Set when the run did nothing at all (disabled, no account connected). */
   note?: string;
   /** Queue persistence stopped delivery independently of platform outcomes. */

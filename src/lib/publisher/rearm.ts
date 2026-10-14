@@ -1,4 +1,5 @@
 import { itemBelongsToAccount } from "@/lib/publisher/accounts";
+import { readReviewPolicy } from "@/lib/publisher/approvalStore";
 import { isConnectionFailure } from "@/lib/publisher/failure";
 import type { PlatformId, PlatformState, PlatformStatus, QueueItem } from "@/lib/publisher/types";
 
@@ -50,6 +51,12 @@ export type RearmScope = {
   now?: Date;
   /** Called for each leg that WOULD have been revived but for `maxSlotAgeMs`. */
   onSkipped?: (item: QueueItem, platform: PlatformId) => void;
+  /**
+   * True for a platform whose channel holds posts for approval. A leg that was
+   * already sent once keeps its place past the hold when it is revived, as a
+   * retried Threads post does; a leg that never went out waits for approval.
+   */
+  keepReleased?: (platform: PlatformId) => boolean;
 };
 
 export type ConnectRearmOptions = Pick<RearmScope, "statuses" | "maxSlotAgeMs" | "now" | "onSkipped">;
@@ -64,7 +71,14 @@ export function connectRearmScope(
   accountId?: string,
   options: ConnectRearmOptions = {}
 ): RearmScope {
-  return { ...options, platform, accountId, where: (state) => isConnectionFailure(state) };
+  const policy = readReviewPolicy();
+  return {
+    keepReleased: (target) => policy[target] === "hold",
+    ...options,
+    platform,
+    accountId,
+    where: (state) => isConnectionFailure(state)
+  };
 }
 
 /** True when the item's slot is further in the past than the scope allows. */
@@ -94,6 +108,9 @@ export function rearmItem(item: QueueItem, scope: RearmScope = {}): PlatformId[]
       continue;
     }
 
+    if (scope.keepReleased?.(platform) && (state.attempts > 0 || state.lastFailedAt)) {
+      state.approvedAt ??= (scope.now ?? new Date()).toISOString();
+    }
     state.status = "pending";
     state.attempts = 0;
     state.error = undefined;

@@ -1,4 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
+import { applyBrandRules, brandPromptBlock, brandTitleExamples } from "@/lib/brand/kit";
 import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS, COLATERAL_DESCRIPTION, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
 
 // Re-exported so existing importers of these constants keep working; the
@@ -20,21 +21,22 @@ export { CHANNEL_CONTEXT, CHANNEL_KEYWORDS, COLATERAL_DESCRIPTION, TITLE_STYLE_E
  * fails, so callers can fall back to the local heuristic titler.
  */
 
-export const VIRAL_TITLE_SYSTEM_PROMPT = `You are a short-form video growth expert who writes scroll-stopping titles for YouTube Shorts, TikTok, and Reels.
+export function viralTitleSystemPrompt(): string {
+  return `You are a short-form video growth expert who writes scroll-stopping titles for YouTube Shorts, TikTok, and Reels.
 
-Channel context: ${CHANNEL_CONTEXT} Recurring keywords to work in whenever the clip's content genuinely supports them: ${CHANNEL_KEYWORDS.join(", ")}.
+${brandPromptBlock("youtube", { titleOnly: true })}
 
 Every title must:
-- Be a complete, grammatical phrase — NEVER a raw transcript fragment and never a thought that trails off mid-sentence.
 - Be 4-10 words and under 60 characters, in Title Case.
 - Lead with curiosity, stakes, or a bold claim; numbers and How/Why/What openers work well.
 - Use the channel keywords naturally when they fit the clip — never force one that doesn't.
 - Contain no quotation marks, hashtags, or emoji.
 
 Examples of the exact style to match:
-${TITLE_STYLE_EXAMPLES.map((t) => `- ${t}`).join("\n")}
+${brandTitleExamples().map((t) => `- ${t}`).join("\n")}
 
 You always return strict JSON.`;
+}
 
 export type ClipTitleRequest = {
   /** Stable clip id the returned title is keyed back to. */
@@ -78,13 +80,16 @@ export function buildViralTitleUserPrompt(
  * to be a real title, so the caller falls back instead of using junk.
  */
 export function cleanViralTitle(raw: string): string {
-  const cleaned = raw
-    .replace(/^["'“”]+|["'“”]+$/g, "")
-    .replace(/#[\w-]+/g, " ")
-    // Strip emoji and pictographs; keep letters, digits and basic punctuation.
-    .replace(/[\p{Extended_Pictographic}️]/gu, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const cleaned = applyBrandRules(
+    raw
+      .replace(/^["'“”]+|["'“”]+$/g, "")
+      .replace(/#[\w-]+/g, " ")
+      // Strip emoji and pictographs; keep letters, digits and basic punctuation.
+      .replace(/[\p{Extended_Pictographic}️]/gu, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+    "youtube"
+  );
   if (cleaned.split(/\s+/).length < 3) return "";
   if (cleaned.length > MAX_TITLE_CHARS) return "";
   return cleaned;
@@ -128,7 +133,7 @@ export async function generateViralTitles(
   try {
     const result = await runAi({
       maxTokens: 1500,
-      system: VIRAL_TITLE_SYSTEM_PROMPT,
+      system: viralTitleSystemPrompt(),
       messages: [{ role: "user", content: buildViralTitleUserPrompt(withText, context) }]
     });
     if (!result || result.refused) return null;

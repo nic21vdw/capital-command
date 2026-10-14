@@ -71,6 +71,11 @@ export type PlatformState = {
    * hand, and on mirror legs added before this field existed.
    */
   mirroredFrom?: PlatformId;
+  /**
+   * When someone released this leg from the review hold (Settings > Publishing
+   * sets a channel to hold). Absent on every leg that never needed releasing.
+   */
+  approvedAt?: string;
 };
 
 /**

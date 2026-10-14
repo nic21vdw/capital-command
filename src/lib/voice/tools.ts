@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { sourceflowContext } from "@/lib/agents/context";
+import { brandKit } from "@/lib/brand/kit";
 import { newAgentRunId, runAgentTeam } from "@/lib/agents/orchestrator";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
 import { getAgentRun, listAgentRuns } from "@/lib/agents/store";
@@ -23,12 +24,16 @@ export type VoiceToolDefinition = {
 
 const NO_ARGS = { type: "object", properties: {}, additionalProperties: false } as const;
 
+const firstName = () => brandKit().identity.firstName;
+
 export const VOICE_TOOLS: VoiceToolDefinition[] = [
   {
     name: "open_screen",
-    description: `Take Nic to a screen — this is how you SHOW him something rather than describing it. Call it whenever he says show me, take me to, pull up, open, or go to. Screens: ${SCREENS.map(
+    get description() {
+      return `Take ${firstName()} to a screen — this is how you SHOW him something rather than describing it. Call it whenever he says show me, take me to, pull up, open, or go to. Screens: ${SCREENS.map(
       (screen) => `${screen.id} (${screen.purpose}${screen.needs ? "; only when switched on in Settings" : ""})`
-    ).join("; ")}. With target pipeline, pass runId — or runName, part of the run's name — to open that one run.`,
+    ).join("; ")}. With target pipeline, pass runId — or runName, part of the run's name — to open that one run.`;
+    },
     parameters: {
       type: "object",
       properties: {
@@ -125,7 +130,9 @@ export const VOICE_TOOLS: VoiceToolDefinition[] = [
   },
   {
     name: "start_channel_ingest",
-    description: "Scan the YouTube channel and put every new stream through the whole Stream Pipeline unattended, stopping at ready-to-schedule. It only schedules anything if Nic has turned on overnight scheduling in Settings; you never publish anything yourself. Returns immediately; poll ingest_status for progress.",
+    get description() {
+      return `Scan the YouTube channel and put every new stream through the whole Stream Pipeline unattended, stopping at ready-to-schedule. It only schedules anything if ${firstName()} has turned on overnight scheduling in Settings; you never publish anything yourself. Returns immediately; poll ingest_status for progress.`;
+    },
     parameters: {
       type: "object",
       properties: {
@@ -338,7 +345,7 @@ export async function runVoiceTool(
   const tool = VOICE_TOOLS.find((item) => item.name === name);
   if (!tool) return { ok: false, error: `There is no tool called ${name}.` };
   if (tool.action && !options.allowActions) {
-    return { ok: false, error: "Actions are switched off for this session. Ask Nic to arm actions in the voice console, then try again." };
+    return { ok: false, error: `Actions are switched off for this session. Ask ${firstName()} to arm actions in the voice console, then try again.` };
   }
 
   switch (tool.name) {

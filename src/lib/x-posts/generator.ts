@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { CHANNEL_CONTEXT } from "@/lib/clipping/keywords";
+import { brandContext, brandKit, brandPromptBlock, brandViolations } from "@/lib/brand/kit";
 import { COLATERAL_LIBRARY, POST_LIBRARY, REPLY_LIBRARY } from "@/lib/x-posts/library";
 import { humanize } from "@/lib/x-posts/voice";
 import { xDailyPackSchema } from "@/lib/storage/schemas";
@@ -123,7 +123,8 @@ interface RawReply {
 function editorialIssue(pack: XDailyPack): string | null {
   const hasLink = /\b(?:https?:\/\/|www\.|(?:[a-z0-9-]+\.)+(?:com|org|net|io|ai|dev|app|co)\b)/i;
   const hasDecoration = /(?:\B#[\p{L}\p{N}_]+|\p{Extended_Pictographic})/u;
-  const retiredName = /\bcapital\s+command\b/i;
+  const hasRetiredName = (value: string) =>
+    brandViolations(value, "threads").some((violation) => violation.kind === "retired-name");
   const normalize = (value: string) =>
     value
       .toLowerCase()
@@ -143,7 +144,7 @@ function editorialIssue(pack: XDailyPack): string | null {
     const versions = [post.text, post.threadsVariant];
     if (versions.some((version) => hasLink.test(version))) return "a parent post included a link";
     if (versions.some((version) => hasDecoration.test(version))) return "a parent post included hashtags or emoji";
-    if (versions.some((version) => retiredName.test(version))) return "a parent post used a retired product name";
+    if (versions.some(hasRetiredName)) return "a parent post used a retired product name";
     const mentions = versions.map((version) => /\bCoLateral\b/.test(version));
     if (
       mentions[0] !== mentions[1] ||
@@ -167,7 +168,7 @@ function editorialIssue(pack: XDailyPack): string | null {
   if (formats.size < 4) return "the pack did not vary its post formats";
   if (
     pack.replies.some(
-      (reply) => hasLink.test(reply.text) || hasDecoration.test(reply.text) || retiredName.test(reply.text)
+      (reply) => hasLink.test(reply.text) || hasDecoration.test(reply.text) || hasRetiredName(reply.text)
     )
   ) {
     return "an evergreen reply included a link, decoration or retired product name";
@@ -275,28 +276,19 @@ Write today's content pack:
 
 1. Exactly ${POSTS_PER_PACK} ORIGINAL standalone posts. ONE thought each, said short. The first line has to earn the second without a wind up. Every post takes a DIFFERENT angle, and no two circle the same idea. Use at least four formats across the set: insight, contrarian, story, question, framework, observation. Exactly ${COLATERAL_POSTS_PER_PACK} of the ${POSTS_PER_PACK} are about CoLateral, the thing he is building, and each of those names it as "CoLateral" in BOTH versions. Spread them through the day, never two in a row. The rest are useful thoughts about building things with AI and about work, and do not mention CoLateral.
 
-GIVE THE READER SOMETHING BEFORE THE LINK. Each parent must be useful on its own: a concrete check someone can try, a specific decision with a tradeoff, a small tool idea for a familiar annoying job, or a question that allows different real answers. A separate self-reply supplies a relevant invitation to colateralai.com. Do not put any URL, domain, "link below", "check out", "sign up", "read the reply", feature list or withheld answer in the parent. Avoid a disguised ad repeated eight times. Do not end every brand post with a question or begin every one with "I'm building". Vary the reason to care, not just the wording of the pitch.
+GIVE THE READER SOMETHING BEFORE THE LINK. Each parent must be useful on its own: a concrete check someone can try, a specific decision with a tradeoff, a small tool idea for a familiar annoying job, or a question that allows different real answers. A separate self-reply supplies a relevant invitation to ${brandKit().links.site.replace(/^https?:\/\//, "")}. Do not put any URL, domain, "link below", "check out", "sign up", "read the reply", feature list or withheld answer in the parent. Avoid a disguised ad repeated eight times. Do not end every brand post with a question or begin every one with "I'm building". Vary the reason to care, not just the wording of the pitch.
 
 MAKE DISCOVERY FIT THE TOPIC. Across the eight CoLateral ideas, cover several reader needs: developers first, seeing Claude Code, Codex and Gemini agents run side by side on one canvas; creators keeping ideas beside the work; agents working inside real files (slides, sheets, documents) rather than a chat; bringing the AI subscriptions you already have instead of paying another AI fee; paying once for a one-time licence; and people who want a small tool for a task they know. A custom tool example could be a file-cleanup helper; it is an idea to build, not a claim that CoLateral already supplies it. Show the desktop project canvas as a place to do the work. Do not use "ADE" without explaining it in plain words. Games, modules and CoLateral Marketing can be angles when the supplied brief supports them, without turning an interest in that area into a claim about an available feature. Do not make every post the same point about AI producing more work to check.
 
-GROUND EVERY CLAIM. The verified shared positioning is: ${CHANNEL_CONTEXT} The brief and optional focus provide topics, not automatic proof that a requested feature has shipped. Distinguish a feature explicitly verified as working from an experiment, a design goal, or a plan. Write "I want", "I'm building toward", or a question for goals; never convert them to "you can now" or "it does". If no concrete event is supplied, write a useful observation or example instead of an invented story. Never invent personal anecdotes, tool counts, launch dates, prices, time savings, sales, users, fixes, account support, multiplayer availability or promised outcomes. Never name a client or expose private project details. The current names are CoLateral and CoLateral Marketing. Never call it Capital Command. Nic's day job as an engineer is fine to mention as his own story, but never present CoLateral as engineering, structural or design software, never mention CoLateral Engineering, and never claim a professional engineering licence, a stamp, approval or compliance.
-
+GROUND EVERY CLAIM. The verified shared positioning is: ${brandContext()} The brief and optional focus provide topics, not automatic proof that a requested feature has shipped. Distinguish a feature explicitly verified as working from an experiment, a design goal, or a plan. Write "I want", "I'm building toward", or a question for goals; never convert them to "you can now" or "it does". If no concrete event is supplied, write a useful observation or example instead of an invented story. Never invent personal anecdotes, tool counts, launch dates, prices, time savings, sales, users, fixes, account support, multiplayer availability or promised outcomes. Never name a client or expose private project details.
 KEEP THEM SHORT. Short is the point. If a post needs a second idea to make sense, cut the second idea, not the words around it. One or two lines. Never a paragraph that fills the box.
 
-KEEP THEM PLAIN. Someone outside engineering has to get it instantly. Say it the way he would say it out loud to a friend, not the way it would be written down. Ban the trade words: agentic, workflow, throughput, verification loop, vertical AI, leverage, iterate, ship velocity, bottleneck, stack, pipeline, context window, tooling, orchestration. If a sentence needs a job title to decode, rewrite it as the thing that actually happened.
+KEEP THEM PLAIN. If a sentence needs a job title to decode, rewrite it as the thing that actually happened.
 
-LEAVE ROOM FOR A REPLY. Take a side, admit something, or ask something he genuinely does not know the answer to. Do not close every post with a neat verdict, because a finished argument gives nobody anything to say back. Never beg for it either: no "Thoughts?", no "Agree?", no "who else".
-
+LEAVE ROOM FOR A REPLY. Take a side, admit something, or ask something he genuinely does not know the answer to. Do not close every post with a neat verdict, because a finished argument gives nobody anything to say back.
 DO NOT SOUND LIKE A MODEL. These go out on a personal feed, and the giveaways are all cadence:
 
-- NEVER an em dash or an en dash. Not one, anywhere. Use a comma, a full stop, or a new line. It is the single clearest tell.
-- No "it's not X, it's Y" seesaws. No "here's the thing", no "the truth is", no "most people think". No rule-of-three lists where every item is the same length.
-- No wise closing line that restates the post as a law. Real posts just stop.
 - Vary the sentence lengths within the character ranges. A longer sentence can have a short aside. Some posts are one line.
-- Plain words over impressive ones. "use" not "leverage", "start" not "embark", "so" not "thus". No "delve", "robust", "seamless", "landscape", "testament", "crucial".
-- Contractions throughout. Start a sentence with And or But when it reads better. Trailing thoughts are fine.
-- Say the specific thing using supported details. Without a supplied real event, use a concrete example someone can try, not a made-up number, hour or thing that broke.
-- No hashtags, no emoji.
 
 Write every post twice, both for Threads:
 - "text" is the punchy version: ${PUNCHY_MIN}-${PUNCHY_MAX} characters, never over ${PUNCHY_CEILING}. Often one line.
@@ -316,8 +308,11 @@ Respond with ONLY valid JSON, no commentary, in exactly this shape:
       // reasoning is paid for out of the same budget. Asking for that up front
       // skips a doomed first attempt that costs a minute and a half.
       maxTokens: 32000,
-      system:
-        `You ghostwrite short social posts for this channel. ${CHANNEL_CONTEXT} You write the way Nic talks: short, plain, specific, a bit blunt. No jargon, no thought-leader voice, no essays. A post is one useful thought, one or two lines, and it leaves room for a real conversation. You write like a person typing on their phone, not like polished marketing copy: plain words, varied sentence length and contractions. Never use an em dash or en dash. Never fabricate facts, projects, experiences or numbers. A goal is not a shipped feature. Parent posts have no links or bait; the separate self-reply handles a relevant invitation. Output strict JSON when asked.`,
+      system: `You ghostwrite short social posts for this channel.
+
+${brandPromptBlock("threads")}
+
+Parent posts have no links or bait; the separate self-reply handles a relevant invitation. Output strict JSON when asked.`,
       messages: [{ role: "user", content: userPrompt }]
     });
 

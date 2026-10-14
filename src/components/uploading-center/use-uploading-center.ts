@@ -39,6 +39,7 @@ import {
 } from "@/lib/publisher/boardActions";
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
 import { captionRequestFields } from "@/lib/publisher/captionTags";
+import { REARM_MAX_SLOT_AGE_HOURS } from "@/lib/publisher/slotAge";
 import { indexQueueByClip } from "@/lib/publisher/clipQueueIndex";
 import {
   mirroredNote,
@@ -220,7 +221,7 @@ function computeNeedsRerender(clip: ClipCandidate, jobId: string, projects: Clip
 export const ALL_PLATFORMS_TARGET = "all";
 
 /** "Retry connection failures" leaves failures whose slot is older than this for one-by-one retry. */
-export const REARM_MAX_SLOT_AGE_HOURS = 24;
+export { REARM_MAX_SLOT_AGE_HOURS };
 
 export type PlatformTarget = PlatformId | typeof ALL_PLATFORMS_TARGET;
 

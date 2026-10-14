@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { ChevronDown, FileText, Sparkles } from "lucide-react";
+import { useBrandKit } from "@/lib/brand/client";
 import { cn } from "@/lib/utils";
-import { DEFAULT_VIDEO_DESCRIPTION, DEFAULT_VIDEO_KEYWORDS } from "@/lib/video-description";
+import { videoDescriptionFor, videoKeywordsFor } from "@/lib/video-description";
 
 // A collapsible "Description" panel that sits under the editor title. It holds
 // the video's full description plus its keywords, both editable and both
@@ -19,11 +20,14 @@ export function DescriptionDropdown({
   onChange: (partial: { description?: string; keywords?: string }) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const brandKit = useBrandKit();
+  const defaultDescription = videoDescriptionFor(brandKit);
+  const defaultKeywords = videoKeywordsFor(brandKit);
 
   // Undefined means the project predates the field — fall back to the default
   // so the box always shows usable copy. An empty string is a deliberate clear.
-  const descValue = description ?? DEFAULT_VIDEO_DESCRIPTION;
-  const keywordsValue = keywords ?? DEFAULT_VIDEO_KEYWORDS;
+  const descValue = description ?? defaultDescription;
+  const keywordsValue = keywords ?? defaultKeywords;
 
   const keywordChips = keywordsValue
     .split(",")
@@ -63,7 +67,7 @@ export function DescriptionDropdown({
               </label>
               <button
                 type="button"
-                onClick={() => onChange({ description: DEFAULT_VIDEO_DESCRIPTION })}
+                onClick={() => onChange({ description: defaultDescription })}
                 className="flex items-center gap-1 text-xs text-[var(--muted-foreground)] transition hover:text-white"
                 title="Reset to the channel's default description"
               >

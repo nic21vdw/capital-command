@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useId, useState } from "react";
-import { AtSign, Download, Palette, Send, SlidersHorizontal, UserRound } from "lucide-react";
+import { AtSign, Download, Megaphone, Palette, Send, SlidersHorizontal, UserRound } from "lucide-react";
 import { OvernightConfirmDialog } from "@/components/automations/overnight-confirm";
 import { overnightConsequence } from "@/lib/automations/overnight";
+import { BrandKitSettings } from "@/components/layout/brand-kit-settings";
 import { ConnectionsSettings } from "@/components/layout/connections-settings";
 import { OAuthLandingBanner, useOAuthLanding } from "@/components/layout/oauth-landing";
 import { ProfileSettings } from "@/components/layout/profile-settings";
+import { ReviewPolicySettings } from "@/components/layout/review-policy-settings";
 import { ThemePicker } from "@/components/finance/theme-picker";
 import { useAppData } from "@/components/providers/app-provider";
 import { useThemePreset } from "@/components/providers/theme-preset-provider";
@@ -20,6 +22,7 @@ const SECTIONS = [
   { href: "#profile", label: "Profile", icon: UserRound },
   { href: "#accounts", label: "Accounts", icon: AtSign },
   { href: "#publishing", label: "Publishing", icon: Send },
+  { href: "#brand-kit", label: "Brand kit", icon: Megaphone },
   { href: "#more", label: "More", icon: SlidersHorizontal }
 ];
 
@@ -153,12 +156,15 @@ export function SettingsPage() {
             void mutate("updateSettings", { ...data.settings, autoScheduleOvernight: true }, { successMessage: "Overnight streams will be auto-booked." });
           }}
         />
+        <ReviewPolicySettings />
         {apiStatus.bookingBlockers?.length ? (
           <p className="mt-3 text-xs text-amber-200">{apiStatus.bookingBlockers[0]}</p>
         ) : null}
         <ClipDescriptionCard />
         <CarouselThemeCard />
       </Card>
+
+      <BrandKitSettings />
 
       <Card id="more" className="scroll-mt-6">
         <div className="flex items-start gap-3">
