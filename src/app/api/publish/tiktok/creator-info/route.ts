@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { primaryAccountId } from "@/lib/publisher/accounts";
 import { publisherConfig } from "@/lib/publisher/config";
-import { fetchCreatorPostingInfo } from "@/lib/publisher/tiktokPost";
+import { CreatorCannotPostError, fetchCreatorPostingInfo } from "@/lib/publisher/tiktokPost";
 import { tiktokAccessToken } from "@/lib/publisher/tiktokAuth";
 
 export const runtime = "nodejs";
@@ -23,6 +23,12 @@ export async function GET(request: NextRequest) {
     const info = await fetchCreatorPostingInfo(token);
     return NextResponse.json({ ...info, audited: publisherConfig().tiktok.audited });
   } catch (error) {
+    if (error instanceof CreatorCannotPostError) {
+      return NextResponse.json(
+        { error: error.message, cannotPostNow: true },
+        { status: error.retryAfterMinutes === null ? 403 : 429 }
+      );
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "TikTok would not answer for this account." },
       { status: 502 }

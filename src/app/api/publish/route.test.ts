@@ -90,6 +90,75 @@ describe("POST /api/publish blank caption", () => {
   });
 });
 
+describe("POST /api/publish TikTok consent", () => {
+  const tiktokBase = { ...base, platforms: ["tiktok"] };
+  const consented = {
+    delivery: "direct",
+    privacyLevel: "SELF_ONLY",
+    allowComment: false,
+    allowDuet: false,
+    allowStitch: false,
+    brandOrganic: false,
+    brandedContent: false,
+    consentedAt: "2026-10-13T12:00:00.000Z"
+  };
+
+  beforeEach(() => {
+    enqueue.mockReset();
+    enqueue.mockResolvedValue({ id: "queued" });
+  });
+
+  it("books a direct post the creator explicitly agreed to", async () => {
+    const response = await post({ ...tiktokBase, tiktok: consented });
+
+    expect(response.status).toBe(201);
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ tiktok: expect.objectContaining({ consentedAt: consented.consentedAt }) })
+    );
+  });
+
+  it("refuses a direct post nobody agreed to", async () => {
+    const { consentedAt: _unused, ...unagreed } = consented;
+    void _unused;
+
+    const response = await post({ ...tiktokBase, tiktok: unagreed });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/agree/i);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("refuses a switched-on disclosure with nothing ticked", async () => {
+    const response = await post({ ...tiktokBase, tiktok: { ...consented, disclosure: true } });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/promotes yourself, a third party, or both/i);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("books a disclosed post once a box is ticked", async () => {
+    const response = await post({ ...tiktokBase, tiktok: { ...consented, disclosure: true, brandOrganic: true } });
+
+    expect(response.status).toBe(201);
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ tiktok: expect.objectContaining({ disclosure: true, brandOrganic: true }) })
+    );
+  });
+
+  it("still sends a clip to the inbox with no consent at all", async () => {
+    const response = await post(tiktokBase);
+
+    expect(response.status).toBe(201);
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ tiktok: undefined }));
+  });
+
+  it("still books an inbox delivery, which asks the creator nothing", async () => {
+    const response = await post({ ...tiktokBase, tiktok: { delivery: "inbox" } });
+
+    expect(response.status).toBe(201);
+  });
+});
+
 const getBoard = async (query = "") => {
   const { GET } = await import("@/app/api/publish/route");
   return GET(new NextRequest(`http://localhost:3000/api/publish${query}`));

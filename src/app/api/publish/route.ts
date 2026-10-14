@@ -105,6 +105,7 @@ const enqueueSchema = z.object({
       allowComment: z.boolean().optional(),
       allowDuet: z.boolean().optional(),
       allowStitch: z.boolean().optional(),
+      disclosure: z.boolean().optional(),
       brandOrganic: z.boolean().optional(),
       brandedContent: z.boolean().optional(),
       consentedAt: z.string().optional()

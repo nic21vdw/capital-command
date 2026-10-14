@@ -404,6 +404,37 @@ Shorts shape heuristic. The ledger (`data/channel-ingest.json`) records what
 has been taken in; only a SETTLED pipeline run counts as done, so a timeout
 is retried rather than lost. See `src/lib/ingest/README.md`.
 
+## TikTok Direct Post consent (`tiktokPost.ts`, `tiktok-consent.tsx`)
+
+TikTok's review of Direct Post is a review of this panel against its published
+Direct Post guidelines, line by line. `docs/TIKTOK-RESUBMISSION.md` holds the
+gap table; keep it true when the panel changes.
+
+- The rules live in `tiktokPost.ts` and are enforced three times: the panel and
+  Schedule (`consentBlocker`), `/api/publish` (`consentProblem`) and the adapter,
+  which re-reads `creator_info` before every direct post. A rule added to the
+  panel alone is not a rule.
+- Nothing is ever preselected: audience, Comment, Duet, Stitch, the content
+  disclosure switch and its two boxes all start unset, and switching the
+  disclosure on ticks neither box. `consentedAt` is stamped only by ticking the
+  consent box and is cleared by changing any answer; a direct post without it is
+  refused everywhere.
+- The Music Usage Confirmation line is shown on every direct post, not only a
+  disclosed one. Its wording and the 'Promotional content' / 'Paid partnership'
+  labels are TikTok's own; the tests pin the exact strings.
+- `creator_info` is limited to 20 calls a minute per token, so the panel reuses
+  an answer for 30 seconds (`use-tiktok-creator-info.ts`) and no longer. Its
+  avatar link expires after two hours.
+- A refusal can arrive as a 200 with an `error.code` in the body or as a 4xx;
+  `creator_info` does both for `spam_risk_too_many_posts`,
+  `reached_active_user_cap`, `rate_limit_exceeded` and
+  `spam_risk_user_banned_from_posting`. All surface as `CreatorCannotPostError`;
+  the adapter defers through `throttleFor` or, for the ban, fails. The wait times
+  live once, in `tiktokThrottle.ts`, shared with the inbox flow.
+- The inbox flow (no `item.tiktok`) must stay byte-for-byte what it was: no
+  `creator_info` call, no duration probe, no consent. It is the only route open
+  to the sandbox key.
+
 ## Threads autopilot (`src/lib/threads`)
 
 A scheduled task ticks every few minutes; each tick plans today's batch if it
