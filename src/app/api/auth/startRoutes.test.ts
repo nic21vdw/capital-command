@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { GET as startGoogle } from "./google/route";
 import { GET as startTiktok } from "./tiktok/route";
 import { GET as startSpotify } from "./spotify/route";
+import { GET as startLinkedin } from "./linkedin/route";
 
 const request = (path: string) => new NextRequest(`http://localhost:3000${path}`);
 
@@ -13,7 +14,9 @@ beforeEach(() => {
     "TIKTOK_CLIENT_KEY",
     "TIKTOK_CLIENT_SECRET",
     "SPOTIFY_CLIENT_ID",
-    "SPOTIFY_CLIENT_SECRET"
+    "SPOTIFY_CLIENT_SECRET",
+    "LINKEDIN_CLIENT_ID",
+    "LINKEDIN_CLIENT_SECRET"
   ]) {
     vi.stubEnv(name, "");
   }
@@ -25,7 +28,8 @@ describe("pressing Sign in before the app credentials are saved", () => {
   it.each([
     ["YouTube", "youtube", startGoogle, "/api/auth/google", "Add the YouTube client ID and secret in Settings > Accounts first."],
     ["TikTok", "tiktok", startTiktok, "/api/auth/tiktok", "Add the TikTok client key and secret in Settings > Accounts first."],
-    ["Spotify", "spotify", startSpotify, "/api/auth/spotify", "Add the Spotify client ID and secret in Settings > Accounts first."]
+    ["Spotify", "spotify", startSpotify, "/api/auth/spotify", "Add the Spotify client ID and secret in Settings > Accounts first."],
+    ["LinkedIn", "linkedin", startLinkedin, "/api/auth/linkedin", "Add the LinkedIn client ID and secret in Settings > Accounts first."]
   ] as const)("sends %s back to Settings with a message instead of raw JSON", async (_label, platform, handler, path, message) => {
     const response = await handler(request(path));
     expect(response.status).toBe(307);

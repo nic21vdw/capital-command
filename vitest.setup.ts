@@ -37,6 +37,7 @@ const APP_PREFIXES = [
   "FAL_",
   "FB_",
   "IG_",
+  "LINKEDIN_",
   "META_",
   "OPENAI_",
   "PUBLISH_",

@@ -1,3 +1,4 @@
+import { expiringConnections } from "@/lib/platform-health/expiry";
 import { currentFingerprint } from "@/lib/platform-health/fingerprint";
 import { activeAuthStates } from "@/lib/platform-health/store";
 import {
@@ -27,5 +28,6 @@ export async function platformHealth(now: Date = new Date()): Promise<PlatformHe
       fixUrl: state.fixUrl,
       failures: state.failures
     }));
-  return { ok: broken.length === 0, checkedAt: now.toISOString(), broken };
+  const expiring = await expiringConnections(now).catch(() => []);
+  return { ok: broken.length === 0, checkedAt: now.toISOString(), broken, expiring };
 }

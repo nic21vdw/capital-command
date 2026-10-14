@@ -1,4 +1,4 @@
-import { RECONNECT_URL, authStateKey, type PlatformHealthResponse } from "@/lib/platform-health/types";
+import { RECONNECT_URL, authStateKey, type ExpiringPlatform, type PlatformHealthResponse } from "@/lib/platform-health/types";
 
 const DAY_MS = 86_400_000;
 const MAX_BANNER_REASON = 160;
@@ -11,6 +11,7 @@ export type BannerEntry = {
   agoLabel: string;
   fixUrl: string;
   fixLabel: string;
+  lead?: string;
 };
 
 export type BannerModel = {
@@ -45,13 +46,22 @@ function shortReason(reason: string): string {
   return reason.length > MAX_BANNER_REASON ? `${reason.slice(0, MAX_BANNER_REASON - 1)}…` : reason;
 }
 
+function expiringHeadline(expiring: ExpiringPlatform[]): string {
+  if (expiring.length > 1) return `${expiring.length} sign-ins are about to expire`;
+  const [entry] = expiring;
+  if (entry.expired) return `${entry.displayName} sign-in has expired`;
+  return `${entry.displayName} sign-in expires in ${entry.daysLeft} day${entry.daysLeft === 1 ? "" : "s"}`;
+}
+
 export function bannerModel(
   response: PlatformHealthResponse | null | undefined,
   options: { now?: Date; timeZone?: string } = {}
 ): BannerModel {
-  if (!response || !Array.isArray(response.broken) || response.broken.length === 0) return HIDDEN;
+  if (!response || !Array.isArray(response.broken)) return HIDDEN;
+  const expiring = Array.isArray(response.expiring) ? response.expiring : [];
+  if (response.broken.length === 0 && expiring.length === 0) return HIDDEN;
   const now = options.now ?? new Date();
-  const entries = response.broken.map((account) => ({
+  const brokenEntries: BannerEntry[] = response.broken.map((account) => ({
     key: authStateKey(account.platform, account.accountId),
     displayName: account.displayName || account.label,
     reason: shortReason(account.reason),
@@ -60,7 +70,21 @@ export function bannerModel(
     fixUrl: internalLink(account.fixUrl),
     fixLabel: "Reconnect"
   }));
+  const expiringEntries: BannerEntry[] = expiring.map((account) => ({
+    key: authStateKey(account.platform, account.accountId),
+    displayName: account.displayName || account.label,
+    reason: shortReason(account.reason),
+    sinceLabel: sinceLabel(account.expiresAt, options.timeZone),
+    agoLabel: "",
+    lead: `${account.expired ? "expired" : "expires"} ${sinceLabel(account.expiresAt, options.timeZone)}`,
+    fixUrl: internalLink(account.fixUrl),
+    fixLabel: "Reconnect"
+  }));
   const headline =
-    entries.length === 1 ? `${entries[0].displayName} has stopped posting` : `${entries.length} accounts have stopped posting`;
-  return { visible: true, headline, entries };
+    brokenEntries.length === 1
+      ? `${brokenEntries[0].displayName} has stopped posting`
+      : brokenEntries.length > 1
+        ? `${brokenEntries.length} accounts have stopped posting`
+        : expiringHeadline(expiring);
+  return { visible: true, headline, entries: [...brokenEntries, ...expiringEntries] };
 }

@@ -2,6 +2,12 @@ import path from "node:path";
 import ts from "typescript";
 import { defineConfig } from "vitest/config";
 
+const CANVAS_SPECS = [
+  "src/lib/carousels/pdf.test.ts",
+  "src/lib/carousels/renderDeck.test.ts",
+  "src/lib/pipeline/visual-ad-render.test.ts"
+];
+
 export default defineConfig({
   esbuild: false,
   plugins: [{
@@ -24,10 +30,15 @@ export default defineConfig({
   }],
   resolve: { preserveSymlinks: true, alias: { "@": path.resolve(process.cwd(), "src") } },
   test: {
-    include: ["src/**/*.test.ts"],
     setupFiles: [path.resolve(process.cwd(), "vitest.setup.ts")],
-    pool: "threads",
     maxWorkers: 1,
-    deps: { optimizer: { ssr: { enabled: false }, web: { enabled: false } } }
+    deps: { optimizer: { ssr: { enabled: false }, web: { enabled: false } } },
+    projects: [
+      {
+        extends: true,
+        test: { name: "unit", include: ["src/**/*.test.ts"], exclude: ["**/node_modules/**", ...CANVAS_SPECS], pool: "threads" }
+      },
+      { extends: true, test: { name: "canvas", include: CANVAS_SPECS, pool: "forks" } }
+    ]
   }
 });

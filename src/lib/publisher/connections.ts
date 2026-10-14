@@ -13,6 +13,8 @@
  * id fails at the provider with a message nobody can act on.
  */
 
+import { LINKEDIN_SETUP_DOC, LINKEDIN_SETUP_DOC_URL } from "./linkedinKeys";
+
 export type ConnectionField = {
   /** The environment variable name, which is also the key in credentials.json. */
   name: string;
@@ -46,6 +48,8 @@ export type Connection = {
   more?: { href: string; label: string };
   /** Where the provider's own console is, for the values above. */
   console?: string;
+  /** A setup guide in the repo, and what the row says until the app credentials are set. */
+  setup?: { doc: string; href: string; whenUnset: string };
 };
 
 export const CONNECTIONS: Connection[] = [
@@ -138,6 +142,27 @@ export const CONNECTIONS: Connection[] = [
         "before a post can be scheduled."
     ],
     console: "https://developers.facebook.com/apps"
+  },
+  {
+    id: "linkedin",
+    label: "LinkedIn",
+    purpose: "Posts text, pictures, video and PDF carousels to your profile or a company page.",
+    fields: [
+      { name: "LINKEDIN_CLIENT_ID", label: "Client ID", hint: "LinkedIn Developer Portal, your app's Auth tab." },
+      { name: "LINKEDIN_CLIENT_SECRET", label: "Primary client secret" }
+    ],
+    oauth: { href: "/api/auth/linkedin", label: "Connect LinkedIn" },
+    console: "https://www.linkedin.com/developers/apps",
+    clientType: "LinkedIn app",
+    setup: {
+      doc: LINKEDIN_SETUP_DOC,
+      href: LINKEDIN_SETUP_DOC_URL,
+      whenUnset: `LinkedIn is switched off until LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET are set. Paste them here or put them in .env. The steps to create the LinkedIn app are in ${LINKEDIN_SETUP_DOC}.`
+    },
+    notes: [
+      "LinkedIn signs you in for about 60 days and does not renew it by itself: the banner at the top warns you 7 days before it ends, and Connect LinkedIn again renews it.",
+      "Posting as a company page needs the Community Management API on the LinkedIn app. Once it is approved, use Connect with company pages."
+    ]
   },
   {
     id: "threads",

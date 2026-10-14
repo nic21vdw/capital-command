@@ -99,6 +99,18 @@ describe("planMirror — match", () => {
     expect(plan.skipped[0].reason).toContain("public");
   });
 
+  it("never mirrors a non-public clip to LinkedIn, which only posts publicly", () => {
+    const items = [item("private", "2026-08-01T14:00:00.000Z", { youtube: "scheduled" }, "private")];
+    const plan = planMirror(items, { targets: ["linkedin"], now: NOW });
+    expect(plan.additions).toEqual([]);
+    expect(plan.skipped[0].reason).toContain("LinkedIn");
+  });
+
+  it("mirrors a public clip to LinkedIn when it is a target", () => {
+    const items = [item("open", "2026-08-01T14:00:00.000Z", { youtube: "scheduled" })];
+    expect(planMirror(items, { targets: ["linkedin"], now: NOW }).additions).toEqual([{ itemId: "open", platform: "linkedin" }]);
+  });
+
   it("still mirrors a non-public clip to TikTok, which allows it", () => {
     const items = [item("private", "2026-08-01T14:00:00.000Z", { youtube: "scheduled" }, "private")];
     const plan = planMirror(items, { targets: ["tiktok"], now: NOW });

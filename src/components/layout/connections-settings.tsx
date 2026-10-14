@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { LinkedinAuthorPicker } from "@/components/layout/linkedin-author-picker";
 import { PlatformIcon, type PlatformIconKey } from "@/components/ui/platform-icon";
 import { CONNECTIONS, type Connection, type ConnectionField } from "@/lib/publisher/connections";
 import {
@@ -48,6 +49,7 @@ const PLATFORM_COLORS: Record<string, string> = {
   spotify: "text-[#75dc91] bg-[#1db954]/15",
   instagram: "text-[#f58fbd] bg-[#e1306c]/15",
   facebook: "text-[#7fb4ff] bg-[#1877f2]/15",
+  linkedin: "text-[#6db4ff] bg-[#0a66c2]/20",
   threads: "text-white bg-white/10",
   "media-hosting": "text-[#9fd3ff] bg-[#4f9bff]/15"
 };
@@ -548,9 +550,18 @@ export function ConnectionsSettings() {
                     </details>
                   ) : null}
                   {connection.manualNote ? <p className="mt-4 text-xs text-amber-200/90">{connection.manualNote}</p> : null}
+                  {connection.setup ? (
+                    <p className={cn("mt-4 text-xs", ready ? "text-[var(--muted-foreground)]" : "text-amber-200/90")}>
+                      {ready ? null : <>{connection.setup.whenUnset}{" "}</>}
+                      <a href={connection.setup.href} target="_blank" rel="noreferrer" className="text-[var(--accent)] hover:underline">
+                        Setup guide: {connection.setup.doc}
+                      </a>
+                    </p>
+                  ) : null}
                   {connection.notes?.map((note) => (
                     <p key={note} className="mt-2 text-xs text-[var(--muted-foreground)]">{note}</p>
                   ))}
+                  {connection.id === "linkedin" && connected ? <LinkedinAuthorPicker /> : null}
                   <div className="mt-5 flex flex-wrap items-center gap-2">
                     <Button onClick={() => void save(connection)} disabled={!dirty || saving === connection.id}>
                       {saving === connection.id ? "Saving..." : "Save credentials"}
@@ -558,6 +569,12 @@ export function ConnectionsSettings() {
                     {connection.oauth && ready ? (
                       <a href={connection.oauth.href} className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] bg-white/5 px-4 py-2 text-sm font-medium text-white hover:bg-white/10">
                         {connected ? "Reconnect" : connection.oauth.label}
+                        <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                      </a>
+                    ) : null}
+                    {connection.id === "linkedin" && ready ? (
+                      <a href="/api/auth/linkedin?pages=1" className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] bg-white/5 px-4 py-2 text-sm font-medium text-white hover:bg-white/10">
+                        Connect with company pages
                         <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                       </a>
                     ) : null}

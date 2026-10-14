@@ -745,6 +745,63 @@ capped at 90 (`metrics.ts`). Numbers a platform did not report are absent, never
   declares its filters, Sync now and a reading of the totals through
   `buildPerformanceSurface` (`surface.ts`).
 
+## LinkedIn (`adapters/linkedin.ts`, `linkedinAuth.ts`, `linkedinApi.ts`)
+
+Ships switched off. With `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET` unset the
+Settings row says what to set and links `docs/LINKEDIN_SETUP.md`, and the Uploading Center
+shows no LinkedIn tab until an account is connected. `linkedin` is in `ALL_PLATFORMS` but
+not in `DEFAULT_PLATFORMS` (`types.ts`), which is what the default platform list and
+"All platforms" use, so connecting it does not start posting every clip there. Opt in with
+`PUBLISH_PLATFORMS` / `PUBLISH_MIRROR_TARGETS`.
+
+- Posts go to `POST /rest/posts` with `LinkedIn-Version` (`LINKEDIN_API_VERSION`, default in
+  `linkedinApi.ts`) and `X-Restli-Protocol-Version: 2.0.0`. Media is uploaded by the
+  adapter (Images, Videos, Documents APIs), so LinkedIn never needs the S3 hosting; the
+  runner skips hosting for a picture post whose legs are all LinkedIn. A multi-slide deck
+  becomes one PDF (`carousels/pdf.ts`, `@napi-rs/canvas`) posted as a document.
+- Commentary uses LinkedIn's little-text format. `littleText` escapes `| { } @ [ ] ( ) < > # \ * _ ~`
+  and turns hashtags into `{hashtag|\#|tag}`; an unescaped `(` cuts the post short.
+- A create that may have gone through is never retried. `adapters/linkedin.ts` writes a
+  `posting:<media urn>` marker into the leg's `containerId` (through `onHandle`) BEFORE
+  `POST /rest/posts`. A timeout, 408 or 5xx of that POST, or a resume that finds the marker
+  and no `postId`, throws `AMBIGUOUS_POST_MESSAGE` (permanent): the user checks the feed and
+  re-arms, and `rearmItem` turns the marker into `rearmed:<media urn>` so the stored media is
+  reused and the leg remembers it came from an ambiguous create. A definite refusal (4xx,
+  429) clears the marker back to its starting handle. A duplicate-content 422 that names
+  `urn:li:share` or `urn:li:ugcPost` is recorded as published ONLY for a `rearmed:` leg; on
+  a fresh leg (and for `publishLinkedinText`) it fails with "LinkedIn refused: same text as
+  an earlier post". A network failure that proves the request was never sent
+  (`LinkedinUnsentError`: ENOTFOUND, EAI_AGAIN, ECONNREFUSED, TLS certificate errors) is
+  retryable and clears the marker; a timeout, 408 or 5xx stays "may already be posted".
+  Uploads time out after 120 s plus 30 s per 10 MB (`linkedinUploadTimeoutMs`).
+- LinkedIn only posts public items. `enqueue`/`enqueueImagePost` hold a non-public LinkedIn
+  leg as `manual` with the reason, the mirror skips it (`PUBLIC_ONLY`), and the adapter
+  refuses it. "Connected" for LinkedIn is `linkedinConfigured` (credentials plus a stored
+  token) and does not depend on `PUBLISH_PLATFORMS`, which only decides what books
+  automatically. The duplicate rule treats LinkedIn as its own audience
+  (`DuplicateCandidate.platforms`), so a deck booked to Instagram and Facebook can also be
+  booked to LinkedIn. Text-with-link (`publishLinkedinText`) is adapter-only: nothing in the
+  queue creates one.
+- Errors: 429 is a `ThrottledError` that waits for the daily reset at midnight UTC (or
+  `Retry-After`), 5xx and network errors are transient, 401 is `HTTP 401` so
+  `isAuthFailure` trips the account breaker, everything else is permanent. A UTC-day budget
+  (`LINKEDIN_DAILY_POST_BUDGET`, `remainingLinkedinPosts`) defers fresh posts past it.
+- The mid-flight handle (`containerId`) is the media URN, stored after the upload finishes;
+  a retry polls that asset and posts instead of uploading again.
+- Tokens live in `data/publisher-tokens.json` under `linkedin.*` (`linkedinKeys.ts`),
+  written with `setCachedTokens` / `updateCachedTokens` (one locked, atomic read-modify-write;
+  a read that fails for any reason but ENOENT throws and nothing is written; EBUSY, EPERM and
+  EACCES are retried five times with a short backoff first). A refresh token that rotates
+  must never cost the request: TikTok, Spotify and LinkedIn save it through
+  `rotatedToken.ts` (or catch the write), log "the rotated refresh token could not be
+  saved" and carry on with the new access token. The
+  OAuth state is single-use and expires in ten minutes. Standard apps get a 60 day access
+  token and no refresh token: `platform-health/expiry.ts` adds an `expiring` entry to
+  `/api/health/platforms` seven days ahead and the banner shows it. A refresh token, when
+  LinkedIn issues one, is used silently.
+- The author (`urn:li:person:<sub>` or `urn:li:organization:<id>`) is chosen in Settings
+  (`/api/linkedin/author`). A page needs `w_organization_social`; page posts are always public.
+
 ## Launch Pad (`src/lib/launch`)
 
 Product Hunt launch planning at `/launch`. Product Hunt has NO write API for

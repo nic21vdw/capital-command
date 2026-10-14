@@ -59,7 +59,7 @@ export type RemovalImpact = {
   fullyPublished: boolean;
 };
 
-const ORDER: PlatformId[] = ["youtube", "instagram", "tiktok", "facebook"];
+const ORDER: PlatformId[] = ["youtube", "instagram", "tiktok", "facebook", "linkedin"];
 
 /** A leg whose post exists on the platform and has not gone out yet. */
 function holdsPost(state: PlatformState | undefined): state is PlatformState & { postId: string } {

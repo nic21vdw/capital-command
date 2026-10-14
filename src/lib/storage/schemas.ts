@@ -536,7 +536,7 @@ export const carouselBatchSchema = z.object({
 
 export const carouselScheduleSchema = z.object({
   id: z.string(),
-  platforms: z.array(z.enum(["youtube", "instagram", "tiktok", "facebook"])).default([]),
+  platforms: z.array(z.enum(["youtube", "instagram", "tiktok", "facebook", "linkedin"])).default([]),
   time: z.string().regex(/^\d{2}:\d{2}$/),
   recurrence: z.enum(["once", "daily", "weekly"]).default("once"),
   date: z.string(),

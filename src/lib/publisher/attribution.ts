@@ -1,6 +1,6 @@
 import { isPostCode } from "@/lib/attribution/code";
 
-export type AttributionPlatform = "youtube" | "instagram" | "tiktok" | "facebook" | "threads" | "x";
+export type AttributionPlatform = "youtube" | "instagram" | "tiktok" | "facebook" | "threads" | "x" | "linkedin";
 
 export const ATTRIBUTION_PATHS: Record<AttributionPlatform, string> = {
   youtube: "/yt",
@@ -8,7 +8,8 @@ export const ATTRIBUTION_PATHS: Record<AttributionPlatform, string> = {
   tiktok: "/tt",
   facebook: "/fb",
   threads: "/th",
-  x: "/x"
+  x: "/x",
+  linkedin: "/li"
 };
 
 export const YOUTUBE_LEAD_LINE = "Try CoLateral: https://colateralai.com/yt";
