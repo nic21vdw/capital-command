@@ -1,4 +1,5 @@
 import { classifyFailure, type HttpDeps } from "@/lib/analytics/http";
+import { createLadder, type Ladder } from "@/lib/analytics/ladder";
 import { addNote, newOutcome, readEach, type FetchOutcome } from "@/lib/analytics/outcome";
 import { pacedRequest, type Pacer } from "@/lib/analytics/pacing";
 import { isParameterError } from "@/lib/analytics/params";
@@ -96,21 +97,32 @@ export async function fetchFacebookMetrics(
   const outcome = newOutcome();
   const request = pacedRequest(pacer, deps);
   const byId = new Map(posts.map((post) => [post.id, post]));
-  const insightIndex = new Map<FacebookNode, number>();
-  const insightsOff = new Set<FacebookNode>();
-  const fieldIndex = new Map<FacebookNode, number>();
+  const insightLadders = new Map<FacebookNode, Ladder>();
+  const fieldLadders = new Map<FacebookNode, Ladder>();
+  const ladderOf = (ladders: Map<FacebookNode, Ladder>, node: FacebookNode, size: number) => {
+    let ladder = ladders.get(node);
+    if (!ladder) {
+      ladder = createLadder(size);
+      ladders.set(node, ladder);
+    }
+    return ladder;
+  };
   let insightsAllowed = true;
 
   async function readInsights(post: FacebookPost): Promise<MetricValues> {
     const sets = INSIGHT_SETS[post.node];
-    if (!insightsAllowed || insightsOff.has(post.node) || sets.length === 0) return {};
+    if (!insightsAllowed || sets.length === 0) return {};
+    const ladder = ladderOf(insightLadders, post.node, sets.length);
+    if (ladder.exhausted(post.node)) return {};
+    let index = ladder.start(post.node);
     for (;;) {
-      const index = insightIndex.get(post.node) ?? 0;
       const query = new URLSearchParams({ metric: sets[index].join(","), access_token: session.token });
       try {
-        return parseFacebookInsights(
+        const metrics = parseFacebookInsights(
           await request(`${session.graphBase}/${encodeURIComponent(post.id)}/${INSIGHT_EDGE[post.node]}?${query}`, { label: "Facebook insights" })
         );
+        ladder.accepted(post.node, index);
+        return metrics;
       } catch (error) {
         if (classifyFailure(error).kind === "scope") {
           insightsAllowed = false;
@@ -118,25 +130,28 @@ export async function fetchFacebookMetrics(
           return {};
         }
         if (!isParameterError(error)) throw error;
-        if (index >= sets.length - 1) {
-          insightsOff.add(post.node);
-          return {};
-        }
-        insightIndex.set(post.node, index + 1);
+        ladder.refused(post.node, index, post.id);
+        if (index >= sets.length - 1) return {};
+        index += 1;
       }
     }
   }
 
   async function readBasic(post: FacebookPost): Promise<MetricValues> {
     const lists = FIELD_LISTS[post.node];
+    const ladder = ladderOf(fieldLadders, post.node, lists.length);
+    let index = ladder.start(post.node);
     for (;;) {
-      const index = fieldIndex.get(post.node) ?? 0;
       const query = new URLSearchParams({ fields: lists[index], access_token: session.token });
       try {
-        return parseFacebookBasic(await request(`${session.graphBase}/${encodeURIComponent(post.id)}?${query}`, { label: "Facebook post" }));
+        const metrics = parseFacebookBasic(await request(`${session.graphBase}/${encodeURIComponent(post.id)}?${query}`, { label: "Facebook post" }));
+        ladder.accepted(post.node, index);
+        return metrics;
       } catch (error) {
-        if (!isParameterError(error) || index >= lists.length - 1) throw error;
-        fieldIndex.set(post.node, index + 1);
+        if (!isParameterError(error)) throw error;
+        ladder.refused(post.node, index, post.id);
+        if (index >= lists.length - 1) throw error;
+        index += 1;
       }
     }
   }

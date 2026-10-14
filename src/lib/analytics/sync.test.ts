@@ -1,6 +1,6 @@
-import { rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readMetrics, metricsFile, updateMetrics } from "@/lib/analytics/store";
 import { MANUAL_COOLDOWN_MS, manualCooldownMs, syncAnalytics, type AnalyticsCredentials, type SyncDeps } from "@/lib/analytics/sync";
 import { httpDeps, type MockRoute } from "@/lib/analytics/test-helpers";
@@ -127,6 +127,10 @@ function setup(routes: MockRoute[], targets: Target[], overrides: Partial<SyncDe
   };
   return { ...http, run };
 }
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 beforeEach(async () => {
   ledgerClock = NOW;
@@ -634,5 +638,64 @@ describe("syncAnalytics", () => {
     expect(store.posts["facebook:fbphoto1"].latest?.metrics).toEqual({ likes: 4, comments: 1 });
     expect(store.posts["facebook:100_9"].latest?.metrics).toEqual({ views: 55, likes: 9, comments: 2, shares: 3 });
     expect(calls.some((call) => call.url.includes("/fbphoto1/insights"))).toBe(false);
+  });
+
+  it("tries again next cycle, instead of resting until tomorrow, when the quota ledger cannot be read", async () => {
+    await mkdir(path.dirname(quotaLedgerFile()), { recursive: true });
+    await writeFile(quotaLedgerFile(), "{ not json");
+    const { run, calls } = setup(youtubeRoutes, [target("youtube", "ytvideo0001")]);
+
+    const report = await run(NOW, { force: true });
+    const account = (await readMetrics()).accounts["youtube:youtube-primary"];
+
+    expect(calls).toHaveLength(0);
+    expect(report.status).toBe("partial");
+    expect(account.status).toBe("error");
+    expect(account.backoffUntil).toBeUndefined();
+    expect(account.note).toMatch(/ledger/i);
+
+    await rm(quotaLedgerFile(), { force: true });
+    await run(new Date(NOW.getTime() + 6 * HOUR), { force: true });
+
+    expect((await readMetrics()).posts["youtube:ytvideo0001"].latest).not.toBeNull();
+    expect((await readMetrics()).accounts["youtube:youtube-primary"].status).toBe("ok");
+  });
+
+  it("keeps Instagram media types apart: refusals on carousels do not change how a Reel is read", async () => {
+    const { run, calls } = setup(
+      [
+        {
+          match: "/insights",
+          reply: (call) =>
+            new URL(call.url).searchParams.get("metric")!.includes("views") && call.url.includes("/car")
+              ? { status: 400, body: { error: { code: 100, message: "(#100) views is not supported for this media" } } }
+              : { body: { data: [{ name: "reach", values: [{ value: 5 }] }] } }
+        }
+      ],
+      [
+        target("instagram", "car1", { format: "carousel" }),
+        target("instagram", "car2", { format: "carousel" }),
+        target("instagram", "reel1", { format: "video" })
+      ]
+    );
+
+    await run(NOW);
+
+    const reelCall = calls.find((call) => call.url.includes("/reel1/"))!;
+    expect(new URL(reelCall.url).searchParams.get("metric")).toContain("views");
+  });
+
+  it("paces Threads by the same call budget as Meta", async () => {
+    vi.stubEnv("ANALYTICS_META_CALLS_PER_RUN", "3");
+    const ids = ["th01", "th02", "th03", "th04", "th05", "th06"];
+    const { run, calls } = setup(
+      [{ match: "/insights", reply: { body: { data: [{ name: "views", values: [{ value: 2 }] }] } } }],
+      ids.map((id) => target("threads", id))
+    );
+
+    const report = await run(NOW);
+
+    expect(calls).toHaveLength(3);
+    expect(report.accounts[0]).toMatchObject({ status: "ok", fetched: 3 });
   });
 });

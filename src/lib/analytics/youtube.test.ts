@@ -256,7 +256,7 @@ describe("fetchYoutubeMetrics", () => {
         token: "tok",
         videos: list,
         now: NOW,
-        debit: async () => (allowed-- > 0 ? { ok: true, remaining: 1 } : { ok: false, reason: "non-upload-allowance", remaining: 0 })
+        debit: async () => (allowed-- > 0 ? { ok: true, remaining: 1 } : { ok: false, reason: "budget", remaining: 0 })
       },
       deps
     );
@@ -264,5 +264,22 @@ describe("fetchYoutubeMetrics", () => {
     expect(calls.filter((call) => call.url.includes(DATA_API))).toHaveLength(2);
     expect(outcome.results.size).toBe(100);
     expect(outcome.stopped).toMatchObject({ kind: "quota" });
+  });
+
+  it("tells a ledger that could not be read from a spent allowance: it stops, but not as a quota stop", async () => {
+    const { deps, calls } = httpDeps([{ match: DATA_API, reply: { body: dataApiBody(["a"]) } }]);
+
+    const outcome = await fetchYoutubeMetrics(
+      {
+        token: "tok",
+        videos: videos(2),
+        now: NOW,
+        debit: async () => ({ ok: false, reason: "unavailable", remaining: 0 })
+      },
+      deps
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(outcome.stopped).toMatchObject({ kind: "ledger" });
   });
 });

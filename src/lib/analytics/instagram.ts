@@ -1,10 +1,13 @@
 import { classifyFailure, type HttpDeps } from "@/lib/analytics/http";
+import { createLadder } from "@/lib/analytics/ladder";
 import { addNote, newOutcome, readEach, type FetchOutcome } from "@/lib/analytics/outcome";
 import { pacedRequest, type Pacer } from "@/lib/analytics/pacing";
 import { isParameterError } from "@/lib/analytics/params";
 import type { FetchedPost, MetricValues } from "@/lib/analytics/types";
 
 export type InstagramSession = { token: string; graphBase: string };
+
+export type InstagramMedia = { id: string; kind: string };
 
 export const INSTAGRAM_SCOPE_NOTE =
   "Instagram reach, views and saves need the instagram_manage_insights permission; until Meta is reconnected with it, only likes and comments are read.";
@@ -48,27 +51,34 @@ export function parseInstagramInsights(body: unknown): MetricValues {
 
 export async function fetchInstagramMetrics(
   session: InstagramSession,
-  mediaIds: string[],
+  media: InstagramMedia[],
   deps: HttpDeps = {},
   pacer?: Pacer
 ): Promise<FetchOutcome> {
   const outcome = newOutcome();
   const request = pacedRequest(pacer, deps);
   const sets = instagramMetricSets(session.graphBase);
-  let setIndex = 0;
+  const ladder = createLadder(sets.length);
+  const kindOf = new Map(media.map((item) => [item.id, item.kind]));
   let insightsAllowed = true;
 
-  async function readInsights(id: string): Promise<MetricValues> {
+  async function readInsights(id: string): Promise<MetricValues | null> {
+    const kind = kindOf.get(id) ?? "MEDIA";
+    if (ladder.exhausted(kind)) return null;
+    let index = ladder.start(kind);
     for (;;) {
-      const query = new URLSearchParams({ metric: sets[setIndex].join(","), access_token: session.token });
+      const query = new URLSearchParams({ metric: sets[index].join(","), access_token: session.token });
       try {
-        return parseInstagramInsights(
+        const metrics = parseInstagramInsights(
           await request(`${session.graphBase}/${encodeURIComponent(id)}/insights?${query}`, { label: "Instagram media insights" })
         );
+        ladder.accepted(kind, index);
+        return metrics;
       } catch (error) {
         if (!isParameterError(error)) throw error;
-        if (setIndex >= sets.length - 1) throw error;
-        setIndex += 1;
+        ladder.refused(kind, index, id);
+        if (index >= sets.length - 1) throw error;
+        index += 1;
       }
     }
   }
@@ -85,22 +95,26 @@ export async function fetchInstagramMetrics(
     return metrics;
   }
 
-  await readEach(mediaIds, outcome, async (id): Promise<FetchedPost> => {
-    if (insightsAllowed) {
-      try {
-        const metrics = await readInsights(id);
-        if (Object.keys(metrics).length > 0) return { source: "instagram-insights", metrics };
-      } catch (error) {
-        if (classifyFailure(error).kind === "scope") {
-          insightsAllowed = false;
-          addNote(outcome, INSTAGRAM_SCOPE_NOTE);
-        } else if (!isParameterError(error)) {
-          throw error;
+  await readEach(
+    media.map((item) => item.id),
+    outcome,
+    async (id): Promise<FetchedPost> => {
+      if (insightsAllowed) {
+        try {
+          const metrics = await readInsights(id);
+          if (metrics && Object.keys(metrics).length > 0) return { source: "instagram-insights", metrics };
+        } catch (error) {
+          if (classifyFailure(error).kind === "scope") {
+            insightsAllowed = false;
+            addNote(outcome, INSTAGRAM_SCOPE_NOTE);
+          } else if (!isParameterError(error)) {
+            throw error;
+          }
         }
       }
+      return { source: "instagram-basic", metrics: await readBasic(id) };
     }
-    return { source: "instagram-basic", metrics: await readBasic(id) };
-  });
+  );
 
   return outcome;
 }

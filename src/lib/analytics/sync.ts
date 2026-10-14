@@ -17,6 +17,7 @@ import {
   type AccountSyncStatus,
   type AnalyticsPlatform,
   type AnalyticsStore,
+  type PostFormat,
   type PostRecord,
   type SyncMeta,
   type SyncResult,
@@ -366,6 +367,22 @@ async function clearOlderTrip(platform: AnalyticsPlatform, accountId: string, st
   await clearAuthState(platform, accountId).catch(() => false);
 }
 
+const INSTAGRAM_KINDS: Record<PostFormat, string> = {
+  video: "REELS",
+  "long-form": "VIDEO",
+  carousel: "CAROUSEL_ALBUM",
+  image: "FEED",
+  text: "FEED"
+};
+
+function instagramKind(postFormat: PostFormat): string {
+  return INSTAGRAM_KINDS[postFormat];
+}
+
+function threadsKind(postFormat: PostFormat): string {
+  return postFormat === "image" || postFormat === "carousel" ? "IMAGE" : "TEXT";
+}
+
 function metaCallsPerRun(): number {
   const configured = Number(process.env.ANALYTICS_META_CALLS_PER_RUN);
   return Number.isInteger(configured) && configured > 0 ? configured : DEFAULT_META_CALLS_PER_RUN;
@@ -396,8 +413,8 @@ async function fetchFor(
     case "instagram": {
       const session = await deps.credentials.instagram(accountId);
       if (!session) return null;
-      const ids = oldestFirst(group, snapshot).map((target) => target.postId);
-      return fetchInstagramMetrics(session, ids, deps.http, createPacer({ maxCalls: metaCallsPerRun() }));
+      const media = oldestFirst(group, snapshot).map((target) => ({ id: target.postId, kind: instagramKind(target.format) }));
+      return fetchInstagramMetrics(session, media, deps.http, createPacer({ maxCalls: metaCallsPerRun() }));
     }
     case "facebook": {
       const session = await deps.credentials.facebook(accountId);
@@ -408,7 +425,8 @@ async function fetchFor(
     case "threads": {
       const session = await deps.credentials.threads(accountId);
       if (!session) return null;
-      return fetchThreadsMetrics(session, oldestFirst(group, snapshot).map((target) => target.postId), deps.http);
+      const posts = oldestFirst(group, snapshot).map((target) => ({ id: target.postId, kind: threadsKind(target.format) }));
+      return fetchThreadsMetrics(session, posts, deps.http, createPacer({ maxCalls: metaCallsPerRun() }));
     }
     case "tiktok": {
       const session = await deps.credentials.tiktok(accountId);

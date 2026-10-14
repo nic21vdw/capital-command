@@ -114,7 +114,7 @@ describe("fetchFacebookMetrics", () => {
     expect(fieldsParam(calls[0])).toContain("reactions");
   });
 
-  it("falls back to a shorter field list when Facebook rejects one, and remembers it for the rest of the run", async () => {
+  it("falls back to a shorter field list for the post that was refused, and keeps it for the rest only after a second post is refused too", async () => {
     const { deps, calls } = httpDeps([
       {
         match: /\/p\d_1\?fields=/,
@@ -123,7 +123,7 @@ describe("fetchFacebookMetrics", () => {
             ? { status: 400, body: { error: { code: 100, message: "(#100) Tried accessing nonexisting field (shares)" } } }
             : { body: { reactions: { summary: { total_count: 3 } }, comments: { summary: { total_count: 1 } } } }
       },
-      { match: "/insights", reply: { status: 400, body: { error: { code: 100, message: "(#100) The value must be a valid insights metric" } } } }
+      { match: "/insights", reply: { body: insights({ post_media_view: 8 }) } }
     ]);
 
     const outcome = await fetchFacebookMetrics(
@@ -131,13 +131,40 @@ describe("fetchFacebookMetrics", () => {
       [
         { id: "p1_1", node: "post" },
         { id: "p2_1", node: "post" },
+        { id: "p3_1", node: "post" },
+        { id: "p4_1", node: "post" }
+      ],
+      deps
+    );
+
+    expect(outcome.results.get("p4_1")?.metrics).toEqual({ views: 8, likes: 3, comments: 1 });
+    expect(calls.filter((call) => fieldsParam(call).includes("shares"))).toHaveLength(2);
+  });
+
+  it("does not move every later post to the shorter field list because one post was refused", async () => {
+    const { deps, calls } = httpDeps([
+      {
+        match: /\/(odd|p\d)_1\?fields=/,
+        reply: (call) =>
+          fieldsParam(call).includes("shares") && call.url.includes("/odd_1")
+            ? { status: 400, body: { error: { code: 100, message: "(#100) Tried accessing nonexisting field (shares)" } } }
+            : { body: { reactions: { summary: { total_count: 3 } }, comments: { summary: { total_count: 1 } }, shares: { count: 2 } } }
+      },
+      { match: "/insights", reply: { body: insights({ post_media_view: 8 }) } }
+    ]);
+
+    const outcome = await fetchFacebookMetrics(
+      creds,
+      [
+        { id: "odd_1", node: "post" },
+        { id: "p2_1", node: "post" },
         { id: "p3_1", node: "post" }
       ],
       deps
     );
 
-    expect(outcome.results.get("p3_1")?.metrics).toEqual({ likes: 3, comments: 1 });
-    expect(calls.filter((call) => fieldsParam(call).includes("shares"))).toHaveLength(1);
+    expect(outcome.results.get("p3_1")?.metrics.shares).toBe(2);
+    expect(calls.filter((call) => fieldsParam(call).includes("shares"))).toHaveLength(3);
   });
 
   it("falls back to reaction and comment counts when the Page token cannot read insights, and stops asking for them", async () => {
@@ -164,7 +191,7 @@ describe("fetchFacebookMetrics", () => {
     expect(outcome.stopped).toBeNull();
   });
 
-  it("walks the Reels metric sets when one is not offered, and starts later posts at the set that worked", async () => {
+  it("walks the Reels metric sets for a refused video, and starts later videos on the next set only after a second video is refused", async () => {
     const { deps, calls } = httpDeps([
       {
         match: "video_insights",
@@ -181,19 +208,72 @@ describe("fetchFacebookMetrics", () => {
       creds,
       [
         { id: "v1", node: "video" },
-        { id: "v2", node: "video" }
+        { id: "v2", node: "video" },
+        { id: "v3", node: "video" }
       ],
       deps
     );
 
-    expect(outcome.results.get("v1")?.metrics.views).toBe(77);
-    expect(outcome.results.get("v2")?.metrics.views).toBe(77);
+    expect([...outcome.results.values()].map((result) => result.metrics.views)).toEqual([77, 77, 77]);
     const insightCalls = calls.filter((call) => call.url.includes("video_insights")).map(metricParam);
     expect(insightCalls).toEqual([
       "blue_reels_play_count,post_video_avg_time_watched,post_video_view_time",
       "fb_reels_total_plays,post_video_avg_time_watched,post_video_view_time",
+      "blue_reels_play_count,post_video_avg_time_watched,post_video_view_time",
+      "fb_reels_total_plays,post_video_avg_time_watched,post_video_view_time",
       "fb_reels_total_plays,post_video_avg_time_watched,post_video_view_time"
     ]);
+  });
+
+  it("does not stop asking for insights on a whole node type because one video was refused on every set", async () => {
+    const { deps } = httpDeps([
+      {
+        match: "video_insights",
+        reply: (call) =>
+          call.url.includes("/odd/")
+            ? { status: 400, body: { error: { code: 100, message: "(#100) invalid metric" } } }
+            : { body: insights({ blue_reels_play_count: 50 }) }
+      },
+      { match: /\/(odd|v\d)\?fields=/, reply: { body: { likes: { summary: { total_count: 1 } } } } }
+    ]);
+
+    const outcome = await fetchFacebookMetrics(
+      creds,
+      [
+        { id: "odd", node: "video" },
+        { id: "v2", node: "video" },
+        { id: "v3", node: "video" }
+      ],
+      deps
+    );
+
+    expect(outcome.results.get("odd")?.source).toBe("facebook-basic");
+    expect(outcome.results.get("v2")?.source).toBe("facebook-insights");
+    expect(outcome.results.get("v3")?.source).toBe("facebook-insights");
+  });
+
+  it("stops asking a node type for insights once two different posts of that type have been refused on every set", async () => {
+    const { deps, calls } = httpDeps([
+      { match: "video_insights", reply: { status: 400, body: { error: { code: 100, message: "(#100) invalid metric" } } } },
+      { match: /\/(v\d)\?fields=/, reply: { body: { likes: { summary: { total_count: 1 } } } } },
+      { match: "/100_1/insights", reply: { body: insights({ post_media_view: 12 }) } },
+      { match: /\/100_1\?fields=/, reply: { body: { reactions: { summary: { total_count: 2 } } } } }
+    ]);
+
+    const outcome = await fetchFacebookMetrics(
+      creds,
+      [
+        { id: "v1", node: "video" },
+        { id: "v2", node: "video" },
+        { id: "v3", node: "video" },
+        { id: "100_1", node: "post" }
+      ],
+      deps
+    );
+
+    expect(calls.filter((call) => call.url.includes("/v3/video_insights"))).toHaveLength(0);
+    expect(outcome.results.get("v3")?.source).toBe("facebook-basic");
+    expect(outcome.results.get("100_1")?.source).toBe("facebook-insights");
   });
 
   it("does not let one post's 400 count toward giving up on the account", async () => {

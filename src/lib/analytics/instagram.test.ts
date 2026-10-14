@@ -12,6 +12,9 @@ function insights(values: Record<string, number>) {
   };
 }
 
+const media = (...ids: string[]) => ids.map((id) => ({ id, kind: "FEED" }));
+const typed = (kind: string, ...ids: string[]) => ids.map((id) => ({ id, kind }));
+
 const metricsOf = (url: string) => new URL(url).searchParams.get("metric")?.split(",") ?? [];
 
 describe("parseInstagramInsights", () => {
@@ -38,7 +41,7 @@ describe("fetchInstagramMetrics", () => {
       { match: "/m2/insights", reply: { body: insights({ views: 5, reach: 5, likes: 0, comments: 0, shares: 0, saved: 0 }) } }
     ]);
 
-    const outcome = await fetchInstagramMetrics(creds, ["m1", "m2"], deps);
+    const outcome = await fetchInstagramMetrics(creds, media("m1", "m2"), deps);
 
     expect(outcome.results.get("m1")).toEqual({
       source: "instagram-insights",
@@ -61,7 +64,7 @@ describe("fetchInstagramMetrics", () => {
       }
     ]);
 
-    const outcome = await fetchInstagramMetrics({ token: "ig-token", graphBase: "https://graph.facebook.com/v21.0" }, ["m1"], deps);
+    const outcome = await fetchInstagramMetrics({ token: "ig-token", graphBase: "https://graph.facebook.com/v21.0" }, media("m1"), deps);
 
     expect(calls).toHaveLength(2);
     expect(metricsOf(calls[1].url)).toContain("plays");
@@ -79,14 +82,33 @@ describe("fetchInstagramMetrics", () => {
       }
     ]);
 
-    const outcome = await fetchInstagramMetrics(creds, ["m1"], deps);
+    const outcome = await fetchInstagramMetrics(creds, media("m1"), deps);
 
     expect(calls.flatMap((call) => metricsOf(call.url))).not.toContain("plays");
     expect(metricsOf(calls[1].url)).toEqual(["reach", "likes", "comments", "shares", "saved"]);
     expect(outcome.results.get("m1")?.metrics).toMatchObject({ reach: 40, saves: 2 });
   });
 
-  it("remembers the metric set that worked, so later media do not retry the ones that were refused", async () => {
+  it("falls back for one odd media only: the next media of the same type still starts with the full metric set", async () => {
+    const refusing = new Set(["odd"]);
+    const { deps, calls } = httpDeps([
+      {
+        match: "/insights",
+        reply: (call) =>
+          metricsOf(call.url).includes("views") && refusing.has(call.url.split("/").at(-2)!)
+            ? { status: 400, body: { error: { code: 100, message: "(#100) views is not supported for this media" } } }
+            : { body: insights({ views: 9, reach: 4, likes: 1, comments: 0, shares: 0, saved: 0 }) }
+      }
+    ]);
+
+    const outcome = await fetchInstagramMetrics(creds, typed("REELS", "odd", "m2", "m3"), deps);
+
+    expect(outcome.results.size).toBe(3);
+    expect(calls.filter((call) => metricsOf(call.url).includes("views"))).toHaveLength(3);
+    expect(calls).toHaveLength(4);
+  });
+
+  it("moves a media type on only after two different media of that type are refused the same way", async () => {
     const { deps, calls } = httpDeps([
       {
         match: "/insights",
@@ -97,10 +119,50 @@ describe("fetchInstagramMetrics", () => {
       }
     ]);
 
-    await fetchInstagramMetrics(creds, ["m1", "m2", "m3"], deps);
+    await fetchInstagramMetrics(creds, typed("CAROUSEL_ALBUM", "c1", "c2", "c3", "c4"), deps);
 
-    expect(calls).toHaveLength(4);
-    expect(calls.filter((call) => metricsOf(call.url).includes("views"))).toHaveLength(1);
+    expect(calls.filter((call) => metricsOf(call.url).includes("views"))).toHaveLength(2);
+    expect(calls).toHaveLength(6);
+  });
+
+  it("keeps one media type's refusals from changing another's metric set", async () => {
+    const { deps, calls } = httpDeps([
+      {
+        match: "/insights",
+        reply: (call) =>
+          metricsOf(call.url).includes("views") && call.url.includes("/carousel")
+            ? { status: 400, body: { error: { code: 100, message: "(#100) views is not supported for this media" } } }
+            : { body: insights({ views: 5, reach: 4, likes: 1, comments: 0, shares: 0, saved: 0 }) }
+      }
+    ]);
+
+    const outcome = await fetchInstagramMetrics(
+      creds,
+      [...typed("CAROUSEL_ALBUM", "carousel1", "carousel2", "carousel3"), ...typed("REELS", "reel1", "reel2")],
+      deps
+    );
+
+    const reelCalls = calls.filter((call) => call.url.includes("/reel"));
+    expect(reelCalls).toHaveLength(2);
+    expect(reelCalls.every((call) => metricsOf(call.url).includes("views"))).toBe(true);
+    expect(outcome.results.get("reel1")?.metrics.views).toBe(5);
+  });
+
+  it("does not let a set that other media were refused on stay demoted once another media gets through it", async () => {
+    const refusing = new Set(["a", "c"]);
+    const { deps, calls } = httpDeps([
+      {
+        match: "/insights",
+        reply: (call) =>
+          metricsOf(call.url).includes("views") && refusing.has(call.url.split("/").at(-2)!)
+            ? { status: 400, body: { error: { code: 100, message: "(#100) views is not supported for this media" } } }
+            : { body: insights({ views: 5, reach: 4, likes: 1, comments: 0, shares: 0, saved: 0 }) }
+      }
+    ]);
+
+    await fetchInstagramMetrics(creds, typed("REELS", "a", "b", "c", "d"), deps);
+
+    expect(calls.filter((call) => metricsOf(call.url).includes("views"))).toHaveLength(4);
   });
 
   it("falls back to likes and comments when the token has no insights permission, and stops asking for insights", async () => {
@@ -112,7 +174,7 @@ describe("fetchInstagramMetrics", () => {
       { match: /\/m\d\?fields=/, reply: (call) => ({ body: { like_count: Number(call.url.match(/m(\d)\?/)![1]) * 10, comments_count: 2 } }) }
     ]);
 
-    const outcome = await fetchInstagramMetrics(creds, ["m1", "m2", "m3"], deps);
+    const outcome = await fetchInstagramMetrics(creds, media("m1", "m2", "m3"), deps);
 
     expect(calls.filter((call) => call.url.includes("/insights"))).toHaveLength(1);
     expect(calls.filter((call) => call.url.includes("fields="))).toHaveLength(3);
@@ -133,7 +195,7 @@ describe("fetchInstagramMetrics", () => {
       { match: "/m2/insights", reply: { body: insights({ views: 3, reach: 3, likes: 1, comments: 0, shares: 0, saved: 0 }) } }
     ]);
 
-    const outcome = await fetchInstagramMetrics(creds, ["m1", "m2"], deps);
+    const outcome = await fetchInstagramMetrics(creds, media("m1", "m2"), deps);
 
     expect(outcome.gone).toEqual(["m1"]);
     expect(outcome.results.has("m2")).toBe(true);
@@ -148,7 +210,7 @@ describe("fetchInstagramMetrics", () => {
       }
     ]);
 
-    const outcome = await fetchInstagramMetrics(creds, ["m1", "m2", "m3"], deps);
+    const outcome = await fetchInstagramMetrics(creds, media("m1", "m2", "m3"), deps);
 
     expect(outcome.stopped?.kind).toBe("auth");
     expect(calls).toHaveLength(1);
@@ -159,7 +221,7 @@ describe("fetchInstagramMetrics", () => {
       { match: "/insights", reply: { status: 400, body: { error: { code: 4, message: "(#4) Application request limit reached" } } } }
     ]);
 
-    const outcome = await fetchInstagramMetrics(creds, ["m1", "m2"], deps);
+    const outcome = await fetchInstagramMetrics(creds, media("m1", "m2"), deps);
 
     expect(outcome.stopped?.kind).toBe("rate");
   });
@@ -167,7 +229,7 @@ describe("fetchInstagramMetrics", () => {
   it("stops with a budget stop when the run's calls are used, keeping what it read", async () => {
     const { deps, calls } = httpDeps([{ match: "/insights", reply: { body: insights({ views: 1, reach: 1, likes: 0, comments: 0, shares: 0, saved: 0 }) } }]);
 
-    const outcome = await fetchInstagramMetrics(creds, ["m1", "m2", "m3", "m4"], deps, createPacer({ maxCalls: 2 }));
+    const outcome = await fetchInstagramMetrics(creds, media("m1", "m2", "m3", "m4"), deps, createPacer({ maxCalls: 2 }));
 
     expect(calls).toHaveLength(2);
     expect(outcome.results.size).toBe(2);
@@ -185,7 +247,7 @@ describe("fetchInstagramMetrics", () => {
       }
     ]);
 
-    const outcome = await fetchInstagramMetrics(creds, ["m1", "m2", "m3"], deps, createPacer({ maxCalls: 100 }));
+    const outcome = await fetchInstagramMetrics(creds, media("m1", "m2", "m3"), deps, createPacer({ maxCalls: 100 }));
 
     expect(calls).toHaveLength(1);
     expect(outcome.results.size).toBe(1);

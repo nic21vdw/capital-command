@@ -10,6 +10,21 @@ describe("parseMetaUsage", () => {
     expect(parseMetaUsage(headers({ "x-app-usage": '{"call_count":28,"total_time":41,"total_cputime":25}' }))).toEqual({ percent: 41, regainMinutes: 0 });
   });
 
+  it("reads the Page usage header too", () => {
+    expect(parseMetaUsage(headers({ "x-page-usage": '{"call_count":12,"total_cputime":63,"total_time":20}' }))).toEqual({ percent: 63, regainMinutes: 0 });
+  });
+
+  it("takes the highest of all three headers", () => {
+    const usage = parseMetaUsage(
+      headers({
+        "x-app-usage": '{"call_count":10,"total_time":10,"total_cputime":10}',
+        "x-page-usage": '{"call_count":90,"total_cputime":1,"total_time":1}'
+      })
+    );
+
+    expect(usage.percent).toBe(90);
+  });
+
   it("reads every business use case in the header and how long Meta says to wait", () => {
     const usage = parseMetaUsage(
       headers({

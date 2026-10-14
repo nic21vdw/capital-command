@@ -574,8 +574,12 @@ capped at 90 (`metrics.ts`). Numbers a platform did not report are absent, never
   YouTube reads Data API counts in batches of 50 and, when the token has
   `yt-analytics.readonly`, Analytics watch time and average view duration (a 403 on that
   scope drops back to the Data API for the rest of the run; `source` on the record says
-  which). Instagram, Facebook and Threads read insights with a metric-set ladder, remember
-  per run which set the platform accepted, and fall back to likes and comments when the
+  which). Instagram, Facebook and Threads read insights with a metric-set ladder kept per
+  media type (`ladder.ts`: Instagram REELS, FEED, CAROUSEL_ALBUM, VIDEO; Facebook video,
+  post, photo; Threads TEXT, IMAGE). One media the platform refuses falls back for itself
+  only; a type moves to its next set, for the rest of the run, only after two different
+  media of that type are refused the same way, and a media that gets through a set clears
+  the refusals recorded against it. All of them fall back to likes and comments when the
   token has no insights permission. Facebook asks per node type (`facebookNodeOf`): a
   Reel or video reads `blue_reels_play_count` / `fb_reels_total_plays` / `post_video_*` from
   `video_insights`, a feed post (carousel) reads `post_media_view` and `shares`, and a
@@ -592,7 +596,9 @@ capped at 90 (`metrics.ts`). Numbers a platform did not report are absent, never
   like posting (a trip the publisher recorded after the sync began is never cleared by it);
   a missing permission is a note on the account, not a break. Five failed reads in a row stop
   an account for the run, but only transport and 5xx failures count: a post's own 4xx does not.
-  Meta's "does not exist, cannot be loaded due to missing permissions" is not treated as gone.
+  Ten posts in a row refused with a 4xx stop the account for the run as a probably retired
+  endpoint. Meta's "does not exist, cannot be loaded due to missing permissions" is not
+  treated as gone.
 - **When** (`schedule.ts`, started from `src/instrumentation.ts`): the running server checks every
   15 minutes and syncs when the last completed sync is 6 hours old (30 minutes after a failed one),
   first check 2 minutes after start. Single-flight in the process (`globalThis`) and across
@@ -604,19 +610,24 @@ capped at 90 (`metrics.ts`). Numbers a platform did not report are absent, never
   oldest-`attemptedAt` first, so posts that keep failing do not go first forever.
   `npm run analytics:sync [-- --force]` and the page's Sync now (`POST /api/analytics/sync`,
   202, runs in the background, 429 within 10 minutes of the last Sync now) use the same code.
-- **Meta pacing** (`pacing.ts`): Instagram and Facebook get 150 calls per account per run
-  (`ANALYTICS_META_CALLS_PER_RUN`), and every response's `x-app-usage` and
-  `x-business-use-case-usage` is read; above 75% the account is left alone for an hour (or
-  the time Meta gives), so reading numbers never starves `media_publish`.
+- **Meta pacing** (`pacing.ts`): Instagram, Facebook and Threads get 150 calls per account
+  per run (`ANALYTICS_META_CALLS_PER_RUN`), and every response's `x-app-usage`,
+  `x-page-usage` and `x-business-use-case-usage` is read; above 75% the account is left
+  alone for an hour (or the time Meta gives), so reading numbers never starves
+  `media_publish`.
 - **YouTube quota ledger** (`src/lib/youtube/quotaLedger.ts`): one ledger per Pacific day in
   `data/youtube-quota.json`. `debit(units, purpose)` applies a delta under the file lock
-  before each call and refuses what would pass the allowance; `remaining(purpose)` and
-  `snapshot()` give the per-purpose breakdown. Uploads keep a reserve (6 x 1,700 units by
-  default; that is more than the 10,000-unit day, so the reserve gives way to the
-  non-upload allowance and no further, leaving 9,700 for uploads). Everything else shares
-  `YOUTUBE_NON_UPLOAD_DAILY_UNITS` (default 300). Analytics debits 1 unit per `videos.list`
-  batch and stops, resting until midnight Pacific, when refused. The upload path does not
-  debit the ledger yet; the inbox, listening and outlier scans are meant to move onto it.
+  before each call; `remaining(purpose)` and `snapshot()` give the per-purpose breakdown.
+  Uploads keep a reserve of `YOUTUBE_DAILY_UPLOAD_BUDGET` x `YOUTUBE_UNITS_PER_UPLOAD`
+  (`publisher/quota.ts`, 1,600 each, 9,600 by default). Everything else shares
+  `YOUTUBE_NON_UPLOAD_DAILY_UNITS` (default 300), which is capped at what the reserve leaves
+  of the 10,000-unit day, with one warning in the log when it is. An upload is never refused:
+  it is recorded when it can be, and goes through unrecorded when the file is unreadable or
+  the lock is held for over 5 seconds. Anything else is refused as `budget` (allowance
+  spent) or `unavailable` (ledger unusable). Analytics debits 1 unit per `videos.list` batch;
+  on `budget` it rests until midnight Pacific (`nextResetAt`, exact across the 23- and 25-hour
+  DST days), on `unavailable` it tries again next cycle. The upload path does not debit the
+  ledger yet; the inbox, listening and outlier scans are meant to move onto it.
 - **For later slices**: `queryAnalytics`, `queryRows`, `topRows`, `platformTotals` and
   `getPostMetrics` are exported from `src/lib/analytics/index.ts`; `GET /api/analytics`
   takes `platform` (comma list), `since` (`28d` or a date), `top` and `sort`. The page

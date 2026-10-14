@@ -95,6 +95,8 @@ export type QuotaDebit = (units: number) => Promise<{ ok: true; remaining: numbe
 
 export const YOUTUBE_QUOTA_NOTE = "YouTube's daily allowance for background reads is used up; it comes back at midnight Pacific time.";
 
+export const YOUTUBE_LEDGER_NOTE = "YouTube's quota ledger could not be used just now, so nothing was read; it will try again next cycle.";
+
 const VIDEOS_LIST_UNITS = 1;
 
 export async function fetchYoutubeMetrics(
@@ -110,7 +112,10 @@ export async function fetchYoutubeMetrics(
     if (input.debit) {
       const granted = await input.debit(VIDEOS_LIST_UNITS);
       if (!granted.ok) {
-        outcome.stopped = { kind: "quota", message: YOUTUBE_QUOTA_NOTE };
+        outcome.stopped =
+          granted.reason === "budget"
+            ? { kind: "quota", message: YOUTUBE_QUOTA_NOTE }
+            : { kind: "ledger", message: YOUTUBE_LEDGER_NOTE };
         break;
       }
     }

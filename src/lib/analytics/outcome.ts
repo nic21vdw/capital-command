@@ -2,7 +2,7 @@ import { AnalyticsHttpError, classifyFailure, failureMessage } from "@/lib/analy
 import type { FetchedPost } from "@/lib/analytics/types";
 
 export type Stop = {
-  kind: "auth" | "rate" | "scope" | "errors" | "quota" | "budget";
+  kind: "auth" | "rate" | "scope" | "errors" | "quota" | "ledger" | "budget";
   message: string;
   retryAfterMs?: number;
   error?: unknown;
@@ -24,6 +24,7 @@ export type FetchOutcome = {
 };
 
 export const MAX_CONSECUTIVE_FAILURES = 5;
+export const RETIRED_ENDPOINT_REFUSALS = 10;
 
 export function newOutcome(): FetchOutcome {
   return { results: new Map(), gone: [], failed: [], notes: [], stopped: null };
@@ -52,10 +53,12 @@ export async function readEach(
   readOne: (id: string) => Promise<FetchedPost>
 ): Promise<void> {
   let consecutive = 0;
+  let refusals = 0;
   for (const id of ids) {
     try {
       outcome.results.set(id, await readOne(id));
       consecutive = 0;
+      refusals = 0;
     } catch (error) {
       if (!(error instanceof PacedStop) && classifyFailure(error).kind === "gone") {
         outcome.gone.push(id);
@@ -68,7 +71,17 @@ export async function readEach(
         return;
       }
       outcome.failed.push({ postId: id, message: failureMessage(error) });
-      if (isPostOwnRefusal(error)) continue;
+      if (isPostOwnRefusal(error)) {
+        refusals += 1;
+        if (refusals >= RETIRED_ENDPOINT_REFUSALS) {
+          outcome.stopped = {
+            kind: "errors",
+            message: `The last ${refusals} posts were all refused (${failureMessage(error)}); the endpoint may be retired or changed.`
+          };
+          return;
+        }
+        continue;
+      }
       consecutive += 1;
       if (consecutive >= MAX_CONSECUTIVE_FAILURES) {
         outcome.stopped = { kind: "errors", message: `${consecutive} reads in a row failed; the last said: ${failureMessage(error)}` };

@@ -28,8 +28,10 @@ export function parseMetaUsage(headers: Headers): MetaUsage {
   let percent = 0;
   let regainMinutes = 0;
 
-  const app = readJson(headers.get("x-app-usage"));
-  if (app) percent = Math.max(percent, percentOf(app));
+  for (const name of ["x-app-usage", "x-page-usage"]) {
+    const usage = readJson(headers.get(name));
+    if (usage) percent = Math.max(percent, percentOf(usage));
+  }
 
   const business = readJson(headers.get("x-business-use-case-usage"));
   if (business && typeof business === "object") {
