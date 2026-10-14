@@ -81,14 +81,14 @@ export class PublishQueue {
     this.version = version;
   }
 
-  private adopt(raw: string | null): void {
+  private adopt(raw: string | null, base: ReadonlyMap<string, string> = this.synced): void {
     const hash = hashText(raw);
     if (this.loaded && hash === this.syncedHash) return;
     const stored = new Map<string, QueueItem>();
     if (raw !== null) {
       for (const item of JSON.parse(raw) as QueueItem[]) stored.set(item.id, item);
     }
-    const merged = mergeById(this.synced, this.items, stored);
+    const merged = mergeById(base, this.items, stored);
     for (const [id, item] of merged) {
       const held = this.items.get(id);
       if (!held) this.items.set(id, item);
@@ -108,9 +108,12 @@ export class PublishQueue {
 
   private commit(gate?: SaveGate): Promise<boolean> {
     const changedAt = new Date().toISOString();
+    return this.writeLocked(() => this.persist(changedAt, gate));
+  }
+
+  private writeLocked<T>(work: () => Promise<T>): Promise<T> {
     const pending = this.saves.then(() => {
-      const write = () => this.persist(changedAt, gate);
-      return this.store.withLock ? this.store.withLock(write) : write();
+      return this.store.withLock ? this.store.withLock(work) : work();
     });
     this.saves = pending.then(
       () => undefined,
@@ -377,59 +380,79 @@ export class PublishQueue {
     now: Date
   ): Promise<{ approved: number; moves: ReleaseMove[]; skipped: ReleaseTarget[] }> {
     await this.load();
-    const config = this.config;
-    const slots = generateSlots({
-      timeZone: config.timezone,
-      days: config.bookingHorizonDays,
-      now,
-      ...slotGrid(config)
-    })
-      .filter((slot) => slot.bookable)
-      .map((slot) => slot.utc);
-    const cap = shortsLimit(config);
-    const plan = planRelease([...this.items.values()], targets, {
-      now,
-      timeZone: config.timezone,
-      slots,
-      dailyCap: (platform) => (platform === "youtube" ? Math.min(cap, config.youtube.dailyUploadBudget) : cap),
-      maxSlotAgeMs: REARM_MAX_SLOT_AGE_MS
-    });
-    if (plan.release.length === 0) return { approved: 0, moves: [], skipped: plan.skipped };
-
-    const stamp = now.toISOString();
-    const moveFor = new Map(plan.moves.map((move) => [`${move.id}:${move.platform}`, move]));
-    const moved: QueueItem[] = [];
-    const added: QueueItem[] = [];
-    for (const target of plan.release) {
-      const item = this.items.get(target.id)!;
-      const leg = item.platforms[target.platform]!;
-      leg.approvedAt = stamp;
-      const move = moveFor.get(`${target.id}:${target.platform}`);
-      if (!move) continue;
-      if (Object.keys(item.platforms).length === 1) {
-        item.publishAt = move.publishAt;
-        moved.push(item);
-        continue;
+    const { result, mutations } = await this.writeLocked(async () => {
+      // Eligibility, slot reservations and splits use the latest locked file.
+      // Work on copies: a failed atomic write must leave no live approval behind.
+      const raw = await this.store.load();
+      const before = snapshotById(this.items.values());
+      const changedAt = new Date().toISOString();
+      const local = new Map([...this.items].map(([id, item]) => [id, structuredClone(item)]));
+      for (const item of local.values()) {
+        if (JSON.stringify(item) !== this.synced.get(item.id)) item.updatedAt = changedAt;
       }
-      const { platforms: _platforms, buffer: _buffer, failedSeenAt: _failedSeenAt, updatedAt: _updatedAt, ...rest } = structuredClone(item);
-      void [_platforms, _buffer, _failedSeenAt, _updatedAt];
-      const detached: QueueItem = {
-        ...rest,
-        id: crypto.randomUUID().slice(0, 8),
-        publishAt: move.publishAt,
-        createdAt: stamp,
-        platforms: { [target.platform]: leg }
-      };
-      delete item.platforms[target.platform];
-      this.items.set(detached.id, detached);
-      added.push(detached);
-    }
-    await this.save();
-    await recordQueueMutations([
-      ...added.map((item) => ({ action: "add" as const, writer: "api-review-approve" as const, id: item.id, clipPath: item.clipPath, publishAt: item.publishAt })),
-      ...moved.map((item) => ({ action: "publish-time" as const, writer: "api-review-approve" as const, id: item.id, clipPath: item.clipPath, publishAt: item.publishAt }))
-    ]);
-    return { approved: plan.release.length, moves: plan.moves, skipped: plan.skipped };
+      const staged = mergeById(this.synced, local, parseStored(raw));
+      const config = this.config;
+      const slots = generateSlots({
+        timeZone: config.timezone,
+        days: config.bookingHorizonDays,
+        now,
+        ...slotGrid(config)
+      })
+        .filter((slot) => slot.bookable)
+        .map((slot) => slot.utc);
+      const cap = shortsLimit(config);
+      const plan = planRelease([...staged.values()], targets, {
+        now,
+        timeZone: config.timezone,
+        slots,
+        dailyCap: (platform) => (platform === "youtube" ? Math.min(cap, config.youtube.dailyUploadBudget) : cap),
+        maxSlotAgeMs: REARM_MAX_SLOT_AGE_MS
+      });
+      const mutations: Array<Parameters<typeof recordQueueMutations>[0][number]> = [];
+      if (plan.release.length === 0) {
+        this.adopt(raw);
+        this.version = null;
+        return { result: { approved: 0, moves: [], skipped: plan.skipped }, mutations };
+      }
+
+      const stamp = now.toISOString();
+      const moveFor = new Map(plan.moves.map((move) => [`${move.id}:${move.platform}`, move]));
+      for (const target of plan.release) {
+        const item = staged.get(target.id)!;
+        const leg = item.platforms[target.platform]!;
+        leg.approvedAt = stamp;
+        item.updatedAt = changedAt;
+        const move = moveFor.get(`${target.id}:${target.platform}`);
+        if (!move) continue;
+        if (Object.keys(item.platforms).length === 1) {
+          item.publishAt = move.publishAt;
+          mutations.push({ action: "publish-time", writer: "api-review-approve", id: item.id, clipPath: item.clipPath, publishAt: item.publishAt });
+          continue;
+        }
+        const { platforms: _platforms, buffer: _buffer, failedSeenAt: _failedSeenAt, updatedAt: _updatedAt, ...rest } = structuredClone(item);
+        void [_platforms, _buffer, _failedSeenAt, _updatedAt];
+        const detached: QueueItem = {
+          ...rest,
+          id: crypto.randomUUID().slice(0, 8),
+          publishAt: move.publishAt,
+          createdAt: stamp,
+          updatedAt: changedAt,
+          platforms: { [target.platform]: leg }
+        };
+        delete item.platforms[target.platform];
+        staged.set(detached.id, detached);
+        mutations.push({ action: "add", writer: "api-review-approve", id: detached.id, clipPath: detached.clipPath, publishAt: detached.publishAt });
+      }
+      const text = JSON.stringify(sortedByPublishAt(staged.values()), null, 2);
+      await this.store.save(text);
+      // Preserve caller-held references and edits made while the save awaited.
+      // Refresh metadata on the next load instead of failing after a durable save.
+      this.adopt(text, before);
+      this.version = null;
+      return { result: { approved: plan.release.length, moves: plan.moves, skipped: plan.skipped }, mutations };
+    });
+    await recordQueueMutations(mutations);
+    return result;
   }
 
   async releaseAwaiting(
