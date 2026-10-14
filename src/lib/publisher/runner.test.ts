@@ -533,3 +533,35 @@ describe("runDue next to another writer", () => {
     expect(saved.platforms.youtube.postId).toBe("yt-from-other-writer");
   });
 });
+
+describe("runDue tick log", () => {
+  it("logs a tick's deferred items as one summary line and keeps a line for each published and failed post", async () => {
+    const { config, queue, log, logs } = setup();
+    config.youtube.dailyUploadBudget = 0;
+    for (let index = 0; index < 299; index += 1) {
+      await queue.add(testItem({ id: `yt-${index}`, clipPath, platformIds: ["youtube"] }));
+    }
+    await queue.add(testItem({ id: "tt-throttled", clipPath, platformIds: ["tiktok"] }));
+    await queue.add(testItem({ id: "ig-published", clipPath, platformIds: ["instagram"] }));
+    await queue.add(testItem({ id: "ig-failed", clipPath, platformIds: ["instagram"] }));
+
+    const youtube = fakeAdapter("youtube", async () => ({ status: "published", postId: "never" }));
+    const tiktok = fakeAdapter("tiktok", async () => {
+      throw new ThrottledError(60, "clear your TikTok inbox");
+    });
+    const instagram = fakeAdapter("instagram", async (input) => {
+      if (input.item.id === "ig-failed") throw new PermanentError("container rejected");
+      return { status: "published", postId: `ig-${input.item.id}` };
+    });
+
+    const report = await runDue(DUE, { config, queue, log, adapters: { youtube, tiktok, instagram } });
+
+    expect(report.outcomes.filter((outcome) => outcome.outcome === "deferred")).toHaveLength(300);
+    expect(youtube.calls).toHaveLength(0);
+    expect(logs.filter((line) => line.includes("deferred"))).toEqual([
+      "[publisher]   deferred 300: youtube daily cap 299, tiktok throttled 1"
+    ]);
+    expect(logs.filter((line) => line.includes("→ instagram: published"))).toHaveLength(1);
+    expect(logs.filter((line) => line.includes("→ instagram: failed"))).toHaveLength(1);
+  }, 60_000);
+});
