@@ -22,6 +22,7 @@ export async function fetchThreadsReplies(
   let newestAt: string | null = null;
   let after: string | undefined;
   let pages = 0;
+  let complete = false;
 
   while (pages < maxPages) {
     const query = new URLSearchParams({ fields: FIELDS, reverse: "true", limit: "50" });
@@ -59,9 +60,12 @@ export async function fetchThreadsReplies(
     }
 
     const next = data.paging?.next ? data.paging.cursors?.after : undefined;
-    if (reachedKnown || !next) break;
+    if (reachedKnown || !next) {
+      complete = true;
+      break;
+    }
     after = next;
   }
 
-  return { items, newestAt, pages };
+  return { items, newestAt, pages, truncated: !complete };
 }

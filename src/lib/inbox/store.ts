@@ -84,6 +84,12 @@ export function markAllSeen(current: InboxStore, now: Date, filter: { platform?:
   };
 }
 
+function withoutSend(item: InboxItem): InboxItem {
+  const copy = { ...item };
+  delete copy.send;
+  return copy;
+}
+
 export function recordReply(
   current: InboxStore,
   id: string,
@@ -94,9 +100,21 @@ export function recordReply(
   const stamp = now.toISOString();
   return {
     ...current,
-    items: current.items.map((item) =>
-      item.id === id ? { ...item, status: "replied", statusAt: stamp, reply: { ...reply, sentAt: stamp } } : item
-    )
+    items: current.items.map((item) => {
+      if (item.id !== id) return item;
+      return { ...withoutSend(item), status: "replied", statusAt: stamp, reply: { ...reply, sentAt: stamp } };
+    })
+  };
+}
+
+export function setSendRecord(current: InboxStore, id: string, send: InboxItem["send"] | null): InboxStore {
+  if (!current.items.some((item) => item.id === id)) throw new Error(`${id} is not in the inbox.`);
+  return {
+    ...current,
+    items: current.items.map((item) => {
+      if (item.id !== id) return item;
+      return send ? { ...withoutSend(item), send } : withoutSend(item);
+    })
   };
 }
 

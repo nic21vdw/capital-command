@@ -4,12 +4,10 @@ import { POST } from "@/app/api/instagram/webhook/route";
 import { readInbox, updateInbox } from "@/lib/inbox/store";
 import { emptyInbox, cursorKey } from "@/lib/inbox/types";
 import { samplePost } from "@/lib/inbox/test-helpers";
+import { queueInstagramEvent, webhookQueueIdle } from "@/lib/inbox/webhookQueue";
 
-vi.mock("@/lib/inbox/posts", () => ({
-  listPublishedPosts: vi.fn(async () => [
-    samplePost({ platform: "instagram", accountId: "instagram-primary", postId: "media1", title: "Reel about worktrees" })
-  ])
-}));
+const listPosts = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/inbox/posts", () => ({ listPublishedPosts: listPosts }));
 
 const SECRET = "app-secret";
 const EVENT_TIME = Math.floor(Date.parse("2026-10-12T10:00:00Z") / 1000);
@@ -29,12 +27,19 @@ const commentEvent = (value: Record<string, unknown>, field = "comments") => ({
   entry: [{ id: "ig-user", time: EVENT_TIME, changes: [{ field, value }] }]
 });
 
+const knownPosts = () => [
+  samplePost({ platform: "instagram", accountId: "instagram-primary", postId: "media1", title: "Reel about worktrees" })
+];
+
 beforeEach(async () => {
   vi.stubEnv("IG_APP_SECRET", SECRET);
+  listPosts.mockReset();
+  listPosts.mockImplementation(async () => knownPosts());
   await updateInbox(() => emptyInbox());
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await webhookQueueIdle();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
@@ -53,6 +58,7 @@ describe("Instagram webhook", () => {
         })
       )
     );
+    await webhookQueueIdle();
 
     expect(response.status).toBe(200);
     const store = await readInbox();
@@ -74,10 +80,45 @@ describe("Instagram webhook", () => {
     expect(log.mock.calls.flat().join(" ")).not.toContain("windows");
   });
 
-  it("keeps the signature check: a bad signature stores nothing", async () => {
+  it("answers 200 before it reads the publish queue or writes the inbox", async () => {
+    let release: (posts: ReturnType<typeof knownPosts>) => void = () => undefined;
+    listPosts.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        })
+    );
+
+    const response = await POST(signed(commentEvent({ id: "c-1", text: "hi", from: { id: "u", username: "z" }, media: { id: "media1" } })));
+
+    expect(response.status).toBe(200);
+    expect(listPosts).not.toHaveBeenCalled();
+    expect((await readInbox()).items).toEqual([]);
+
+    await vi.waitFor(() => expect(listPosts).toHaveBeenCalledTimes(1));
+    expect((await readInbox()).items).toEqual([]);
+    release(knownPosts());
+    await webhookQueueIdle();
+
+    expect((await readInbox()).items.map((item) => item.id)).toEqual(["instagram:c-1"]);
+  });
+
+  it("folds a burst of events into one read of the publish queue", async () => {
+    const events = ["a", "b", "c"].map((id) => commentEvent({ id: `c-${id}`, text: id, from: { id: "u", username: id }, media: { id: "media1" } }));
+
+    for (const event of events) queueInstagramEvent(event);
+    await webhookQueueIdle();
+
+    expect(listPosts).toHaveBeenCalledTimes(1);
+    expect((await readInbox()).items).toHaveLength(3);
+  });
+
+  it("keeps the signature check: a bad signature stores nothing and queues nothing", async () => {
     const response = await POST(signed(commentEvent({ id: "c-1", text: "hi", media: { id: "media1" } }), "wrong-secret"));
+    await webhookQueueIdle();
 
     expect(response.status).toBe(401);
+    expect(listPosts).not.toHaveBeenCalled();
     expect((await readInbox()).items).toEqual([]);
   });
 
@@ -85,6 +126,7 @@ describe("Instagram webhook", () => {
     vi.stubEnv("IG_APP_SECRET", "");
 
     const response = await POST(signed(commentEvent({ id: "c-1", text: "hi", media: { id: "media1" } })));
+    await webhookQueueIdle();
 
     expect(response.status).toBe(401);
     expect((await readInbox()).items).toEqual([]);
@@ -106,6 +148,7 @@ describe("Instagram webhook", () => {
         ]
       })
     );
+    await webhookQueueIdle();
 
     const items = (await readInbox()).items;
     expect(items.map((item) => item.id)).toEqual(["instagram:c-2"]);
@@ -114,6 +157,7 @@ describe("Instagram webhook", () => {
 
   it("stores a mention as its own item", async () => {
     await POST(signed(commentEvent({ comment_id: "c-9", media_id: "media77" }, "mentions")));
+    await webhookQueueIdle();
 
     const items = (await readInbox()).items;
     expect(items).toHaveLength(1);
@@ -125,14 +169,25 @@ describe("Instagram webhook", () => {
 
     await POST(signed(event));
     await POST(signed(event));
+    await webhookQueueIdle();
 
     expect((await readInbox()).items).toHaveLength(1);
+  });
+
+  it("still stores the event when the publish queue cannot be read, with a placeholder title", async () => {
+    listPosts.mockRejectedValue(new Error("queue unreadable"));
+
+    await POST(signed(commentEvent({ id: "c-7", text: "hello", from: { id: "u", username: "z" }, media: { id: "media1" } })));
+    await webhookQueueIdle();
+
+    expect((await readInbox()).items[0]).toMatchObject({ id: "instagram:c-7", postTitle: "Instagram post" });
   });
 
   it("answers 200 and stores nothing for events it does not handle", async () => {
     const response = await POST(
       signed({ object: "instagram", entry: [{ id: "ig-user", time: 1, messaging: [{ message: { text: "private" } }] }] })
     );
+    await webhookQueueIdle();
 
     expect(response.status).toBe(200);
     expect((await readInbox()).items).toEqual([]);

@@ -55,3 +55,7 @@ export function surfaceLine(item: InboxItem): string {
   const clipped = text.length > 160 ? `${text.slice(0, 159)}…` : text;
   return `[${item.id}] ${INBOX_PLATFORM_LABEL[item.platform]} ${item.authorName} on "${item.postTitle}": ${clipped}`;
 }
+
+export function needsPlatformCheck(item: InboxItem): boolean {
+  return item.status !== "replied" && item.send !== undefined;
+}

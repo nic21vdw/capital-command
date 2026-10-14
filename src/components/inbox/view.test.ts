@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterItems, groupByPost, surfaceLine, timeAgo } from "@/components/inbox/view";
+import { filterItems, groupByPost, needsPlatformCheck, surfaceLine, timeAgo } from "@/components/inbox/view";
 import { sampleItem } from "@/lib/inbox/test-helpers";
 
 const items = [
@@ -47,5 +47,14 @@ describe("surfaceLine", () => {
   it("gives a canvas agent the id, who, where and what, on one line", () => {
     const line = surfaceLine(sampleItem({ text: "line one\nline two" }));
     expect(line).toBe('[youtube:c1] YouTube Dana on "A short about worktrees": line one line two');
+  });
+});
+
+describe("needsPlatformCheck", () => {
+  it("is true while a reply is in flight or its outcome is unknown, and false otherwise", () => {
+    expect(needsPlatformCheck(sampleItem())).toBe(false);
+    expect(needsPlatformCheck(sampleItem({ send: { state: "sending", at: "2026-10-12T10:00:00.000Z", text: "x" } }))).toBe(true);
+    expect(needsPlatformCheck(sampleItem({ send: { state: "send-unknown", at: "2026-10-12T10:00:00.000Z", text: "x" } }))).toBe(true);
+    expect(needsPlatformCheck(sampleItem({ status: "replied", reply: { text: "x", sentAt: "2026-10-12T10:00:00.000Z" } }))).toBe(false);
   });
 });

@@ -28,6 +28,7 @@ export async function fetchInstagramComments(
   let newestAt: string | null = null;
   let after: string | undefined;
   let pages = 0;
+  let complete = false;
   let permalink = post.url;
 
   const resolvePermalink = async () => {
@@ -88,9 +89,12 @@ export async function fetchInstagramComments(
     }
 
     const next = data.paging?.next ? data.paging.cursors?.after : undefined;
-    if (reachedKnown || !next) break;
+    if (reachedKnown || !next) {
+      complete = true;
+      break;
+    }
     after = next;
   }
 
-  return { items, newestAt, pages, ...(permalink ? { permalink } : {}) };
+  return { items, newestAt, pages, truncated: !complete, ...(permalink ? { permalink } : {}) };
 }

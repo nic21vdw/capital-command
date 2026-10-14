@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { FetchBudgetExhausted } from "@/lib/inbox/fetch/common";
 import { fetchFacebookComments } from "@/lib/inbox/fetch/facebook";
 import { fetchInstagramComments } from "@/lib/inbox/fetch/instagram";
 import { fetchThreadsReplies } from "@/lib/inbox/fetch/threads";
@@ -129,6 +130,81 @@ describe("YouTube commentThreads", () => {
     const result = await fetchYoutubeComments(samplePost(), null, auth, { now: NOW, maxPages: 2 });
     expect(calls).toHaveLength(2);
     expect(result.pages).toBe(2);
+  });
+});
+
+describe("YouTube walks that stop early", () => {
+  const auth = { accessToken: "yt-token" };
+
+  it("is not truncated when it reached a known comment or the last page", async () => {
+    stubFetch(() => jsonResponse({ items: [ytThread("A", "2026-10-12T10:00:00Z")] }));
+    expect((await fetchYoutubeComments(samplePost(), null, auth, { now: NOW })).truncated).toBe(false);
+
+    stubFetch(() => jsonResponse({ items: [ytThread("OLD", "2026-10-12T08:00:00Z")], nextPageToken: "p2" }));
+    expect((await fetchYoutubeComments(samplePost(), "2026-10-12T09:00:00.000Z", auth, { now: NOW })).truncated).toBe(false);
+  });
+
+  it("is truncated when the page limit stops it with more to read", async () => {
+    stubFetch(() => jsonResponse({ items: [ytThread("A", "2026-10-12T10:00:00Z")], nextPageToken: "more" }));
+    expect((await fetchYoutubeComments(samplePost(), null, auth, { now: NOW, maxPages: 2 })).truncated).toBe(true);
+  });
+
+  it("asks before every request and keeps what it read when the answer is that the budget is spent", async () => {
+    const calls = stubFetch(() => jsonResponse({ items: [ytThread(`T${Math.random()}`, "2026-10-12T10:00:00Z")], nextPageToken: "more" }));
+    let asked = 0;
+    const beforeRequest = async () => {
+      asked += 1;
+      if (asked > 1) throw new FetchBudgetExhausted();
+    };
+
+    const result = await fetchYoutubeComments(samplePost(), null, auth, { now: NOW, beforeRequest });
+
+    expect(asked).toBe(2);
+    expect(calls).toHaveLength(1);
+    expect(result.items).toHaveLength(1);
+    expect(result).toMatchObject({ pages: 1, truncated: true, budgetSpent: true });
+  });
+
+  it("reports a budget that was spent before the first request", async () => {
+    const calls = stubFetch(() => jsonResponse({ items: [] }));
+    const result = await fetchYoutubeComments(samplePost(), null, auth, {
+      now: NOW,
+      beforeRequest: async () => {
+        throw new FetchBudgetExhausted();
+      }
+    });
+    expect(calls).toHaveLength(0);
+    expect(result).toMatchObject({ items: [], pages: 0, truncated: true, budgetSpent: true });
+  });
+});
+
+describe("other walks report truncation", () => {
+  it("flags Instagram, Facebook and Threads when the page limit stops them with more to read", async () => {
+    stubFetch(() =>
+      jsonResponse({
+        data: [{ id: "x", text: "t", timestamp: "2026-10-12T10:00:00+0000", created_time: "2026-10-12T10:00:00+0000", username: "u", from: { id: "u", name: "U" } }],
+        paging: { cursors: { after: "n" }, next: "https://graph.example/next" }
+      })
+    );
+    const instagram = await fetchInstagramComments(
+      samplePost({ platform: "instagram", url: "https://www.instagram.com/p/x/" }),
+      null,
+      { accessToken: "t", graphApiVersion: "v23.0", selfUsername: null },
+      { now: NOW, maxPages: 1 }
+    );
+    const facebook = await fetchFacebookComments(
+      samplePost({ platform: "facebook" }),
+      null,
+      { accessToken: "t", graphApiVersion: "v23.0", pageId: "p" },
+      { now: NOW, maxPages: 1 }
+    );
+    const threads = await fetchThreadsReplies(
+      samplePost({ platform: "threads" }),
+      null,
+      { accessToken: "t", apiBase: "https://graph.threads.net", apiVersion: "v1.0", selfUsername: null },
+      { now: NOW, maxPages: 1 }
+    );
+    expect([instagram.truncated, facebook.truncated, threads.truncated]).toEqual([true, true, true]);
   });
 });
 

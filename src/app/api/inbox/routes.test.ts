@@ -132,6 +132,42 @@ describe("POST /api/inbox/send", () => {
     expect((await readInbox()).items.find((item) => item.id === "youtube:a")?.status).toBe("replied");
   });
 
+  it("refuses a resend after an unknown outcome unless the request carries override: true", async () => {
+    await updateInbox((store) => ({
+      ...store,
+      items: store.items.map((item) =>
+        item.id === "youtube:a" ? { ...item, send: { state: "send-unknown" as const, at: "2026-10-12T10:00:00.000Z", text: "Thanks", error: "timeout" } } : item
+      )
+    }));
+    const calls = stubFetch((call) =>
+      call.url.includes("tokeninfo") ? jsonResponse({ scope: "https://www.googleapis.com/auth/youtube.force-ssl" }) : jsonResponse({ id: "r2" })
+    );
+
+    const refused = await sendPost(request("/api/inbox/send", "POST", { id: "youtube:a", text: "Thanks", confirm: true }));
+    expect(refused.status).toBe(409);
+    expect((await refused.json()).kind).toBe("send-unknown");
+    expect(writeCalls(calls)).toEqual([]);
+
+    const sent = await sendPost(request("/api/inbox/send", "POST", { id: "youtube:a", text: "Thanks", confirm: true, override: true }));
+    expect(sent.status).toBe(200);
+    expect(writeCalls(calls)).toHaveLength(1);
+    expect((await readInbox()).items.find((item) => item.id === "youtube:a")?.status).toBe("replied");
+  });
+
+  it("answers 502 with kind send-unknown when the platform's answer was lost", async () => {
+    stubFetch((call) => {
+      if (call.url.includes("tokeninfo")) return jsonResponse({ scope: "https://www.googleapis.com/auth/youtube.force-ssl" });
+      throw new TypeError("fetch failed");
+    });
+
+    const response = await sendPost(request("/api/inbox/send", "POST", { id: "youtube:a", text: "Thanks", confirm: true }));
+
+    expect(response.status).toBe(502);
+    const body = await response.json();
+    expect(body.kind).toBe("send-unknown");
+    expect(body.error).toMatch(/check the platform/i);
+  });
+
   it("answers 409 with the reconnect message when the permission is missing", async () => {
     stubFetch((call) => (call.url.includes("tokeninfo") ? jsonResponse({ scope: "https://www.googleapis.com/auth/youtube.upload" }) : jsonResponse({ id: "r" })));
 

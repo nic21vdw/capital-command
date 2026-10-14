@@ -71,8 +71,8 @@ export function instagramEventItems(payload: unknown, now: Date): InboxItem[] {
   return items;
 }
 
-export async function ingestInstagramEvent(payload: unknown, now: Date = new Date()): Promise<number> {
-  const items = instagramEventItems(payload, now);
+export async function ingestInstagramEvents(payloads: unknown[], now: Date = new Date()): Promise<number> {
+  const items = payloads.flatMap((payload) => instagramEventItems(payload, now));
   if (items.length === 0) return 0;
 
   const known = new Map(
@@ -86,7 +86,7 @@ export async function ingestInstagramEvent(payload: unknown, now: Date = new Dat
   let added = 0;
   await updateInbox((current) => {
     const ids = new Set(current.items.map((item) => item.id));
-    added = named.filter((item) => !ids.has(item.id)).length;
+    added = new Set(named.filter((item) => !ids.has(item.id)).map((item) => item.id)).size;
     let next = mergeIncoming(current, named, now);
     for (const item of named) next = noteActivity(next, "instagram", item.postId, item.at);
     return next;

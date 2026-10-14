@@ -1,4 +1,4 @@
-import { newItem, MAX_PAGES, type FetchOptions, type FetchResult } from "@/lib/inbox/fetch/common";
+import { FetchBudgetExhausted, newItem, MAX_PAGES, type FetchOptions, type FetchResult } from "@/lib/inbox/fetch/common";
 import { isNewer, laterOf, toIso } from "@/lib/inbox/time";
 import type { InboxItem, PublishedPost } from "@/lib/inbox/types";
 import { fetchJson } from "@/lib/publisher/http";
@@ -43,8 +43,17 @@ export async function fetchYoutubeComments(
   let newestAt: string | null = null;
   let pageToken: string | undefined;
   let pages = 0;
+  let complete = false;
+  let budgetSpent = false;
 
   while (pages < maxPages) {
+    try {
+      await options.beforeRequest?.();
+    } catch (error) {
+      if (!(error instanceof FetchBudgetExhausted)) throw error;
+      budgetSpent = true;
+      break;
+    }
     const query = new URLSearchParams({
       part: "snippet,replies",
       videoId: post.postId,
@@ -109,9 +118,12 @@ export async function fetchYoutubeComments(
         );
       }
     }
-    if (reachedKnown || !data.nextPageToken) break;
+    if (reachedKnown || !data.nextPageToken) {
+      complete = true;
+      break;
+    }
     pageToken = data.nextPageToken;
   }
 
-  return { items, newestAt, pages };
+  return { items, newestAt, pages, truncated: !complete, ...(budgetSpent ? { budgetSpent } : {}) };
 }

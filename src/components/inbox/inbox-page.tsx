@@ -1,11 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCheck, CheckCircle2, ExternalLink, Inbox as InboxIcon, Loader2, MessageSquareReply, RefreshCw, Send, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { setInboxUnread } from "@/components/inbox/unread";
-import { filterItems, groupByPost, surfaceLine, timeAgo, type PlatformFilter, type StatusFilter } from "@/components/inbox/view";
+import {
+  filterItems,
+  groupByPost,
+  needsPlatformCheck,
+  surfaceLine,
+  timeAgo,
+  type PlatformFilter,
+  type StatusFilter
+} from "@/components/inbox/view";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -100,7 +108,8 @@ export function InboxPage() {
   const visible = useMemo(() => filterItems(items, { platform: platformFilter, status: statusFilter }), [items, platformFilter, statusFilter]);
   const groups = useMemo(() => groupByPost(visible), [visible]);
   const selected = visible.find((item) => item.id === selectedId) ?? visible.find((item) => item.status === "new") ?? null;
-  const draftFor = (id: string) => drafts[id] ?? "";
+  const sendLocks = useRef(new Set<string>());
+  const draftFor = (item: InboxItem) => drafts[item.id] ?? item.send?.text ?? "";
 
   const refresh = async () => {
     setBusy((current) => ({ ...current, refresh: true }));
@@ -150,12 +159,16 @@ export function InboxPage() {
     }
   };
 
-  const send = async (item: InboxItem) => {
-    const text = draftFor(item.id).trim();
-    if (!text) return false;
+  const send = async (item: InboxItem, override = false) => {
+    const text = draftFor(item).trim();
+    if (!text || sendLocks.current.has(item.id)) return false;
+    sendLocks.current.add(item.id);
     setBusy((current) => ({ ...current, sending: item.id }));
     try {
-      await api("/api/inbox/send", { method: "POST", body: JSON.stringify({ id: item.id, text, confirm: true }) });
+      await api("/api/inbox/send", {
+        method: "POST",
+        body: JSON.stringify({ id: item.id, text, confirm: true, ...(override ? { override: true } : {}) })
+      });
       setDrafts((current) => {
         const next = { ...current };
         delete next[item.id];
@@ -166,15 +179,20 @@ export function InboxPage() {
       return true;
     } catch (error) {
       toast.error(messageOf(error));
+      await load();
       return false;
     } finally {
+      sendLocks.current.delete(item.id);
       setBusy((current) => ({ ...current, sending: null }));
     }
   };
 
   const needsAttention = INBOX_PLATFORMS.filter((platform) => data?.platforms[platform]?.needs);
   const unreadItems = items.filter((item) => item.status === "new");
-  const canSend = Boolean(selected && selected.status !== "replied" && draftFor(selected.id).trim() && busy.sending === null);
+  const selectedCheck = Boolean(selected && needsPlatformCheck(selected));
+  const canWrite = Boolean(selected && selected.status !== "replied" && draftFor(selected).trim() && busy.sending === null);
+  const canSend = canWrite && !selectedCheck;
+  const canOverride = canWrite && selectedCheck;
 
   useColateralSurface({
     route: "/inbox",
@@ -194,7 +212,7 @@ export function InboxPage() {
       {
         id: "draft",
         label: "Reply draft for the selected comment",
-        value: selected ? draftFor(selected.id) : "",
+        value: selected ? draftFor(selected) : "",
         kind: "longtext",
         readOnly: !selected || selected.status === "replied",
         hint: "Press Draft reply to have one written, or type your own. Send reply posts it."
@@ -217,6 +235,14 @@ export function InboxPage() {
         destructive: true,
         disabled: !canSend,
         hint: "Posts the draft publicly from Nic's account."
+      },
+      {
+        id: "sendAnyway",
+        label: "Check the platform first, then send anyway",
+        group: "Reply",
+        destructive: true,
+        disabled: !canOverride,
+        hint: "An earlier send may already be posted. Open the comment on the platform to check before pressing this."
       }
     ],
     readings: [
@@ -278,6 +304,11 @@ export function InboxPage() {
       if (id === "send") {
         if (!canSend) return false;
         void send(selected);
+        return true;
+      }
+      if (id === "sendAnyway") {
+        if (!canOverride) return false;
+        void send(selected, true);
         return true;
       }
       return false;
@@ -405,7 +436,8 @@ export function InboxPage() {
                 <div className="mt-2 space-y-2">
                   {group.items.map((item) => {
                     const active = selected?.id === item.id;
-                    const text = draftFor(item.id);
+                    const text = draftFor(item);
+                    const check = needsPlatformCheck(item) && busy.sending !== item.id;
                     const limit = REPLY_LIMITS[item.platform];
                     return (
                       <div
@@ -442,6 +474,13 @@ export function InboxPage() {
                           </p>
                         ) : (
                           <div className="mt-3 space-y-2">
+                            {check ? (
+                              <p className="rounded-md border border-[var(--border)] bg-white/[0.03] p-2 text-sm text-white">
+                                <span className="font-medium">A reply may already be posted.</span>{" "}
+                                {item.send?.state === "sending" ? "A send was interrupted." : "The platform did not confirm the last send."} Open the comment on{" "}
+                                {INBOX_PLATFORM_LABEL[item.platform]} and check before sending again.
+                              </p>
+                            ) : null}
                             {active || text ? (
                               <>
                                 <Textarea
@@ -471,14 +510,15 @@ export function InboxPage() {
                               </Button>
                               <Button
                                 className="h-8 px-3 text-xs"
+                                variant={check ? "danger" : "primary"}
                                 disabled={!text.trim() || text.length > limit || busy.sending !== null}
                                 onClick={(event) => {
                                   event.stopPropagation();
-                                  void send(item);
+                                  void send(item, check);
                                 }}
                               >
                                 {busy.sending === item.id ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
-                                Send reply
+                                {check ? "Check the platform first, then send anyway" : "Send reply"}
                               </Button>
                               {item.status === "new" ? (
                                 <Button

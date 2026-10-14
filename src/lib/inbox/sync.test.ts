@@ -147,30 +147,52 @@ describe("syncInbox", () => {
     expect(calls.slice(before).some((call) => new URL(call.url).hostname === "www.googleapis.com")).toBe(false);
   });
 
-  it("says Reconnect <platform> with comment permission when the scope is missing, and does not trip the breaker", async () => {
+  it("says Reconnect <platform> with comment permission once two different posts fail on scope, without tripping the breaker", async () => {
     let missing = true;
     const calls = stubFetch((call) =>
       new URL(call.url).hostname === "www.googleapis.com" && missing
         ? yt403("insufficientPermissions", "Request had insufficient authentication scopes.")
         : (platformApis(call) ?? jsonResponse({}, 404))
     );
-    const posts = [ytPost("v1"), ytPost("v2")];
+    const posts = [ytPost("v1"), ytPost("v2"), ytPost("v3")];
 
     const report = await syncInbox({ now: NOW, posts });
 
     expect(report.platforms.youtube).toMatchObject({ status: "needs-scope", detail: "Reconnect YouTube with comment permission" });
     expect((await readInbox()).platforms.youtube).toMatchObject({ needs: "scope", message: "Reconnect YouTube with comment permission" });
     expect(await readAuthStates()).toEqual({});
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
 
     await syncInbox({ now: new Date(NOW.getTime() + 35 * 60_000), posts });
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
 
     missing = false;
     await syncInbox({ now: new Date(NOW.getTime() + 40 * 60_000), posts, force: true });
     const store = await readInbox();
     expect(store.platforms.youtube?.needs).toBeUndefined();
     expect(store.items.length).toBeGreaterThan(0);
+  });
+
+  it("does not disable a platform because one post fails on scope while another reads fine", async () => {
+    const calls = stubFetch((call) => {
+      const url = new URL(call.url);
+      if (url.hostname !== "www.googleapis.com") return jsonResponse({}, 404);
+      return url.searchParams.get("videoId") === "collab"
+        ? yt403("insufficientPermissions", "Request had insufficient authentication scopes.")
+        : jsonResponse({ items: [yt("fine-1", daysAgo(1))] });
+    });
+
+    const report = await syncInbox({ now: NOW, posts: [ytPost("collab", daysAgo(1)), ytPost("normal", daysAgo(2))] });
+
+    expect(report.platforms.youtube?.status).toBe("ok");
+    const store = await readInbox();
+    expect(store.platforms.youtube?.needs).toBeUndefined();
+    expect(store.items.map((item) => item.externalId)).toEqual(["fine-1"]);
+    expect(store.cursors[cursorKey("youtube", "collab")]?.lastFetchedAt).toBe(NOW.toISOString());
+    expect(calls).toHaveLength(2);
+
+    await syncInbox({ now: new Date(NOW.getTime() + 35 * 60_000), posts: [ytPost("collab", daysAgo(1)), ytPost("normal", daysAgo(2))] });
+    expect((await readInbox()).platforms.youtube?.needs).toBeUndefined();
   });
 
   it("detects a missing scope on Meta and Threads too", async () => {
@@ -245,5 +267,98 @@ describe("syncInbox", () => {
 
     expect(report.platforms.youtube?.status).toBe("not-connected");
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("YouTube read budget", () => {
+  const unitsFor = async () => (await readInbox()).youtubeUnits?.used;
+
+  it("counts a call that failed, not only the ones that answered", async () => {
+    stubFetch(() => yt403("insufficientPermissions", "Request had insufficient authentication scopes."));
+
+    await syncInbox({ now: NOW, posts: [ytPost("v1")] });
+
+    expect(await unitsFor()).toBe(1);
+  });
+
+  it("saves the count after every call, not once at the end of the run", async () => {
+    const seen: Array<number | undefined> = [];
+    stubFetch(async (call) => {
+      const url = new URL(call.url);
+      if (url.hostname !== "www.googleapis.com") return jsonResponse({}, 404);
+      seen.push(await unitsFor());
+      return jsonResponse({ items: [yt(`c-${url.searchParams.get("videoId")}`, daysAgo(1))] });
+    });
+
+    await syncInbox({ now: NOW, posts: [ytPost("v1"), ytPost("v2"), ytPost("v3")] });
+
+    expect(seen).toEqual([1, 2, 3]);
+    expect(await unitsFor()).toBe(3);
+  });
+
+  it("is shared through the store, so a run elsewhere has already spent part of today's budget", async () => {
+    vi.stubEnv("INBOX_YOUTUBE_DAILY_UNITS", "200");
+    await updateInbox((store) => ({ ...store, youtubeUnits: { date: "2026-10-13", used: 199 } }));
+    const calls = stubFetch((call) => platformApis(call) ?? jsonResponse({}, 404));
+
+    const report = await syncInbox({ now: NOW, posts: [ytPost("v1"), ytPost("v2")] });
+
+    expect(calls.filter((call) => new URL(call.url).hostname === "www.googleapis.com")).toHaveLength(1);
+    expect(report.platforms.youtube?.status).toBe("deferred");
+    expect(await unitsFor()).toBe(200);
+  });
+
+  it("starts a new count on the next quota day", async () => {
+    await updateInbox((store) => ({ ...store, youtubeUnits: { date: "2026-10-12", used: 200 } }));
+    stubFetch((call) => platformApis(call) ?? jsonResponse({}, 404));
+
+    await syncInbox({ now: NOW, posts: [ytPost("v1")] });
+
+    expect((await readInbox()).youtubeUnits).toEqual({ date: "2026-10-13", used: 1 });
+  });
+});
+
+describe("a walk cut short", () => {
+  it("keeps what it read but does not move the cursor when the page limit stopped it", async () => {
+    const calls = stubFetch((call) =>
+      new URL(call.url).hostname === "www.googleapis.com"
+        ? jsonResponse({ items: [yt(`c${calls.length}`, daysAgo(1))], nextPageToken: "more" })
+        : jsonResponse({}, 404)
+    );
+
+    await syncInbox({ now: NOW, posts: [ytPost("v1")] });
+
+    const store = await readInbox();
+    expect(calls).toHaveLength(5);
+    expect(store.items).toHaveLength(5);
+    expect(store.cursors[cursorKey("youtube", "v1")].newestAt).toBeUndefined();
+    expect(store.cursors[cursorKey("youtube", "v1")].lastFetchedAt).toBe(NOW.toISOString());
+  });
+
+  it("does the same when the daily budget stopped it part-way", async () => {
+    vi.stubEnv("INBOX_YOUTUBE_DAILY_UNITS", "2");
+    const calls = stubFetch((call) =>
+      new URL(call.url).hostname === "www.googleapis.com"
+        ? jsonResponse({ items: [yt(`c${calls.length}`, daysAgo(1))], nextPageToken: "more" })
+        : jsonResponse({}, 404)
+    );
+
+    const report = await syncInbox({ now: NOW, posts: [ytPost("v1")] });
+
+    const store = await readInbox();
+    expect(calls).toHaveLength(2);
+    expect(report.platforms.youtube?.status).toBe("deferred");
+    expect(store.items).toHaveLength(2);
+    expect(store.cursors[cursorKey("youtube", "v1")].newestAt).toBeUndefined();
+  });
+
+  it("moves the cursor when the walk reached comments it already had", async () => {
+    stubFetch((call) =>
+      new URL(call.url).hostname === "www.googleapis.com" ? jsonResponse({ items: [yt("c1", daysAgo(1))] }) : jsonResponse({}, 404)
+    );
+
+    await syncInbox({ now: NOW, posts: [ytPost("v1")] });
+
+    expect((await readInbox()).cursors[cursorKey("youtube", "v1")].newestAt).toBe(daysAgo(1));
   });
 });

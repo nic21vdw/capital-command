@@ -41,6 +41,14 @@ export const inboxItemSchema = z.object({
       sentAt: z.string(),
       externalId: z.string().optional()
     })
+    .optional(),
+  send: z
+    .object({
+      state: z.enum(["sending", "send-unknown"]),
+      at: z.string(),
+      text: z.string(),
+      error: z.string().optional()
+    })
     .optional()
 });
 export type InboxItem = z.infer<typeof inboxItemSchema>;

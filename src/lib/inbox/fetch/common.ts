@@ -2,16 +2,25 @@ import type { InboxItem, PublishedPost } from "@/lib/inbox/types";
 
 export const MAX_PAGES = 5;
 
+export class FetchBudgetExhausted extends Error {
+  constructor() {
+    super("The daily read budget is spent.");
+  }
+}
+
 export type FetchResult = {
   items: InboxItem[];
   newestAt: string | null;
   pages: number;
+  truncated: boolean;
+  budgetSpent?: boolean;
   permalink?: string;
 };
 
 export type FetchOptions = {
   now?: Date;
   maxPages?: number;
+  beforeRequest?: () => Promise<void>;
 };
 
 type ItemFields = Pick<InboxItem, "externalId" | "kind" | "authorName" | "text" | "at"> &
