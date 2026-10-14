@@ -108,6 +108,8 @@ export type ThreadsRunReport = {
   note?: string;
   /** Queue persistence stopped delivery independently of platform outcomes. */
   persistenceError?: string;
+  /** Accounts whose token was rejected; their posts were left exactly as found. */
+  authFailures?: Array<{ accountId: string; reason: string }>;
 };
 
 /** One account's tally within a day. */

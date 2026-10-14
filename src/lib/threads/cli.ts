@@ -112,7 +112,7 @@ function printRun(run: RunReport | undefined) {
     }
     console.log(`[threads] follow-up replies: ${run.replies.published} published, ${run.replies.failed} failed, ${run.replies.retrying} waiting to retry, ${run.replies.skipped} skipped`);
   }
-  if (run.persistenceError || run.failed > 0 || (run.replies?.failed ?? 0) > 0) process.exitCode = 1;
+  if (run.persistenceError || run.authFailures?.length || run.failed > 0 || (run.replies?.failed ?? 0) > 0) process.exitCode = 1;
 }
 
 function printBatch(batch: BatchSummary) {
@@ -145,6 +145,9 @@ async function main() {
     printPlan(body.plan as PlanResult | undefined);
     printPlan(body.ahead as PlanResult | undefined, "planned ahead");
     printPlan(body.catchUp as PlanResult | undefined, "catch-up");
+    for (const entry of (body.tokens as { accountId: string; outcome: string; detail: string }[] | undefined) ?? []) {
+      console.log(`[threads] token ${entry.accountId}: ${entry.outcome} - ${entry.detail}`);
+    }
     printRun(body.run as RunReport | undefined);
     return;
   }

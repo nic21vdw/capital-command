@@ -967,6 +967,15 @@ input[type="datetime-local"],
   }
 }
 
+.marketing-shell {
+  min-height: calc(100vh - var(--platform-banner-height, 0px));
+}
+
+.marketing-sidebar {
+  top: calc(1rem + var(--platform-banner-height, 0px));
+  height: calc(100dvh - 2rem - var(--platform-banner-height, 0px));
+}
+
 /* A wide canvas card can still be short. Let the whole rail scroll instead
    of its fixed account/profile blocks squeezing navigation to zero height. */
 @media (max-height: 760px) {
@@ -984,7 +993,7 @@ input[type="datetime-local"],
    the quota meter were a third of the screen and could never be scrolled away. */
 @media (min-height: 720px) and (min-width: 640px) {
   .app-frame {
-    height: 100dvh;
+    height: calc(100dvh - var(--platform-banner-height, 0px));
     overflow: hidden;
   }
 

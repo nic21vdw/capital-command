@@ -67,7 +67,7 @@ if (-not (Test-App)) {
     exit 0
   }
   if (-not (Test-BuildPresent)) {
-    Add-Content -Path $log -Value "There is no build to serve (.next\BUILD_ID is missing) - not starting a server." -Encoding utf8
+    Start-RecoveryBuild -Log $log
     exit 0
   }
   Add-Content -Path $log -Value "App not running at $baseUrl - starting it." -Encoding utf8
@@ -96,4 +96,12 @@ $body = if ($DryRun) { '{"dryRun":true}' } else { '{}' }
     Write-Host $line
     Add-Content -Path $log -Value $line -Encoding utf8
   }
-exit $LASTEXITCODE
+$tickExit = $LASTEXITCODE
+if (-not $DryRun) {
+  try {
+    & (Join-Path $PSScriptRoot "health-toast.ps1") -BaseUrl $baseUrl -Log $log
+  } catch {
+    Add-Content -Path $log -Value "Health toast failed: $($_.Exception.Message)" -Encoding utf8
+  }
+}
+exit $tickExit
