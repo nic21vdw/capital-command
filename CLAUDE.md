@@ -557,8 +557,162 @@ pauses the others.
   `register-*-task.ps1` picks when run elevated) has no desktop, so nothing is
   shown AND nothing is recorded: the toast waits for a run that can show it.
   Re-register the tasks from a normal prompt to get toasts.
-- There is no email, push or other notification code: the banner and that toast
-  are the only alerts.
+- The same script also toasts new Listening leads ("N new leads", linking to
+  `/listening`), at most once every two hours, from `GET /api/listening?summary=1`
+  and `data/listening-notified.json` (`leadToast.test.ts`). With `-HealthJson`
+  given and no `-LeadsJson` it skips the lead check, so the health tests never
+  touch the network or the lead state.
+- There is no email, push or other notification code: the banner, the sidebar
+  lead badge and these toasts are the only alerts.
+
+## Listening (`/listening`, `src/lib/listening`)
+
+Public posts where someone describes a problem CoLateral solves, found on Hacker
+News, Reddit, YouTube and Bluesky. It reads and classifies; it never posts.
+
+- THE APP SCANS ITSELF, IN PRODUCTION ONLY. `startListeningSchedule()` (called
+  from `instrumentation.ts`) does nothing unless `NODE_ENV === "production"` or
+  `LISTENING_SCHEDULE=1`, so `next dev` sandboxes never poll the real sources.
+  It checks every 10 minutes and scans when the last scan is two hours old, so a
+  restart does not rescan. `runListeningScan` in `run.ts` is single-flight on a
+  `globalThis` promise: the page's "Scan now", the schedule and a CLI in the same
+  process all join the scan already running. The CLI is a separate process and
+  does not share that lock.
+- A FAILED SCAN STILL COUNTS AS A SCAN. A scan that throws writes
+  `lastScan = { at, sources: [], error }`, and the schedule also keeps the time
+  of the failure in memory for when the store itself is what broke, so the next
+  attempt is two hours later and not ten minutes later.
+- TWO FILES. Keywords, source switches and the schedule switch live in
+  `data/listening/config.json` (versioned: `migrateConfig` switches YouTube off
+  for a file older than version 2, keeps the structural groups out of the leads
+  for one older than version 3, and always cuts groups to `MAX_TERMS_PER_GROUP`
+  terms and the list to `MAX_KEYWORD_GROUPS`; the first read also builds the file
+  from the keywords and switches of the old single-file Listening if
+  `data/listening.json` still holds them). Hits, the last scan, the YouTube
+  ledger and the Reddit cursor live in `data/listening.json`. Defaults are in
+  `defaults.ts`; if a brand-kit module ever lands, derive them from it there.
+- DEDUPE IS BY URL AND BY TEXT. `mergeResults` keeps one result for the same
+  words posted on two sources (or two subreddits) and records the other places in
+  `alsoOn`. A scan never resets a status, so a dismissed hit stays dismissed.
+- CLASSIFY ONLY WHAT IS NEW. `classify.ts` sends new hits to `runAi` in batches
+  of 8, at most 40 per scan and 90 seconds, then falls back to the keyword
+  heuristic for anything the model did not answer, so a dead model never stops a
+  scan. A "high" lead is `category === "lead" && score >= 70 && status === "new"`
+  (`leads.ts`), and the sidebar badge, the toast and the page all use that one
+  definition. A hit is a lead only if EVERY group it matches allows leads. The
+  structural engineering AI group and the structural software group (ETABS,
+  SAP2000, RISA, Tekla, Revit) have `canLead: false`, so a post about them is a
+  mention or a competitor hit even when it asks for an alternative: CoLateral does
+  not market itself as engineering software (`docs/colateral-messaging.md`), and
+  the classifier prompt follows that file.
+- YOUTUBE SPENDS THE UPLOAD QUOTA, SO IT IS OFF BY DEFAULT. `search.list` is 100
+  units out of the daily 10,000 that uploads share (about 1,700 each, and
+  `YOUTUBE_DAILY_UPLOAD_BUDGET` is 6). When switched on it makes one search per
+  scan, spread over the Pacific day, and stops at `YOUTUBE_LISTENING_DAILY_UNITS`
+  (default 100, which is one search and no comment lookups). The ledger in
+  `data/listening.json` is debited BEFORE each request, by a change applied to
+  the stored value inside the store lock (`ledger.ts`), never by writing back a
+  copy read when the scan began, so a crash after the fetch still counts and a
+  second writer is not overwritten. The publish runner subtracts the ledger from
+  the day's upload budget (`remainingYoutubeUploads`, rounding up to whole uploads
+  at about 1,700 units). Not connected, a spent budget, pacing and X are reported
+  as `skipped`, which is not a failed scan.
+- REDDIT IS SLOW ON PURPOSE. Requests are 6 seconds apart, a scan searches 8
+  terms and carries on from where the last scan stopped (`redditCursor`, advanced
+  by a delta), and a `Retry-After` of 30 seconds or less is waited out once;
+  longer, or a second refusal, ends Reddit's part of the scan. A term that fails
+  for any reason other than a 429 is stepped past, so one bad term cannot hold
+  the rotation on itself.
+- BLUESKY needs no sign-in, but `public.api.bsky.app` answered 403 from this
+  network while `api.bsky.app` answered 200, so the scan tries `api.bsky.app` first
+  and moves to the other host on a 401 or 403. Authors who set `!no-unauthenticated`
+  are skipped.
+- X has no code: its search needs a paid API. The source exists so the page can
+  say so.
+- "Send to Outreach" (`outreach.ts`) files the hit as an Outreach contact of kind
+  `thread`, with the post's title as `topic` and no `recentVideo`, so it uses the
+  thread template (which claims to have watched nothing) rather than the creator
+  template. It reuses a contact already on that url instead of overwriting what
+  was written on it. The thread template ships with one bracketed line to be
+  replaced by an answer (`THREAD_ANSWER_PLACEHOLDER`); the Outreach page shows a
+  thread message in an editable box and will not copy it or mark it sent until
+  that line is gone (`hasUnfilledPlaceholder`).
+
+## Post analytics (`src/lib/analytics`, `/performance`)
+
+Every published post is read back from its platform into `data/analytics/metrics.json`
+(`store.ts`: `atomicWriteJson` under `withFileLock`, compact JSON, one process-wide
+write queue). A record per post keeps the latest numbers plus one snapshot per UTC day,
+capped at 90 (`metrics.ts`). Numbers a platform did not report are absent, never zero.
+
+- **What is read** (`targets.ts`): every publish-queue leg that is `published` with a
+  `postId`, and every published Threads item. The Threads queue keeps 14 days, so the
+  store, not the queue, is the long-term record of a Threads post.
+- **Per platform**, each a pure parser plus a fetcher over an injectable `fetch`:
+  YouTube reads Data API counts in batches of 50 and, when the token has
+  `yt-analytics.readonly`, Analytics watch time and average view duration (a 403 on that
+  scope drops back to the Data API for the rest of the run; `source` on the record says
+  which). Instagram, Facebook and Threads read insights with a metric-set ladder kept per
+  media type (`ladder.ts`: Instagram REELS, FEED, CAROUSEL_ALBUM, VIDEO; Facebook REELS, VIDEO,
+  CAROUSEL, POST, PHOTO, by format and not by node; Threads TEXT). One media the platform
+  refuses falls back for itself only; a type moves to its next set, for the rest of the
+  run, only after two different media of that type are refused the same way. Once any
+  media gets through a set, that set is proven for the type: later refusals of it fall
+  back for that media only and never advance or exhaust the type, and a type is
+  exhausted only if no set was ever proven. All of them fall back to likes and comments when the
+  token has no insights permission. Facebook asks per node type (`facebookNodeOf`): a
+  Reel or video reads `blue_reels_play_count` / `fb_reels_total_plays` / `post_video_*` from
+  `video_insights`, a feed post (carousel) reads `post_media_view` and `shares`, and a
+  single photo has neither `shares` nor an insights edge. Instagram drops `plays` from
+  Graph v22. TikTok is marked unsupported until the app's scope (`TIKTOK_SCOPE`) includes
+  `video.list`.
+  Production's YouTube grant today is `youtube.upload`, `youtube.readonly` and
+  `youtube.force-ssl`, so watch time does not arrive until YouTube is reconnected with the
+  extra scope; Connect YouTube does not ask for it.
+- **Failures** (`http.ts`, `classifyFailure`): a 429 backs off (honouring `Retry-After`
+  up to 60 s, else the account is left alone for the advised time and shown as rate
+  limited); an auth failure goes through the platform-health breaker per account
+  (`recordAuthFailure`, and `accountAuthBlocked` skips it until the next trial), exactly
+  like posting (a trip the publisher recorded after the sync began is never cleared by it);
+  a missing permission is a note on the account, not a break. Five failed reads in a row stop
+  an account for the run, but only transport and 5xx failures count: a post's own 4xx does not.
+  Ten posts in a row refused with a 4xx stop the account for the run as a probably retired
+  endpoint. Meta's "does not exist, cannot be loaded due to missing permissions" is not
+  treated as gone.
+- **When** (`schedule.ts`, started from `src/instrumentation.ts`): the running server checks every
+  15 minutes and syncs when the last completed sync is 6 hours old (30 minutes after a failed one),
+  first check 2 minutes after start. Single-flight in the process (`globalThis`) and across
+  processes (a `sync.running` marker with pid and 30-minute staleness). `ANALYTICS_SYNC=off`
+  disables it. The marker carries a heartbeat refreshed every 5 minutes, so a long pass is
+  not taken for a dead one. Posts are read every cycle in their first week, daily to day 30,
+  every third day to day 90, and once more after day 90 (`final`); a post missing three times
+  is `gone`, and is looked at again weekly and on every forced sync. Each account is read
+  oldest-`attemptedAt` first, so posts that keep failing do not go first forever.
+  `npm run analytics:sync [-- --force]` and the page's Sync now (`POST /api/analytics/sync`,
+  202, runs in the background, 429 within 10 minutes of the last Sync now) use the same code.
+- **Meta pacing** (`pacing.ts`): Instagram, Facebook and Threads get 150 calls per account
+  per run (`ANALYTICS_META_CALLS_PER_RUN`), and every response's `x-app-usage`,
+  `x-page-usage` and `x-business-use-case-usage` is read; above 75% the account is left
+  alone for an hour (or the time Meta gives), so reading numbers never starves
+  `media_publish`.
+- **YouTube quota ledger** (`src/lib/youtube/quotaLedger.ts`): one ledger per Pacific day in
+  `data/youtube-quota.json`. `debit(units, purpose)` applies a delta under the file lock
+  before each call; `remaining(purpose)` and `snapshot()` give the per-purpose breakdown.
+  Uploads keep a reserve of `YOUTUBE_DAILY_UPLOAD_BUDGET` x `YOUTUBE_UNITS_PER_UPLOAD`
+  (`publisher/quota.ts`, 1,600 each, 9,600 by default). Everything else shares
+  `YOUTUBE_NON_UPLOAD_DAILY_UNITS` (default 300), which is capped at what the reserve leaves
+  of the 10,000-unit day, with one warning in the log when it is. An upload is never refused:
+  it is recorded when it can be, and goes through unrecorded when the file is unreadable or
+  the lock is held for over 5 seconds (`remaining("upload")` then says the whole day). Anything else is refused as `budget` (allowance
+  spent) or `unavailable` (ledger unusable). Analytics debits 1 unit per `videos.list` batch;
+  on `budget` it rests until midnight Pacific (`nextResetAt`, exact across the 23- and 25-hour
+  DST days), on `unavailable` it tries again next cycle. The upload path does not debit the
+  ledger yet; the inbox, listening and outlier scans are meant to move onto it.
+- **For later slices**: `queryAnalytics`, `queryRows`, `topRows`, `platformTotals` and
+  `getPostMetrics` are exported from `src/lib/analytics/index.ts`; `GET /api/analytics`
+  takes `platform` (comma list), `since` (`28d` or a date), `top` and `sort`. The page
+  declares its filters, Sync now and a reading of the totals through
+  `buildPerformanceSurface` (`surface.ts`).
 
 ## LinkedIn (`adapters/linkedin.ts`, `linkedinAuth.ts`, `linkedinApi.ts`)
 

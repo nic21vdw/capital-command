@@ -1,36 +1,91 @@
 import { readFileSync } from "node:fs";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_KEYWORD_GROUPS,
+  CONFIG_VERSION,
+  MAX_KEYWORD_GROUPS,
   MAX_RESULTS,
+  MAX_TERMS_PER_GROUP,
+  RESULT_STATUSES,
   allTerms,
-  defaultListeningStore,
+  contentFingerprint,
+  defaultListeningConfig,
+  keywordGroupSchema,
   mergeResults,
   normalizeResultUrl,
   parseHnResponse,
   parseRedditResponse,
   plainText,
+  splitNewHits,
   termMatches,
+  type ListeningHit,
   type ListeningResult
 } from "@/lib/listening/model";
-import { applyScan, collectScan, hnSearchUrl, redditSearchUrl, scanFailed, USER_AGENT } from "@/lib/listening/scan";
-import { readListeningStore, updateListeningStore } from "@/lib/listening/store";
+import { applyScan, collectScan, hnSearchUrl, REDDIT_TERMS_PER_SCAN, redditSearchUrl, scanFailed, USER_AGENT } from "@/lib/listening/scan";
+import { readListeningConfig, updateListeningConfig } from "@/lib/listening/config";
+import { readListeningStore } from "@/lib/listening/store";
+import { dataPath } from "@/lib/paths";
+import * as atomicJson from "@/lib/storage/atomic-json";
+
+vi.mock("@/lib/storage/atomic-json", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/storage/atomic-json")>();
+  return { ...original, atomicWriteJson: vi.fn(original.atomicWriteJson) };
+});
 
 const fixture = (name: string) => JSON.parse(readFileSync(path.join(__dirname, "fixtures", name), "utf8")) as unknown;
 const TERMS = allTerms(DEFAULT_KEYWORD_GROUPS);
+const HN_AND_REDDIT = { ...defaultListeningConfig, sources: { hn: true, reddit: true, youtube: false, bluesky: false, x: false } };
+const EMPTY_STORE = { results: [], youtube: { day: "", units: 0, cursor: 0 }, redditCursor: 0 };
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
+function resultOf(overrides: Partial<ListeningResult> & { id: string }): ListeningResult {
+  return {
+    source: "hn",
+    title: overrides.id,
+    url: `https://news.ycombinator.com/item?id=${overrides.id}`,
+    author: "",
+    createdAt: "2026-10-01T00:00:00.000Z",
+    excerpt: "",
+    matchedTerms: [],
+    status: "new",
+    note: "",
+    foundAt: "2026-10-01T12:00:00.000Z",
+    category: "mention",
+    sentiment: 0,
+    score: 0,
+    reason: "",
+    classifiedBy: "heuristic",
+    alsoOn: [],
+    ...overrides
+  };
+}
+
 describe("default keyword groups", () => {
-  it("seeds the three intents with the agreed terms", () => {
-    expect(DEFAULT_KEYWORD_GROUPS.map((group) => group.intent)).toEqual(["pain", "comparison", "pricing"]);
-    expect(TERMS).toContain("multiple claude code");
-    expect(TERMS).toContain("conductor app claude");
-    expect(TERMS).toContain("one-time license ai");
-    expect(TERMS).toHaveLength(11);
+  it("watch the product, the competitors and structural engineering AI, and keep the original agent-workspace terms", () => {
+    expect(DEFAULT_KEYWORD_GROUPS.map((group) => group.intent)).toEqual(
+      expect.arrayContaining(["brand", "competitor", "pain", "comparison", "pricing"])
+    );
+    for (const term of ["ETABS", "SAP2000", "RISA", "Tekla", "Revit", "structural engineering AI", "multiple claude code", "one-time license ai"]) {
+      expect(TERMS.map((entry) => entry.toLowerCase())).toContain(term.toLowerCase());
+    }
+  });
+
+  it("never searches the bare word collateral, which is mostly loans", () => {
+    expect(TERMS.map((term) => term.toLowerCase())).not.toContain("colateral");
+    expect(TERMS.map((term) => term.toLowerCase())).not.toContain("collateral");
+  });
+
+  it("keeps the groups about structural software and structural engineering AI out of the leads, and no others", () => {
+    expect(DEFAULT_KEYWORD_GROUPS.filter((group) => !group.canLead).map((group) => group.id)).toEqual(["competitors", "structural-ai"]);
+  });
+
+  it("gives every hit one of four statuses", () => {
+    expect(RESULT_STATUSES).toEqual(["new", "seen", "sent-to-outreach", "dismissed"]);
   });
 });
 
@@ -118,11 +173,11 @@ describe("dedupe", () => {
 
   it("never resets a triaged result and only adds new matched terms", () => {
     const first = mergeResults([], hits, "2026-10-11T12:00:00.000Z").results;
-    const triaged: ListeningResult[] = first.map((result) => ({ ...result, status: "ignored", note: "not relevant" }));
+    const triaged: ListeningResult[] = first.map((result) => ({ ...result, status: "dismissed", note: "not relevant" }));
     const again = mergeResults(triaged, [{ ...hits[0], url: `${hits[0].url}#reply`, matchedTerms: ["claude code gui"] }]);
     expect(again.added).toBe(0);
     const kept = again.results.find((result) => result.url === hits[0].url)!;
-    expect(kept.status).toBe("ignored");
+    expect(kept.status).toBe("dismissed");
     expect(kept.note).toBe("not relevant");
     expect(kept.matchedTerms).toEqual(expect.arrayContaining(["multiple claude code", "claude code gui"]));
   });
@@ -132,24 +187,100 @@ describe("dedupe", () => {
     expect(results[0].createdAt > results[1].createdAt).toBe(true);
   });
 
-  it("caps the list, dropping old untouched results before marked ones", () => {
-    const many: ListeningResult[] = Array.from({ length: MAX_RESULTS }, (_, i) => ({
-      id: `hn-${i}`,
-      source: "hn",
-      title: `t${i}`,
-      url: `https://news.ycombinator.com/item?id=${i}`,
-      author: "",
-      createdAt: new Date(Date.UTC(2026, 0, 1) + i * 60_000).toISOString(),
-      excerpt: "",
-      matchedTerms: [],
-      status: i === 0 ? "replied" : "new",
-      note: "",
-      foundAt: "2026-10-01T12:00:00.000Z"
-    }));
-    const { results } = mergeResults(many, hits);
-    expect(results).toHaveLength(MAX_RESULTS);
-    expect(results.some((result) => result.id === "hn-0")).toBe(true);
-    expect(results.some((result) => result.id === "hn-1")).toBe(false);
+  describe("across sources", () => {
+    const text = "Anyone know a structural engineering AI that can sanity check a Revit model? Drowning in RFIs this week.";
+    const reddit: ListeningHit = {
+      source: "reddit",
+      title: "r/StructuralEngineering: Revit model checking",
+      url: "https://www.reddit.com/r/StructuralEngineering/comments/zzz111/revit_model_checking/",
+      author: "dana",
+      createdAt: "2026-10-12T10:00:00.000Z",
+      excerpt: text,
+      matchedTerms: ["Revit"]
+    };
+    const bluesky: ListeningHit = {
+      source: "bluesky",
+      title: text.slice(0, 80),
+      url: "https://bsky.app/profile/dana.bsky.social/post/3kabc111",
+      author: "dana.bsky.social",
+      createdAt: "2026-10-12T10:05:00.000Z",
+      excerpt: text,
+      matchedTerms: ["structural engineering AI"]
+    };
+
+    it("fingerprints the same words the same way whatever the markup or case", () => {
+      expect(contentFingerprint({ title: "x", excerpt: `<p>${text.toUpperCase()}</p>` })).toBe(contentFingerprint({ title: "x", excerpt: text }));
+      expect(contentFingerprint({ title: "short", excerpt: "tiny" })).toBeNull();
+    });
+
+    it("keeps one result for text posted on two sources and remembers where else it appeared", () => {
+      const { results, added } = mergeResults([], [reddit, bluesky], "2026-10-12T12:00:00.000Z");
+      expect(added).toBe(1);
+      expect(results).toHaveLength(1);
+      expect(results[0].source).toBe("reddit");
+      expect(results[0].alsoOn).toEqual([{ source: "bluesky", url: bluesky.url }]);
+      expect(results[0].matchedTerms).toEqual(expect.arrayContaining(["Revit", "structural engineering AI"]));
+    });
+
+    it("catches a copy that turns up in a later scan, without counting it as new", () => {
+      const first = mergeResults([], [reddit], "2026-10-12T12:00:00.000Z").results;
+      const later = mergeResults(first, [bluesky], "2026-10-12T14:00:00.000Z");
+      expect(later.added).toBe(0);
+      expect(later.results).toHaveLength(1);
+      expect(later.results[0].alsoOn.map((entry) => entry.source)).toEqual(["bluesky"]);
+    });
+
+    it("lists only the hits that are genuinely new, so nothing already stored is classified again", () => {
+      const stored = mergeResults([], [reddit], "2026-10-12T12:00:00.000Z").results;
+      const other = { ...bluesky, url: "https://bsky.app/profile/lee.bsky.social/post/3kzzz999", excerpt: "A completely different post about SAP2000 pricing." };
+      expect(splitNewHits(stored, [reddit, bluesky, other])).toEqual([other]);
+    });
+  });
+
+  describe("the cap", () => {
+    it("holds the list at the cap, dropping dismissed and low-value results before leads and anything sent to outreach", () => {
+      const many: ListeningResult[] = Array.from({ length: MAX_RESULTS }, (_, i) =>
+        resultOf({
+          id: `hn-${i}`,
+          createdAt: new Date(Date.UTC(2026, 0, 1) + i * 60_000).toISOString(),
+          status: i === 0 ? "sent-to-outreach" : i === 1 ? "new" : i === 2 ? "dismissed" : "new",
+          category: i === 1 ? "lead" : "noise"
+        })
+      );
+      const extra: ListeningHit = {
+        source: "hn",
+        title: "fresh",
+        url: "https://news.ycombinator.com/item?id=99999999",
+        author: "",
+        createdAt: "2027-01-01T00:00:00.000Z",
+        excerpt: "",
+        matchedTerms: ["Revit"]
+      };
+      const { results } = mergeResults(many, [extra, { ...extra, url: `${extra.url}0` }]);
+      expect(results).toHaveLength(MAX_RESULTS);
+      const ids = new Set(results.map((result) => result.id));
+      expect(ids.has("hn-0")).toBe(true);
+      expect(ids.has("hn-1")).toBe(true);
+      expect(ids.has("hn-2")).toBe(false);
+      expect(ids.has("hn-3")).toBe(false);
+    });
+
+    it("protects a result Nic wrote a note on", () => {
+      const many: ListeningResult[] = Array.from({ length: MAX_RESULTS }, (_, i) =>
+        resultOf({
+          id: `hn-${i}`,
+          createdAt: new Date(Date.UTC(2026, 0, 1) + i * 60_000).toISOString(),
+          category: "noise",
+          note: i === 0 ? "follow up" : ""
+        })
+      );
+      const { results } = mergeResults(many, [
+        { source: "hn", title: "fresh", url: "https://news.ycombinator.com/item?id=88888888", author: "", createdAt: "2027-01-01T00:00:00.000Z", excerpt: "", matchedTerms: ["Revit"] }
+      ]);
+      expect(results).toHaveLength(MAX_RESULTS);
+      expect(results.some((result) => result.id === "hn-0")).toBe(true);
+      expect(results.some((result) => result.id === "hn-1")).toBe(false);
+    });
   });
 });
 
@@ -168,10 +299,10 @@ describe("scanning", () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) =>
       String(input).includes("algolia") ? jsonResponse(fixture("hn-search.json")) : jsonResponse(fixture("reddit-search.json"))
     );
-    const collected = await collectScan(defaultListeningStore, { fetch: fetcher as unknown as typeof fetch, sleep, now });
-    const { store, report } = applyScan(structuredClone(defaultListeningStore), collected);
+    const collected = await collectScan(HN_AND_REDDIT, { fetch: fetcher as unknown as typeof fetch, sleep, now });
+    const { store, report } = applyScan(EMPTY_STORE, collected);
 
-    expect(fetcher).toHaveBeenCalledTimes(TERMS.length * 2);
+    expect(fetcher).toHaveBeenCalledTimes(TERMS.length + REDDIT_TERMS_PER_SCAN);
     const headers = (fetcher.mock.calls[0] as unknown as [string, RequestInit])[1].headers as Record<string, string>;
     expect(headers["User-Agent"]).toBe(USER_AGENT);
     expect(report.sources.map((source) => [source.source, source.ok, source.added])).toEqual([
@@ -186,8 +317,8 @@ describe("scanning", () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) =>
       String(input).includes("algolia") ? jsonResponse(fixture("hn-search.json")) : jsonResponse({ message: "Too Many Requests" }, 429)
     );
-    const collected = await collectScan(defaultListeningStore, { fetch: fetcher as unknown as typeof fetch, sleep, now });
-    const { report, store } = applyScan(structuredClone(defaultListeningStore), collected);
+    const collected = await collectScan(HN_AND_REDDIT, { fetch: fetcher as unknown as typeof fetch, sleep, now });
+    const { report, store } = applyScan(EMPTY_STORE, collected);
 
     const reddit = report.sources.find((source) => source.source === "reddit")!;
     expect(reddit.ok).toBe(false);
@@ -204,7 +335,7 @@ describe("scanning", () => {
       if (String(input).includes("algolia")) throw new TypeError("fetch failed");
       return jsonResponse({}, 403);
     });
-    const collected = await collectScan(defaultListeningStore, { fetch: fetcher as unknown as typeof fetch, sleep, now });
+    const collected = await collectScan(HN_AND_REDDIT, { fetch: fetcher as unknown as typeof fetch, sleep, now });
     const [hn, reddit] = collected.sources.map((source) => source.report);
     expect(hn.ok).toBe(false);
     expect(hn.error).toMatch(/fetch failed/);
@@ -215,7 +346,7 @@ describe("scanning", () => {
   it("skips a source that is switched off", async () => {
     const fetcher = vi.fn(async () => jsonResponse(fixture("hn-search.json")));
     const collected = await collectScan(
-      { ...defaultListeningStore, sources: { hn: true, reddit: false } },
+      { ...HN_AND_REDDIT, sources: { ...HN_AND_REDDIT.sources, reddit: false } },
       { fetch: fetcher as unknown as typeof fetch, sleep, now }
     );
     expect(collected.sources.map((source) => source.report.source)).toEqual(["hn"]);
@@ -223,11 +354,139 @@ describe("scanning", () => {
   });
 });
 
-describe("listening store", () => {
-  it("starts from the seeded groups and persists updates", async () => {
-    const initial = await readListeningStore();
+describe("listening config", () => {
+  beforeEach(async () => {
+    await rm(dataPath("listening"), { recursive: true, force: true });
+    await rm(dataPath("listening.json"), { force: true });
+  });
+
+  const writeConfigFile = async (value: unknown) => {
+    await mkdir(dataPath("listening"), { recursive: true });
+    await writeFile(dataPath("listening", "config.json"), JSON.stringify(value), "utf8");
+  };
+
+  it("starts from the defaults, with YouTube off because it spends the upload quota", async () => {
+    const initial = await readListeningConfig();
     expect(initial.groups).toEqual(DEFAULT_KEYWORD_GROUPS);
-    await updateListeningStore((store) => ({ ...store, sources: { hn: true, reddit: false } }));
-    expect((await readListeningStore()).sources).toEqual({ hn: true, reddit: false });
+    expect(initial.autoScan).toBe(true);
+    expect(initial.sources).toEqual({ hn: true, reddit: true, youtube: false, bluesky: true, x: false });
+  });
+
+  it("saves edits to data/listening/config.json through the shared atomic writer", async () => {
+    await readListeningConfig();
+    await updateListeningConfig((config) => ({
+      ...config,
+      groups: [...config.groups, { id: "mine", name: "Mine", intent: "pain", canLead: true, terms: ["my own term"] }],
+      sources: { ...config.sources, reddit: false }
+    }));
+
+    const file = dataPath("listening", "config.json");
+    expect(atomicJson.atomicWriteJson).toHaveBeenCalledWith(file, expect.anything());
+    const onDisk = JSON.parse(await readFile(file, "utf8")) as { groups: { id: string }[]; sources: { reddit: boolean } };
+    expect(onDisk.groups.map((group) => group.id)).toContain("mine");
+    expect(onDisk.sources.reddit).toBe(false);
+    expect((await readListeningConfig()).sources.reddit).toBe(false);
+  });
+
+  it("keeps hits in their own file, apart from the keyword config", async () => {
+    const store = await readListeningStore();
+    expect(store.results).toEqual([]);
+    expect(store).not.toHaveProperty("groups");
+  });
+
+  it("limits the terms in a keyword group", () => {
+    const terms = Array.from({ length: MAX_TERMS_PER_GROUP + 1 }, (_, i) => `term ${i}`);
+    expect(keywordGroupSchema.safeParse({ id: "g", name: "G", intent: "pain", terms }).success).toBe(false);
+    expect(keywordGroupSchema.safeParse({ id: "g", name: "G", intent: "pain", terms: terms.slice(0, MAX_TERMS_PER_GROUP) }).success).toBe(true);
+  });
+
+  it("migrates a config saved before these rules: YouTube off, structural AI out of the leads, long groups cut to the limit", async () => {
+    const terms = Array.from({ length: 20 }, (_, i) => `term ${i}`);
+    await writeConfigFile({
+      groups: [
+        { id: "structural-ai", name: "Structural engineering AI", intent: "pain", terms: ["structural engineering AI"] },
+        { id: "long", name: "Long", intent: "pain", terms }
+      ],
+      sources: { hn: true, reddit: false, youtube: true, bluesky: true, x: false },
+      autoScan: true
+    });
+
+    const config = await readListeningConfig();
+
+    expect(config.sources).toEqual({ hn: true, reddit: false, youtube: false, bluesky: true, x: false });
+    expect(config.groups.find((group) => group.id === "structural-ai")?.canLead).toBe(false);
+    expect(config.groups.find((group) => group.id === "long")?.terms).toEqual(terms.slice(0, MAX_TERMS_PER_GROUP));
+    expect(config.version).toBe(CONFIG_VERSION);
+  });
+
+  it("takes the structural software group out of the leads for a config saved before that rule, and keeps YouTube as it was", async () => {
+    await writeConfigFile({
+      version: 2,
+      groups: [
+        { id: "competitors", name: "Structural software", intent: "competitor", canLead: true, terms: ["ETABS"] },
+        { id: "mine", name: "Mine", intent: "pain", canLead: true, terms: ["my term"] }
+      ],
+      sources: { hn: true, reddit: true, youtube: true, bluesky: true, x: false },
+      autoScan: true
+    });
+
+    const config = await readListeningConfig();
+
+    expect(config.groups.find((group) => group.id === "competitors")?.canLead).toBe(false);
+    expect(config.groups.find((group) => group.id === "mine")?.canLead).toBe(true);
+    expect(config.sources.youtube).toBe(true);
+    expect(config.version).toBe(CONFIG_VERSION);
+  });
+
+  it("limits the number of keyword groups, cutting a longer saved list to the limit on read", async () => {
+    const group = (i: number) => ({ id: `g${i}`, name: `G${i}`, intent: "pain", canLead: true, terms: [`t${i}`] });
+    await writeConfigFile({ version: CONFIG_VERSION, groups: Array.from({ length: MAX_KEYWORD_GROUPS + 5 }, (_, i) => group(i)), sources: {}, autoScan: true });
+
+    const config = await readListeningConfig();
+
+    expect(MAX_KEYWORD_GROUPS).toBe(20);
+    expect(config.groups).toHaveLength(MAX_KEYWORD_GROUPS);
+    expect(config.groups[MAX_KEYWORD_GROUPS - 1].id).toBe(`g${MAX_KEYWORD_GROUPS - 1}`);
+  });
+
+  it("leaves YouTube on when a current config says so", async () => {
+    await updateListeningConfig((config) => ({ ...config, sources: { ...config.sources, youtube: true } }));
+    expect((await readListeningConfig()).sources.youtube).toBe(true);
+  });
+
+  it("builds the first config from the keywords and switches of the old single-file Listening, adding the new default groups", async () => {
+    await mkdir(path.dirname(dataPath("listening.json")), { recursive: true });
+    await writeFile(
+      dataPath("listening.json"),
+      JSON.stringify({
+        groups: [{ id: "pain", name: "My pain", intent: "pain", terms: ["my own pain term"] }],
+        sources: { hn: false, reddit: true },
+        results: [
+          { id: "hn-1", source: "hn", title: "t", url: "https://news.ycombinator.com/item?id=1", createdAt: "2026-10-01T00:00:00.000Z", foundAt: "2026-10-01T00:00:00.000Z", status: "replied" },
+          { id: "hn-2", source: "hn", title: "t", url: "https://news.ycombinator.com/item?id=2", createdAt: "2026-10-01T00:00:00.000Z", foundAt: "2026-10-01T00:00:00.000Z", status: "ignored" }
+        ]
+      }),
+      "utf8"
+    );
+
+    const config = await readListeningConfig();
+
+    expect(config.groups.find((group) => group.id === "pain")).toMatchObject({ name: "My pain", terms: ["my own pain term"] });
+    expect(config.groups.map((group) => group.id)).toEqual(expect.arrayContaining(["brand", "competitors", "structural-ai", "comparison", "pricing"]));
+    expect(config.sources).toEqual({ hn: false, reddit: true, youtube: false, bluesky: true, x: false });
+    expect(JSON.parse(await readFile(dataPath("listening", "config.json"), "utf8")).groups).toHaveLength(config.groups.length);
+
+    const store = await readListeningStore();
+    expect(store.results.map((result) => result.status)).toEqual(["seen", "dismissed"]);
+  });
+
+  it("does not touch a config that already exists when the old file is still there", async () => {
+    await writeConfigFile({ version: 2, groups: [{ id: "only", name: "Only", intent: "pain", terms: ["x"] }], sources: {}, autoScan: false });
+    await writeFile(dataPath("listening.json"), JSON.stringify({ groups: [{ id: "old", name: "Old", intent: "pain", terms: ["y"] }] }), "utf8");
+
+    const config = await readListeningConfig();
+
+    expect(config.groups.map((group) => group.id)).toEqual(["only"]);
+    expect(config.autoScan).toBe(false);
   });
 });
