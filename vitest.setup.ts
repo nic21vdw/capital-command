@@ -27,6 +27,7 @@ process.env.CAPITAL_COMMAND_DATA_DIR = mkdtempSync(path.join(tmpdir(), "capital-
 // Anything the app treats as a credential or a switch. Tests that need one set
 // it themselves with vi.stubEnv, so the shell never gets a say.
 const APP_PREFIXES = [
+  "ANALYTICS_",
   "ANTHROPIC_",
   "APP_BASE_URL",
   "BACKUP_DRIVE_",

@@ -31,6 +31,7 @@ import {
   Scissors,
   Settings,
   Target,
+  TrendingUp,
   UploadCloud,
   Wand2,
   Workflow,
@@ -116,7 +117,8 @@ const PIPELINE_STAGES: PipelineStage[] = [
       // The end of the line: everything scheduled, managed in one place.
       { href: "/master-calendar", label: "Master Calendar", icon: CalendarRange },
       // The same day read as a briefing rather than a grid.
-      { href: "/day-summary", label: "Day Summary", icon: LayoutList }
+      { href: "/day-summary", label: "Day Summary", icon: LayoutList },
+      { href: "/performance", label: "Performance", icon: TrendingUp }
     ]
   }
 ];

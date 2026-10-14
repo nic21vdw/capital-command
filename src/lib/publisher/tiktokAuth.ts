@@ -38,7 +38,7 @@ const CREATOR_INFO_URL = "https://open.tiktokapis.com/v2/post/publish/creator_in
 // video.upload puts a draft in the creator's inbox; video.publish is the
 // Direct Post scope the adapter actually uses. user.info.basic is what the
 // "Connected as …" badge reads.
-const SCOPE = "user.info.basic,video.publish,video.upload";
+export const TIKTOK_SCOPE = "user.info.basic,video.publish,video.upload";
 
 export const TIKTOK_REFRESH_TOKEN_CACHE_KEY = tiktokRefreshTokenKey();
 export const TIKTOK_CREATOR_CACHE_KEY = tiktokCreatorKey();
@@ -206,7 +206,7 @@ export async function tiktokAuthUrl(
   const params = new URLSearchParams({
     client_key: tiktok.clientKey,
     response_type: "code",
-    scope: SCOPE,
+    scope: TIKTOK_SCOPE,
     redirect_uri: redirectUri,
     // The account being connected rides back in state, so the callback stores
     // the minted token under the right key instead of the primary's.
