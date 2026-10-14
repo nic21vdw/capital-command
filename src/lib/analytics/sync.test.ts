@@ -2,11 +2,12 @@ import { rm } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { readMetrics, metricsFile, updateMetrics } from "@/lib/analytics/store";
-import { syncAnalytics, type AnalyticsCredentials, type SyncDeps } from "@/lib/analytics/sync";
+import { MANUAL_COOLDOWN_MS, manualCooldownMs, syncAnalytics, type AnalyticsCredentials, type SyncDeps } from "@/lib/analytics/sync";
 import { httpDeps, type MockRoute } from "@/lib/analytics/test-helpers";
 import type { Target } from "@/lib/analytics/types";
 import { dataPath } from "@/lib/paths";
-import { AUTH_PROBE_MINUTES, readAuthStates } from "@/lib/platform-health/store";
+import { AUTH_PROBE_MINUTES, readAuthStates, recordAuthFailure } from "@/lib/platform-health/store";
+import { createQuotaLedger, quotaLedgerFile } from "@/lib/youtube/quotaLedger";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -103,26 +104,35 @@ const threadsRoutes: MockRoute[] = [
   }
 ];
 
+let ledgerClock = NOW;
+const ledger = createQuotaLedger({ now: () => ledgerClock });
+
 function setup(routes: MockRoute[], targets: Target[], overrides: Partial<SyncDeps> = {}) {
   const http = httpDeps(routes);
-  const run = (now: Date, options: { force?: boolean } = {}, extra: Partial<SyncDeps> = {}) =>
-    syncAnalytics({
+  const run = (now: Date, options: { force?: boolean; manual?: boolean } = {}, extra: Partial<SyncDeps> = {}) => {
+    ledgerClock = now;
+    return syncAnalytics({
       force: options.force,
+      manual: options.manual,
       deps: {
         now: () => now,
         http: { ...http.deps, maxRetries: 1 },
         credentials: credentials(),
         loadTargets: async () => targets,
+        quota: ledger,
         ...overrides,
         ...extra
       }
     });
+  };
   return { ...http, run };
 }
 
 beforeEach(async () => {
+  ledgerClock = NOW;
   await rm(path.dirname(metricsFile()), { recursive: true, force: true });
   await rm(dataPath("platform-auth.json"), { force: true });
+  await rm(quotaLedgerFile(), { force: true });
 });
 
 describe("syncAnalytics", () => {
@@ -363,8 +373,33 @@ describe("syncAnalytics", () => {
     expect((await readMetrics()).posts["youtube:ytvideo0001"]).toMatchObject({ status: "gone", misses: 3 });
 
     const before = calls.length;
-    await run(new Date(NOW.getTime() + 18 * HOUR), { force: true });
+    await run(new Date(NOW.getTime() + 18 * HOUR));
     expect(calls.length).toBe(before);
+
+    await run(new Date(NOW.getTime() + 8 * DAY));
+    expect(calls.length).toBeGreaterThan(before);
+  });
+
+  it("brings a post back when the platform returns it again, on a weekly look or a forced sync", async () => {
+    const present = { items: [{ id: "ytvideo0001", statistics: { viewCount: "9", likeCount: "1", commentCount: "0" } }] };
+    let returned = false;
+    const { run, calls } = setup(
+      [
+        { match: "youtubeanalytics", reply: { status: 403, body: { error: { errors: [{ reason: "insufficientPermissions" }] } } } },
+        { match: "googleapis.com/youtube/v3/videos", reply: () => ({ body: returned ? present : { items: [] } }) }
+      ],
+      [target("youtube", "ytvideo0001")]
+    );
+    for (let index = 0; index < 3; index += 1) await run(new Date(NOW.getTime() + index * HOUR), { force: true });
+    expect((await readMetrics()).posts["youtube:ytvideo0001"].status).toBe("gone");
+
+    returned = true;
+    const before = calls.length;
+    await run(new Date(NOW.getTime() + 5 * HOUR));
+    expect(calls.length).toBe(before);
+    await run(new Date(NOW.getTime() + 6 * HOUR), { force: true });
+
+    expect((await readMetrics()).posts["youtube:ytvideo0001"]).toMatchObject({ status: "ok", misses: 0, latest: { metrics: { views: 9 } } });
   });
 
   it("runs once when two syncs are asked for at the same moment", async () => {
@@ -427,5 +462,177 @@ describe("syncAnalytics", () => {
     const post = (await readMetrics()).posts["instagram:igmedia1"];
     expect(post.title).toBe("New title");
     expect(post.history).toHaveLength(2);
+  });
+
+  it("debits the shared quota ledger a unit for each YouTube batch, before the call", async () => {
+    const { run } = setup(youtubeRoutes, [target("youtube", "ytvideo0001"), target("youtube", "ytvideo0002")]);
+
+    await run(NOW);
+
+    expect(await ledger.snapshot()).toMatchObject({ byPurpose: { analytics: 1 }, nonUploadRemaining: 299 });
+  });
+
+  it("stops YouTube when the ledger refuses, calls nothing, and leaves it alone until the quota day turns over", async () => {
+    await ledger.debit(300, "listening");
+    const { run, calls } = setup(youtubeRoutes, [target("youtube", "ytvideo0001")]);
+
+    const report = await run(NOW, { force: true });
+    const account = (await readMetrics()).accounts["youtube:youtube-primary"];
+
+    expect(calls).toHaveLength(0);
+    expect(report.status).toBe("partial");
+    expect(account).toMatchObject({ status: "rate-limited", backoffUntil: ledger.nextResetAt(NOW).toISOString() });
+    expect(account.note).toMatch(/allowance/);
+    expect((await readMetrics()).posts["youtube:ytvideo0001"].latest).toBeNull();
+
+    const tomorrow = new Date(ledger.nextResetAt(NOW).getTime() + HOUR);
+    await run(tomorrow, { force: true });
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect((await readMetrics()).posts["youtube:ytvideo0001"].latest).not.toBeNull();
+  });
+
+  it("gives Sync now a ten-minute cooldown and records when it was used", async () => {
+    const { run } = setup(instagramRoutes, [target("instagram", "igmedia1")]);
+
+    expect(MANUAL_COOLDOWN_MS).toBe(10 * MINUTE);
+    expect(await manualCooldownMs(NOW)).toBe(0);
+
+    await run(NOW, { manual: true, force: true });
+
+    expect(await manualCooldownMs(new Date(NOW.getTime() + 3 * MINUTE))).toBe(7 * MINUTE);
+    expect(await manualCooldownMs(new Date(NOW.getTime() + 11 * MINUTE))).toBe(0);
+  });
+
+  it("does not start a cooldown for the scheduled sync", async () => {
+    const { run } = setup(instagramRoutes, [target("instagram", "igmedia1")]);
+
+    await run(NOW);
+
+    expect(await manualCooldownMs(NOW)).toBe(0);
+  });
+
+  it("reads the posts it has attempted longest ago first, so ones that keep failing do not go first forever", async () => {
+    const targets = ["igfailed", "igolder", "ignever"].map((id) => target("instagram", id));
+    const { run, calls } = setup(
+      [{ match: "/insights", reply: { body: { data: [{ name: "reach", values: [{ value: 1 }] }] } } }],
+      targets
+    );
+    await run(NOW);
+    await updateMetrics((store) => {
+      store.posts["instagram:igfailed"].attemptedAt = new Date(NOW.getTime() - HOUR).toISOString();
+      store.posts["instagram:igfailed"].syncedAt = new Date(NOW.getTime() - 40 * DAY).toISOString();
+      store.posts["instagram:igolder"].attemptedAt = new Date(NOW.getTime() - 5 * HOUR).toISOString();
+      store.posts["instagram:igolder"].syncedAt = new Date(NOW.getTime() - 4 * HOUR).toISOString();
+      delete store.posts["instagram:ignever"].attemptedAt;
+    });
+    calls.length = 0;
+
+    await run(new Date(NOW.getTime() + 6 * HOUR), { force: true });
+
+    expect(calls.map((call) => call.url.match(/\/(ig\w+)\/insights/)![1])).toEqual(["ignever", "igolder", "igfailed"]);
+  });
+
+  it("keeps a breaker trip the publisher recorded after the sync began, even though its own read worked", async () => {
+    const context = setup(youtubeRoutes, [target("youtube", "ytvideo0001")]);
+    const base = context.deps.fetch!;
+    const tripping: typeof fetch = async (input, init) => {
+      await recordAuthFailure(
+        { platform: "youtube", accountId: "youtube-primary", accountLabel: null },
+        "YouTube connection expired or was revoked.",
+        { now: new Date(NOW.getTime() + MINUTE), fingerprint: "fp:youtube:youtube-primary" }
+      );
+      return base(input, init);
+    };
+
+    await context.run(NOW, { force: true }, { http: { ...context.deps, fetch: tripping, maxRetries: 1 } });
+
+    expect(Object.keys(await readAuthStates())).toEqual(["youtube:youtube-primary"]);
+    expect((await readMetrics()).posts["youtube:ytvideo0001"].latest?.metrics.views).toBe(500);
+  });
+
+  it("still clears a trip that was already there before the sync began once the probe works", async () => {
+    await recordAuthFailure({ platform: "youtube", accountId: "youtube-primary", accountLabel: null }, "old trip", {
+      now: new Date(NOW.getTime() - HOUR),
+      fingerprint: "fp:youtube:youtube-primary"
+    });
+    const { run } = setup(youtubeRoutes, [target("youtube", "ytvideo0001")]);
+
+    await run(new Date(NOW.getTime() + AUTH_PROBE_MINUTES * MINUTE), { force: true });
+
+    expect(await readAuthStates()).toEqual({});
+  });
+
+  it("refreshes the run marker's heartbeat during a long pass", async () => {
+    let clock = NOW;
+    let beat: string | undefined;
+    const { run } = setup(instagramRoutes, [target("instagram", "igmedia1")], {
+      loadTargets: async () => {
+        clock = new Date(NOW.getTime() + 10 * MINUTE);
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        beat = (await readMetrics()).sync.running?.heartbeatAt;
+        return [target("instagram", "igmedia1")];
+      }
+    });
+
+    await run(NOW, {}, { now: () => clock, heartbeatMs: 10 });
+
+    expect(beat).toBe(new Date(NOW.getTime() + 10 * MINUTE).toISOString());
+    expect((await readMetrics()).sync.running).toBeNull();
+  });
+
+  it("reads at most its call budget from Meta in a run, and picks up the rest on the next", async () => {
+    const targets = Array.from({ length: 200 }, (_, index) => target("instagram", `ig${String(index).padStart(3, "0")}`));
+    const { run, calls } = setup(
+      [{ match: "/insights", reply: { body: { data: [{ name: "reach", values: [{ value: 3 }] }, { name: "likes", values: [{ value: 1 }] }] } } }],
+      targets
+    );
+
+    const first = await run(NOW);
+
+    expect(calls).toHaveLength(150);
+    expect(first.status).toBe("ok");
+    expect(first.accounts[0]).toMatchObject({ status: "ok", fetched: 150 });
+    expect(first.accounts[0].note).toMatch(/150/);
+
+    await run(new Date(NOW.getTime() + 6 * HOUR));
+
+    expect(Object.values((await readMetrics()).posts).filter((post) => post.latest !== null)).toHaveLength(200);
+  });
+
+  it("leaves Meta alone for an hour once its usage header passes 75 percent", async () => {
+    const hot = { "x-app-usage": '{"call_count":81,"total_time":10,"total_cputime":10}' };
+    const { run, calls } = setup(
+      [{ match: "/insights", reply: { headers: hot, body: { data: [{ name: "reach", values: [{ value: 3 }] }] } } }],
+      [target("instagram", "ig001"), target("instagram", "ig002"), target("instagram", "ig003")]
+    );
+
+    const report = await run(NOW);
+    const account = (await readMetrics()).accounts["instagram:instagram-primary"];
+
+    expect(calls).toHaveLength(1);
+    expect(report.status).toBe("partial");
+    expect(account).toMatchObject({ status: "rate-limited", backoffUntil: new Date(NOW.getTime() + HOUR).toISOString() });
+  });
+
+  it("asks Facebook for a single photo without shares or insights, and a carousel through the post endpoints", async () => {
+    const { run, calls } = setup(
+      [
+        { match: /\/fbphoto1\?fields=/, reply: { body: { reactions: { summary: { total_count: 4 } }, comments: { summary: { total_count: 1 } } } } },
+        { match: "/100_9/insights", reply: { body: { data: [{ name: "post_media_view", values: [{ value: 55 }] }] } } },
+        {
+          match: /\/100_9\?fields=/,
+          reply: { body: { reactions: { summary: { total_count: 9 } }, comments: { summary: { total_count: 2 } }, shares: { count: 3 } } }
+        }
+      ],
+      [target("facebook", "fbphoto1", { format: "image" }), target("facebook", "100_9", { format: "carousel", carouselId: "car-1" })]
+    );
+
+    await run(NOW);
+    const store = await readMetrics();
+
+    expect(store.posts["facebook:fbphoto1"].latest?.metrics).toEqual({ likes: 4, comments: 1 });
+    expect(store.posts["facebook:100_9"].latest?.metrics).toEqual({ views: 55, likes: 9, comments: 2, shares: 3 });
+    expect(calls.some((call) => call.url.includes("/fbphoto1/insights"))).toBe(false);
   });
 });

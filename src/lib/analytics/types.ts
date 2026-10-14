@@ -91,7 +91,8 @@ export type SyncMeta = {
   lastCompletedAt: string | null;
   lastResult: SyncResult | null;
   lastError: string | null;
-  running: { pid: number; startedAt: string } | null;
+  running: { pid: number; startedAt: string; heartbeatAt?: string } | null;
+  lastManualAt?: string;
 };
 
 export type AnalyticsStore = {

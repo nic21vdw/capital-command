@@ -71,6 +71,19 @@ describe("requestJson", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("hands every response's headers to the observer, including a failing one", async () => {
+    const seen: Array<string | null> = [];
+    const { deps } = httpDeps([
+      { match: URL, reply: [{ status: 400, headers: { "x-app-usage": "a" }, body: {} }, { headers: { "x-app-usage": "b" }, body: { ok: 1 } }] }
+    ]);
+    const observe = (headers: Headers) => seen.push(headers.get("x-app-usage"));
+
+    await requestJson(URL, { label: "Thing" }, { ...deps, onResponse: observe }).catch(() => undefined);
+    await requestJson(URL, { label: "Thing" }, { ...deps, onResponse: observe });
+
+    expect(seen).toEqual(["a", "b"]);
+  });
+
   it("reports a network failure as an error the caller can classify as transient", async () => {
     const deps = {
       fetch: (async () => {
@@ -109,6 +122,19 @@ describe("classifyFailure", () => {
     expect(classifyFailure(http(403, { error: { errors: [{ reason: "quotaExceeded" }] } })).kind).toBe("rate");
     expect(classifyFailure(http(400, { error: { code: 4, message: "(#4) Application request limit reached" } })).kind).toBe("rate");
     expect(classifyFailure(new RateLimitedError("Thing", 5000))).toEqual({ kind: "rate", retryAfterMs: 5000 });
+  });
+
+  it("does not call a missing-permissions answer gone, even though Meta words a deleted object the same way", () => {
+    const ambiguous = http(400, {
+      error: {
+        code: 100,
+        error_subcode: 33,
+        message: "Unsupported get request. Object with ID '1' does not exist, cannot be loaded due to missing permissions, or does not support this operation"
+      }
+    });
+
+    expect(classifyFailure(ambiguous).kind).toBe("other");
+    expect(classifyFailure(http(400, { error: { code: 100, error_subcode: 33, message: "Object with ID '1' does not exist" } })).kind).toBe("gone");
   });
 
   it("calls a 404 gone, and anything else other", () => {

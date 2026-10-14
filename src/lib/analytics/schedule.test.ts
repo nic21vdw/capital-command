@@ -55,6 +55,13 @@ describe("analyticsSyncDue", () => {
   it("is not due while a sync is marked running", () => {
     expect(analyticsSyncDue(meta({ running: { pid: process.pid, startedAt: ago(MINUTE) } }), NOW)).toBe(false);
   });
+
+  it("goes by the marker's last heartbeat, so a long pass is not mistaken for a dead one", () => {
+    const running = { pid: process.pid, startedAt: ago(2 * HOUR), heartbeatAt: ago(2 * MINUTE) };
+
+    expect(analyticsSyncDue(meta({ running }), NOW)).toBe(false);
+    expect(analyticsSyncDue(meta({ running: { ...running, heartbeatAt: ago(HOUR) } }), NOW)).toBe(true);
+  });
 });
 
 describe("analyticsSyncEnabled", () => {

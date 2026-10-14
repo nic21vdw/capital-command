@@ -107,6 +107,18 @@ describe("PerformanceBody", () => {
     expect(html).toContain("Likes and comments only");
   });
 
+  it("lays the posts out twice, as a table for a wide card and as a stacked list for a narrow one", () => {
+    const html = render();
+
+    expect(html).toMatch(/data-layout="table"[^>]*class="[^"]*hidden sm:block/);
+    expect(html).toMatch(/data-layout="list"[^>]*class="[^"]*sm:hidden/);
+    const list = html.slice(html.indexOf('data-layout="list"'));
+    expect(list).toContain("Title yt-b");
+    expect(list).toContain("5.4K");
+    expect(list).toContain("<polyline");
+    expect((list.match(/<li /g) ?? []).length).toBe(6);
+  });
+
   it("marks the sorted column and draws a trend for a post with history", () => {
     const html = render();
 

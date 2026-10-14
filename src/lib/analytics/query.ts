@@ -178,6 +178,7 @@ export function queryRows(rows: PostRow[], query: AnalyticsQuery, now: Date): Po
 export function platformTotals(rows: PostRow[], days: number, now: Date): PlatformTotals[] {
   const from = now.getTime() - days * DAY;
   const totals = new Map<AnalyticsPlatform, PlatformTotals>();
+  const rated = new Map<AnalyticsPlatform, { views: number; engagements: number }>();
   for (const row of rows) {
     const published = Date.parse(row.publishedAt);
     if (published < from || published > now.getTime()) continue;
@@ -193,13 +194,21 @@ export function platformTotals(rows: PostRow[], days: number, now: Date): Platfo
       entry.shares += row.metrics.shares ?? 0;
       entry.saves += row.metrics.saves ?? 0;
       entry.engagements += row.engagements ?? 0;
+      const views = row.metrics.views;
+      if (views !== undefined && views > 0 && row.engagements !== null) {
+        const sums = rated.get(row.platform) ?? { views: 0, engagements: 0 };
+        sums.views += views;
+        sums.engagements += row.engagements;
+        rated.set(row.platform, sums);
+      }
     }
     totals.set(row.platform, entry);
   }
   return ANALYTICS_PLATFORMS.flatMap((platform) => {
     const entry = totals.get(platform);
     if (!entry) return [];
-    entry.engagementRate = entry.views > 0 && entry.measured > 0 ? entry.engagements / entry.views : null;
+    const sums = rated.get(platform);
+    entry.engagementRate = sums && sums.views > 0 ? sums.engagements / sums.views : null;
     return [entry];
   });
 }

@@ -218,4 +218,51 @@ describe("fetchYoutubeMetrics", () => {
 
     expect(outcome.stopped?.kind).toBe("scope");
   });
+
+  it("debits the quota ledger one unit before each Data API call", async () => {
+    const list = videos(120);
+    const debits: number[] = [];
+    const { deps, calls } = httpDeps([
+      { match: ANALYTICS_API, reply: { status: 403, body: { error: { errors: [{ reason: "insufficientPermissions" }] } } } },
+      { match: DATA_API, reply: (call) => ({ body: dataApiBody(idsOf(call.url, "id").split(",")) }) }
+    ]);
+
+    await fetchYoutubeMetrics(
+      {
+        token: "tok",
+        videos: list,
+        now: NOW,
+        debit: async (units) => {
+          debits.push(calls.filter((call) => call.url.includes(DATA_API)).length);
+          return { ok: true, remaining: 100 - units };
+        }
+      },
+      deps
+    );
+
+    expect(debits).toEqual([0, 1, 2]);
+  });
+
+  it("stops without calling YouTube when the ledger refuses, keeping the batches it already read", async () => {
+    const list = videos(120);
+    let allowed = 2;
+    const { deps, calls } = httpDeps([
+      { match: ANALYTICS_API, reply: { status: 403, body: { error: { errors: [{ reason: "insufficientPermissions" }] } } } },
+      { match: DATA_API, reply: (call) => ({ body: dataApiBody(idsOf(call.url, "id").split(",")) }) }
+    ]);
+
+    const outcome = await fetchYoutubeMetrics(
+      {
+        token: "tok",
+        videos: list,
+        now: NOW,
+        debit: async () => (allowed-- > 0 ? { ok: true, remaining: 1 } : { ok: false, reason: "non-upload-allowance", remaining: 0 })
+      },
+      deps
+    );
+
+    expect(calls.filter((call) => call.url.includes(DATA_API))).toHaveLength(2);
+    expect(outcome.results.size).toBe(100);
+    expect(outcome.stopped).toMatchObject({ kind: "quota" });
+  });
 });

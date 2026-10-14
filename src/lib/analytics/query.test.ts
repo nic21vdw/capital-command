@@ -116,6 +116,26 @@ describe("platformTotals", () => {
     expect(totals.find((entry) => entry.platform === "threads")).toMatchObject({ views: 300, engagements: 40 });
   });
 
+  it("works the engagement rate out only over posts that have both views and an engagement figure", () => {
+    const store = storeOf(
+      record("facebook", "fb-views-only", 1, { views: 9000 }),
+      record("facebook", "fb-both", 2, { views: 1000, likes: 50, comments: 10 }),
+      record("facebook", "fb-likes-only", 3, { likes: 400 })
+    );
+
+    const facebook = platformTotals(rowsFromStore(store), 7, NOW).find((entry) => entry.platform === "facebook")!;
+
+    expect(facebook.views).toBe(10_000);
+    expect(facebook.engagements).toBe(460);
+    expect(facebook.engagementRate).toBeCloseTo(0.06);
+  });
+
+  it("has no engagement rate when no post has both", () => {
+    const store = storeOf(record("facebook", "fb-views-only", 1, { views: 9000 }));
+
+    expect(platformTotals(rowsFromStore(store), 7, NOW)[0].engagementRate).toBeNull();
+  });
+
   it("counts a post that was never measured as a post but adds nothing", () => {
     const facebook = platformTotals(rowsFromStore(fixture()), 7, NOW).find((entry) => entry.platform === "facebook")!;
 

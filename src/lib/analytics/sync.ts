@@ -1,9 +1,10 @@
 import { liveCredentials } from "@/lib/analytics/credentials";
-import { fetchFacebookMetrics } from "@/lib/analytics/facebook";
+import { facebookNodeOf, fetchFacebookMetrics } from "@/lib/analytics/facebook";
 import { failureMessage, type HttpDeps } from "@/lib/analytics/http";
 import { fetchInstagramMetrics } from "@/lib/analytics/instagram";
 import { dueForSync, newPostRecord, recordSnapshot } from "@/lib/analytics/metrics";
 import { newOutcome, stopFromError, type FetchOutcome, type Stop } from "@/lib/analytics/outcome";
+import { DEFAULT_META_CALLS_PER_RUN, createPacer } from "@/lib/analytics/pacing";
 import { readMetrics, updateMetrics } from "@/lib/analytics/store";
 import { loadTargets } from "@/lib/analytics/targets";
 import { fetchThreadsMetrics } from "@/lib/analytics/threads";
@@ -17,12 +18,15 @@ import {
   type AnalyticsPlatform,
   type AnalyticsStore,
   type PostRecord,
+  type SyncMeta,
   type SyncResult,
   type Target
 } from "@/lib/analytics/types";
 import { fetchYoutubeMetrics } from "@/lib/analytics/youtube";
 import { authFailureReason } from "@/lib/platform-health/auth";
 import { accountAuthBlocked, clearAuthState, readAuthStates, recordAuthFailure } from "@/lib/platform-health/store";
+import { processAlive } from "@/lib/storage/file-lock";
+import { youtubeQuotaLedger, type QuotaLedger } from "@/lib/youtube/quotaLedger";
 
 export type AnalyticsCredentials = {
   youtube(accountId: string): Promise<{ token: string } | null>;
@@ -40,6 +44,8 @@ export type SyncDeps = {
   http: HttpDeps;
   credentials: AnalyticsCredentials;
   loadTargets: () => Promise<Target[]>;
+  quota: Pick<QuotaLedger, "debit" | "nextResetAt">;
+  heartbeatMs?: number;
 };
 
 export type AccountOutcome = {
@@ -62,10 +68,13 @@ export type SyncReport = {
 
 export type SyncOptions = {
   force?: boolean;
+  manual?: boolean;
   deps?: Partial<SyncDeps>;
 };
 
 export const MARKER_STALE_MS = 30 * 60_000;
+export const HEARTBEAT_MS = 5 * 60_000;
+export const MANUAL_COOLDOWN_MS = 10 * 60_000;
 export const MAX_POSTS_PER_ACCOUNT_RUN = 300;
 export const GONE_AFTER_MISSES = 3;
 
@@ -73,21 +82,18 @@ const DEFAULT_RATE_WAIT_MS = 60 * 60_000;
 const PLATFORM_ORDER = new Map(ANALYTICS_PLATFORMS.map((platform, index) => [platform, index]));
 const INBOX_NOTE = "TikTok has not given this post a video id yet; it is still a draft in the creator's inbox.";
 
-function processAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
+export function markerIsLive(running: SyncMeta["running"], now: Date): boolean {
+  if (!running) return false;
+  const lastSeen = Date.parse(running.heartbeatAt ?? running.startedAt);
+  if (!Number.isFinite(lastSeen) || now.getTime() - lastSeen >= MARKER_STALE_MS) return false;
+  return processAlive(running.pid);
 }
 
-export function markerIsLive(running: { pid: number; startedAt: string } | null, now: Date): boolean {
-  if (!running) return false;
-  const started = Date.parse(running.startedAt);
-  if (!Number.isFinite(started) || now.getTime() - started >= MARKER_STALE_MS) return false;
-  return processAlive(running.pid);
+export async function manualCooldownMs(now: Date): Promise<number> {
+  const used = (await readMetrics()).sync.lastManualAt;
+  const at = used ? Date.parse(used) : NaN;
+  if (!Number.isFinite(at)) return 0;
+  return Math.max(0, MANUAL_COOLDOWN_MS - (now.getTime() - at));
 }
 
 type Flight = { promise: Promise<SyncReport> };
@@ -117,7 +123,9 @@ function resolveDeps(partial: Partial<SyncDeps> = {}): SyncDeps {
     now: partial.now ?? (() => new Date()),
     http: partial.http ?? {},
     credentials: partial.credentials ?? liveCredentials(),
-    loadTargets: partial.loadTargets ?? loadTargets
+    loadTargets: partial.loadTargets ?? loadTargets,
+    quota: partial.quota ?? youtubeQuotaLedger,
+    heartbeatMs: partial.heartbeatMs
   };
 }
 
@@ -137,14 +145,23 @@ async function runSync(options: SyncOptions): Promise<SyncReport> {
     const claimed = await updateMetrics((store) => {
       const other = store.sync.running && store.sync.running.pid !== process.pid ? store.sync.running : null;
       if (markerIsLive(other, startedAt)) return false;
-      store.sync.running = { pid: process.pid, startedAt: startedAt.toISOString() };
+      store.sync.running = { pid: process.pid, startedAt: startedAt.toISOString(), heartbeatAt: startedAt.toISOString() };
       store.sync.lastAttemptAt = startedAt.toISOString();
+      if (options.manual) store.sync.lastManualAt = startedAt.toISOString();
       return true;
     });
     if (!claimed) return { ...report, status: "busy" };
   } catch {
     return { ...report, status: "error" };
   }
+
+  let lastBeat: Promise<unknown> = Promise.resolve();
+  const beat = setInterval(() => {
+    lastBeat = updateMetrics((store) => {
+      if (store.sync.running?.pid === process.pid) store.sync.running.heartbeatAt = deps.now().toISOString();
+    }).catch(() => undefined);
+  }, deps.heartbeatMs ?? HEARTBEAT_MS);
+  beat.unref?.();
 
   try {
     await execute(options, deps, report, startedAt);
@@ -156,6 +173,9 @@ async function runSync(options: SyncOptions): Promise<SyncReport> {
       store.sync.lastResult = "error";
       store.sync.lastError = failureMessage(error);
     }).catch(() => undefined);
+  } finally {
+    clearInterval(beat);
+    await lastBeat;
   }
   return report;
 }
@@ -295,7 +315,16 @@ async function syncAccount(group: Target[], snapshot: AnalyticsStore, deps: Sync
     }
     if (stop.kind === "rate") {
       const backoffUntil = new Date(now.getTime() + (stop.retryAfterMs ?? DEFAULT_RATE_WAIT_MS)).toISOString();
-      return { account: await record("rate-limited", { note: "The platform asked for fewer requests.", backoffUntil, fetched }), degraded: true };
+      const note = stop.error ? "The platform asked for fewer requests." : stop.message;
+      return { account: await record("rate-limited", { note, backoffUntil, fetched }), degraded: true };
+    }
+    if (stop.kind === "quota") {
+      const backoffUntil = deps.quota.nextResetAt(now).toISOString();
+      return { account: await record("rate-limited", { note: stop.message, backoffUntil, fetched }), degraded: true };
+    }
+    if (stop.kind === "budget") {
+      const note = [...notes, `Read ${fetched} post(s) this run. ${stop.message} The rest follow in the next cycle.`].join(" ");
+      return { account: await record("ok", { note, fetched }), degraded: false };
     }
     if (stop.kind === "scope") {
       return { account: await record("unsupported", { note: notes[0] ?? stop.message, fetched }), degraded: true };
@@ -318,9 +347,8 @@ async function syncAccount(group: Target[], snapshot: AnalyticsStore, deps: Sync
 
   await applyOutcome(platform, outcome, now);
   const fetched = outcome.results.size;
+  if (fetched > 0 && outcome.stopped?.kind !== "auth") await clearOlderTrip(platform, accountId, now);
   if (outcome.stopped) return stopWith(outcome.stopped, fetched, outcome.notes);
-
-  if (fetched > 0 && (await readAuthStates())[key]) await clearAuthState(platform, accountId).catch(() => false);
 
   const notes = [...outcome.notes];
   if (outcome.failed.length > 0) notes.push(`${outcome.failed.length} post(s) could not be read: ${outcome.failed[0].message}`);
@@ -332,10 +360,21 @@ async function syncAccount(group: Target[], snapshot: AnalyticsStore, deps: Sync
   };
 }
 
+async function clearOlderTrip(platform: AnalyticsPlatform, accountId: string, startedAt: Date): Promise<void> {
+  const tripped = (await readAuthStates())[accountKey(platform, accountId)];
+  if (!tripped || Date.parse(tripped.lastFailureAt) > startedAt.getTime()) return;
+  await clearAuthState(platform, accountId).catch(() => false);
+}
+
+function metaCallsPerRun(): number {
+  const configured = Number(process.env.ANALYTICS_META_CALLS_PER_RUN);
+  return Number.isInteger(configured) && configured > 0 ? configured : DEFAULT_META_CALLS_PER_RUN;
+}
+
 function oldestFirst(group: Target[], snapshot: AnalyticsStore): Target[] {
-  const syncedAt = (target: Target) => snapshot.posts[postKey(target.platform, target.postId)]?.syncedAt ?? "";
+  const attemptedAt = (target: Target) => snapshot.posts[postKey(target.platform, target.postId)]?.attemptedAt ?? "";
   return [...group]
-    .sort((a, b) => syncedAt(a).localeCompare(syncedAt(b)) || b.publishedAt.localeCompare(a.publishedAt))
+    .sort((a, b) => attemptedAt(a).localeCompare(attemptedAt(b)) || b.publishedAt.localeCompare(a.publishedAt))
     .slice(0, MAX_POSTS_PER_ACCOUNT_RUN);
 }
 
@@ -352,21 +391,19 @@ async function fetchFor(
       const session = await deps.credentials.youtube(accountId);
       if (!session) return null;
       const videos = group.map((target) => ({ id: target.postId, publishedAt: target.publishedAt }));
-      return fetchYoutubeMetrics({ token: session.token, videos, now }, deps.http);
+      return fetchYoutubeMetrics({ token: session.token, videos, now, debit: (units) => deps.quota.debit(units, "analytics") }, deps.http);
     }
     case "instagram": {
       const session = await deps.credentials.instagram(accountId);
       if (!session) return null;
-      return fetchInstagramMetrics(session, oldestFirst(group, snapshot).map((target) => target.postId), deps.http);
+      const ids = oldestFirst(group, snapshot).map((target) => target.postId);
+      return fetchInstagramMetrics(session, ids, deps.http, createPacer({ maxCalls: metaCallsPerRun() }));
     }
     case "facebook": {
       const session = await deps.credentials.facebook(accountId);
       if (!session) return null;
-      const posts = oldestFirst(group, snapshot).map((target) => ({
-        id: target.postId,
-        image: target.format === "image" || target.format === "carousel"
-      }));
-      return fetchFacebookMetrics(session, posts, deps.http);
+      const posts = oldestFirst(group, snapshot).map((target) => ({ id: target.postId, node: facebookNodeOf(target) }));
+      return fetchFacebookMetrics(session, posts, deps.http, createPacer({ maxCalls: metaCallsPerRun() }));
     }
     case "threads": {
       const session = await deps.credentials.threads(accountId);

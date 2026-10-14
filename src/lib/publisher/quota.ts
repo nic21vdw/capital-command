@@ -41,7 +41,7 @@ export function remainingYoutubeUploads(items: QueueItem[], now: Date, config: P
   return Math.max(0, config.youtube.dailyUploadBudget - uploadsUsed);
 }
 
-function quotaDate(instant: Date): string {
+export function quotaDate(instant: Date): string {
   return dateTimeFormat("en-CA", {
     timeZone: QUOTA_RESET_TIMEZONE,
     year: "numeric",

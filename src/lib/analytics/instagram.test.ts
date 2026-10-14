@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createPacer } from "@/lib/analytics/pacing";
 import { fetchInstagramMetrics, parseInstagramInsights } from "@/lib/analytics/instagram";
 import { httpDeps } from "@/lib/analytics/test-helpers";
 
@@ -49,7 +50,7 @@ describe("fetchInstagramMetrics", () => {
     expect(metricsOf(calls[0].url)).toEqual(["views", "reach", "likes", "comments", "shares", "saved"]);
   });
 
-  it("retries with the older plays metric when this media type rejects views", async () => {
+  it("retries with the older plays metric on a Graph version that still has it", async () => {
     const { deps, calls } = httpDeps([
       {
         match: "/m1/insights",
@@ -60,11 +61,46 @@ describe("fetchInstagramMetrics", () => {
       }
     ]);
 
-    const outcome = await fetchInstagramMetrics(creds, ["m1"], deps);
+    const outcome = await fetchInstagramMetrics({ token: "ig-token", graphBase: "https://graph.facebook.com/v21.0" }, ["m1"], deps);
 
     expect(calls).toHaveLength(2);
     expect(metricsOf(calls[1].url)).toContain("plays");
     expect(outcome.results.get("m1")?.metrics).toMatchObject({ views: 61, reach: 40, saves: 2 });
+  });
+
+  it("does not ask for plays on v22 and later, where Instagram has dropped it", async () => {
+    const { deps, calls } = httpDeps([
+      {
+        match: "/insights",
+        reply: (call) =>
+          metricsOf(call.url).includes("views")
+            ? { status: 400, body: { error: { code: 100, message: "(#100) views is not supported for this media" } } }
+            : { body: insights({ reach: 40, likes: 3, comments: 1, shares: 0, saved: 2 }) }
+      }
+    ]);
+
+    const outcome = await fetchInstagramMetrics(creds, ["m1"], deps);
+
+    expect(calls.flatMap((call) => metricsOf(call.url))).not.toContain("plays");
+    expect(metricsOf(calls[1].url)).toEqual(["reach", "likes", "comments", "shares", "saved"]);
+    expect(outcome.results.get("m1")?.metrics).toMatchObject({ reach: 40, saves: 2 });
+  });
+
+  it("remembers the metric set that worked, so later media do not retry the ones that were refused", async () => {
+    const { deps, calls } = httpDeps([
+      {
+        match: "/insights",
+        reply: (call) =>
+          metricsOf(call.url).includes("views")
+            ? { status: 400, body: { error: { code: 100, message: "(#100) views is not supported for this media" } } }
+            : { body: insights({ reach: 40, likes: 3, comments: 1, shares: 0, saved: 2 }) }
+      }
+    ]);
+
+    await fetchInstagramMetrics(creds, ["m1", "m2", "m3"], deps);
+
+    expect(calls).toHaveLength(4);
+    expect(calls.filter((call) => metricsOf(call.url).includes("views"))).toHaveLength(1);
   });
 
   it("falls back to likes and comments when the token has no insights permission, and stops asking for insights", async () => {
@@ -126,5 +162,33 @@ describe("fetchInstagramMetrics", () => {
     const outcome = await fetchInstagramMetrics(creds, ["m1", "m2"], deps);
 
     expect(outcome.stopped?.kind).toBe("rate");
+  });
+
+  it("stops with a budget stop when the run's calls are used, keeping what it read", async () => {
+    const { deps, calls } = httpDeps([{ match: "/insights", reply: { body: insights({ views: 1, reach: 1, likes: 0, comments: 0, shares: 0, saved: 0 }) } }]);
+
+    const outcome = await fetchInstagramMetrics(creds, ["m1", "m2", "m3", "m4"], deps, createPacer({ maxCalls: 2 }));
+
+    expect(calls).toHaveLength(2);
+    expect(outcome.results.size).toBe(2);
+    expect(outcome.stopped).toMatchObject({ kind: "budget" });
+  });
+
+  it("stops above 75 percent of Meta's usage so publishing keeps its headroom", async () => {
+    const { deps, calls } = httpDeps([
+      {
+        match: "/insights",
+        reply: {
+          headers: { "x-business-use-case-usage": JSON.stringify({ "1": [{ call_count: 82, total_cputime: 5, total_time: 5, estimated_time_to_regain_access: 0 }] }) },
+          body: insights({ views: 1, reach: 1, likes: 0, comments: 0, shares: 0, saved: 0 })
+        }
+      }
+    ]);
+
+    const outcome = await fetchInstagramMetrics(creds, ["m1", "m2", "m3"], deps, createPacer({ maxCalls: 100 }));
+
+    expect(calls).toHaveLength(1);
+    expect(outcome.results.size).toBe(1);
+    expect(outcome.stopped).toMatchObject({ kind: "rate", retryAfterMs: 3_600_000 });
   });
 });

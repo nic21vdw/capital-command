@@ -152,9 +152,18 @@ describe("dueForSync", () => {
     expect(dueForSync(fresh(1, 20), NOW, { force: true })).toBe(true);
   });
 
-  it("never reads a post the platform no longer has or that cannot be measured", () => {
-    expect(dueForSync(record({ status: "gone" }), NOW, { force: true })).toBe(false);
+  it("never reads a post that cannot be measured", () => {
     expect(dueForSync(record({ status: "unsupported" }), NOW, { force: true })).toBe(false);
+  });
+
+  it("looks again at a post the platform stopped returning: once a week, and whenever a sync is forced", () => {
+    const gone = (daysAgo: number) =>
+      record({ status: "gone", misses: 3, attemptedAt: new Date(NOW.getTime() - daysAgo * DAY).toISOString() });
+
+    expect(dueForSync(gone(2), NOW)).toBe(false);
+    expect(dueForSync(gone(7), NOW)).toBe(true);
+    expect(dueForSync(gone(1), NOW, { force: true })).toBe(true);
+    expect(dueForSync({ ...gone(30), final: true }, NOW, { force: true })).toBe(false);
   });
 
   it("leaves a post alone for a while after a failed read", () => {

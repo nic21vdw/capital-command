@@ -1,12 +1,19 @@
-import { classifyFailure, failureMessage } from "@/lib/analytics/http";
+import { AnalyticsHttpError, classifyFailure, failureMessage } from "@/lib/analytics/http";
 import type { FetchedPost } from "@/lib/analytics/types";
 
 export type Stop = {
-  kind: "auth" | "rate" | "scope" | "errors";
+  kind: "auth" | "rate" | "scope" | "errors" | "quota" | "budget";
   message: string;
   retryAfterMs?: number;
   error?: unknown;
 };
+
+export class PacedStop extends Error {
+  constructor(readonly stop: Stop) {
+    super(stop.message);
+    this.name = "PacedStop";
+  }
+}
 
 export type FetchOutcome = {
   results: Map<string, FetchedPost>;
@@ -27,11 +34,16 @@ export function addNote(outcome: FetchOutcome, note: string): void {
 }
 
 export function stopFromError(error: unknown): Stop | null {
+  if (error instanceof PacedStop) return error.stop;
   const failure = classifyFailure(error);
   if (failure.kind === "auth" || failure.kind === "rate" || failure.kind === "scope") {
     return { kind: failure.kind, message: failureMessage(error), retryAfterMs: failure.retryAfterMs, error };
   }
   return null;
+}
+
+function isPostOwnRefusal(error: unknown): boolean {
+  return error instanceof AnalyticsHttpError && error.status >= 400 && error.status < 500 && error.status !== 408;
 }
 
 export async function readEach(
@@ -45,7 +57,7 @@ export async function readEach(
       outcome.results.set(id, await readOne(id));
       consecutive = 0;
     } catch (error) {
-      if (classifyFailure(error).kind === "gone") {
+      if (!(error instanceof PacedStop) && classifyFailure(error).kind === "gone") {
         outcome.gone.push(id);
         consecutive = 0;
         continue;
@@ -56,6 +68,7 @@ export async function readEach(
         return;
       }
       outcome.failed.push({ postId: id, message: failureMessage(error) });
+      if (isPostOwnRefusal(error)) continue;
       consecutive += 1;
       if (consecutive >= MAX_CONSECUTIVE_FAILURES) {
         outcome.stopped = { kind: "errors", message: `${consecutive} reads in a row failed; the last said: ${failureMessage(error)}` };

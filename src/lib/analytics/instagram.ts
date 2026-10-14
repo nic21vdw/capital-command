@@ -1,17 +1,13 @@
-import { classifyFailure, requestJson, type HttpDeps } from "@/lib/analytics/http";
+import { classifyFailure, type HttpDeps } from "@/lib/analytics/http";
 import { addNote, newOutcome, readEach, type FetchOutcome } from "@/lib/analytics/outcome";
+import { pacedRequest, type Pacer } from "@/lib/analytics/pacing";
+import { isParameterError } from "@/lib/analytics/params";
 import type { FetchedPost, MetricValues } from "@/lib/analytics/types";
 
 export type InstagramSession = { token: string; graphBase: string };
 
 export const INSTAGRAM_SCOPE_NOTE =
   "Instagram reach, views and saves need the instagram_manage_insights permission; until Meta is reconnected with it, only likes and comments are read.";
-
-const METRIC_SETS = [
-  ["views", "reach", "likes", "comments", "shares", "saved"],
-  ["plays", "reach", "likes", "comments", "shares", "saved"],
-  ["reach", "likes", "comments", "shares", "saved"]
-];
 
 const NAMES: Record<string, keyof MetricValues> = {
   views: "views",
@@ -22,6 +18,19 @@ const NAMES: Record<string, keyof MetricValues> = {
   shares: "shares",
   saved: "saves"
 };
+
+function graphMajor(graphBase: string): number | null {
+  const match = /\/v(\d+)(?:\.\d+)?\/?$/.exec(graphBase);
+  return match ? Number(match[1]) : null;
+}
+
+export function instagramMetricSets(graphBase: string): string[][] {
+  const major = graphMajor(graphBase);
+  const sets = [["views", "reach", "likes", "comments", "shares", "saved"]];
+  if (major !== null && major < 22) sets.push(["plays", "reach", "likes", "comments", "shares", "saved"]);
+  sets.push(["reach", "likes", "comments", "shares", "saved"]);
+  return sets;
+}
 
 export function parseInstagramInsights(body: unknown): MetricValues {
   const metrics: MetricValues = {};
@@ -37,48 +46,49 @@ export function parseInstagramInsights(body: unknown): MetricValues {
   return metrics;
 }
 
-function isParameterError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return classifyFailure(error).kind === "other" && /\(HTTP 400\)/.test(message) && /"code"\s*:\s*100\b/.test(message);
-}
+export async function fetchInstagramMetrics(
+  session: InstagramSession,
+  mediaIds: string[],
+  deps: HttpDeps = {},
+  pacer?: Pacer
+): Promise<FetchOutcome> {
+  const outcome = newOutcome();
+  const request = pacedRequest(pacer, deps);
+  const sets = instagramMetricSets(session.graphBase);
+  let setIndex = 0;
+  let insightsAllowed = true;
 
-async function readInsights(session: InstagramSession, id: string, deps: HttpDeps): Promise<MetricValues> {
-  let last: unknown;
-  for (const metrics of METRIC_SETS) {
-    const query = new URLSearchParams({ metric: metrics.join(","), access_token: session.token });
-    try {
-      return parseInstagramInsights(
-        await requestJson(`${session.graphBase}/${encodeURIComponent(id)}/insights?${query}`, { label: "Instagram media insights" }, deps)
-      );
-    } catch (error) {
-      if (!isParameterError(error)) throw error;
-      last = error;
+  async function readInsights(id: string): Promise<MetricValues> {
+    for (;;) {
+      const query = new URLSearchParams({ metric: sets[setIndex].join(","), access_token: session.token });
+      try {
+        return parseInstagramInsights(
+          await request(`${session.graphBase}/${encodeURIComponent(id)}/insights?${query}`, { label: "Instagram media insights" })
+        );
+      } catch (error) {
+        if (!isParameterError(error)) throw error;
+        if (setIndex >= sets.length - 1) throw error;
+        setIndex += 1;
+      }
     }
   }
-  throw last;
-}
 
-async function readBasic(session: InstagramSession, id: string, deps: HttpDeps): Promise<MetricValues> {
-  const query = new URLSearchParams({ fields: "like_count,comments_count", access_token: session.token });
-  const body = await requestJson<{ like_count?: unknown; comments_count?: unknown }>(
-    `${session.graphBase}/${encodeURIComponent(id)}?${query}`,
-    { label: "Instagram media" },
-    deps
-  );
-  const metrics: MetricValues = {};
-  if (typeof body.like_count === "number") metrics.likes = body.like_count;
-  if (typeof body.comments_count === "number") metrics.comments = body.comments_count;
-  return metrics;
-}
-
-export async function fetchInstagramMetrics(session: InstagramSession, mediaIds: string[], deps: HttpDeps = {}): Promise<FetchOutcome> {
-  const outcome = newOutcome();
-  let insightsAllowed = true;
+  async function readBasic(id: string): Promise<MetricValues> {
+    const query = new URLSearchParams({ fields: "like_count,comments_count", access_token: session.token });
+    const body = await request<{ like_count?: unknown; comments_count?: unknown }>(
+      `${session.graphBase}/${encodeURIComponent(id)}?${query}`,
+      { label: "Instagram media" }
+    );
+    const metrics: MetricValues = {};
+    if (typeof body.like_count === "number") metrics.likes = body.like_count;
+    if (typeof body.comments_count === "number") metrics.comments = body.comments_count;
+    return metrics;
+  }
 
   await readEach(mediaIds, outcome, async (id): Promise<FetchedPost> => {
     if (insightsAllowed) {
       try {
-        const metrics = await readInsights(session, id, deps);
+        const metrics = await readInsights(id);
         if (Object.keys(metrics).length > 0) return { source: "instagram-insights", metrics };
       } catch (error) {
         if (classifyFailure(error).kind === "scope") {
@@ -89,7 +99,7 @@ export async function fetchInstagramMetrics(session: InstagramSession, mediaIds:
         }
       }
     }
-    return { source: "instagram-basic", metrics: await readBasic(session, id, deps) };
+    return { source: "instagram-basic", metrics: await readBasic(id) };
   });
 
   return outcome;

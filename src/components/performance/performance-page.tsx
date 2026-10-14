@@ -43,6 +43,14 @@ const FORMAT_LABEL: Record<PostFormat, string> = {
   text: "Post"
 };
 
+const SORT_LABEL: Record<SortKey, string> = {
+  published: "Newest",
+  views: "Views",
+  engagement: "Engagement",
+  title: "Title",
+  platform: "Platform"
+};
+
 const NOTICE_TONE: Record<NoticeTone, BadgeTone> = { danger: "danger", warning: "warning", info: "info" };
 
 const POLL_MS = 3000;
@@ -191,6 +199,35 @@ function HeaderCell({
   );
 }
 
+function RowTags({ row }: { row: PostRow }) {
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--muted-foreground)]">
+      {row.format !== "video" ? <Badge className="px-2 py-0.5 text-[11px]">{FORMAT_LABEL[row.format]}</Badge> : null}
+      {row.visibility && row.visibility !== "public" ? <Badge className="px-2 py-0.5 text-[11px] capitalize">{row.visibility}</Badge> : null}
+      {!row.measured ? (
+        <Badge tone={row.status === "unsupported" ? "info" : "warning"} className="px-2 py-0.5 text-[11px]" title={row.note ?? undefined}>
+          {row.status === "unsupported" ? "Not measurable" : row.status === "gone" ? "Removed" : "Not read yet"}
+        </Badge>
+      ) : null}
+    </div>
+  );
+}
+
+function ViewsCell({ row }: { row: PostRow }) {
+  return (
+    <>
+      {row.metrics.views !== undefined ? (
+        <span title={`${row.metrics.views.toLocaleString()} views`}>{compactCount(row.metrics.views)}</span>
+      ) : (
+        <span className="text-[var(--muted-foreground)]">-</span>
+      )}
+      {row.measured && row.source && /basic/.test(row.source) ? (
+        <span className="block text-[10px] text-[var(--muted-foreground)]">{sourceLabel(row.source)}</span>
+      ) : null}
+    </>
+  );
+}
+
 function PostsTable({ rows, view, onSort, shown, onMore }: { rows: PostRow[]; view: PerformanceView; onSort: (sort: SortKey) => void; shown: number; onMore: () => void }) {
   if (rows.length === 0) {
     return (
@@ -199,10 +236,11 @@ function PostsTable({ rows, view, onSort, shown, onMore }: { rows: PostRow[]; vi
       </Card>
     );
   }
+  const visible = rows.slice(0, shown);
   return (
     <Card className="p-0">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] border-collapse text-sm">
+      <div data-layout="table" className="hidden sm:block overflow-x-auto">
+        <table className="w-full min-w-[640px] border-collapse text-sm">
           <thead className="border-b border-[var(--border)]">
             <tr>
               <HeaderCell label="Platform" sort="platform" view={view} onSort={onSort} />
@@ -214,7 +252,7 @@ function PostsTable({ rows, view, onSort, shown, onMore }: { rows: PostRow[]; vi
             </tr>
           </thead>
           <tbody>
-            {rows.slice(0, shown).map((row) => (
+            {visible.map((row) => (
               <tr key={row.key} className="border-b border-[var(--border)] last:border-0 align-top">
                 <td className="px-3 py-2.5">
                   <span className="flex items-center gap-1.5 whitespace-nowrap text-[var(--muted-foreground)]">
@@ -226,26 +264,11 @@ function PostsTable({ rows, view, onSort, shown, onMore }: { rows: PostRow[]; vi
                   <div className="line-clamp-2">
                     <PostLink row={row} />
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--muted-foreground)]">
-                    {row.format !== "video" ? <Badge className="px-2 py-0.5 text-[11px]">{FORMAT_LABEL[row.format]}</Badge> : null}
-                    {row.visibility && row.visibility !== "public" ? <Badge className="px-2 py-0.5 text-[11px] capitalize">{row.visibility}</Badge> : null}
-                    {!row.measured ? (
-                      <Badge tone={row.status === "unsupported" ? "info" : "warning"} className="px-2 py-0.5 text-[11px]" title={row.note ?? undefined}>
-                        {row.status === "unsupported" ? "Not measurable" : row.status === "gone" ? "Removed" : "Not read yet"}
-                      </Badge>
-                    ) : null}
-                  </div>
+                  <RowTags row={row} />
                 </td>
                 <td className="whitespace-nowrap px-3 py-2.5 text-[var(--muted-foreground)]">{publishedLabel(row.publishedAt)}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums text-white" title={row.source ? sourceLabel(row.source) : undefined}>
-                  {row.metrics.views !== undefined ? (
-                    <span title={`${row.metrics.views.toLocaleString()} views`}>{compactCount(row.metrics.views)}</span>
-                  ) : (
-                    <span className="text-[var(--muted-foreground)]">-</span>
-                  )}
-                  {row.measured && row.source && /basic/.test(row.source) ? (
-                    <span className="block text-[10px] text-[var(--muted-foreground)]">{sourceLabel(row.source)}</span>
-                  ) : null}
+                  <ViewsCell row={row} />
                 </td>
                 <td className="px-3 py-2.5 text-right tabular-nums text-white">{formatRate(row.engagementRate)}</td>
                 <td className="px-3 py-2.5">
@@ -256,6 +279,35 @@ function PostsTable({ rows, view, onSort, shown, onMore }: { rows: PostRow[]; vi
           </tbody>
         </table>
       </div>
+      <ul data-layout="list" aria-label="Posts" className="divide-y divide-[var(--border)] sm:hidden">
+        {visible.map((row) => (
+          <li key={row.key} className="px-4 py-3">
+            <div className="flex items-center justify-between gap-2 text-xs text-[var(--muted-foreground)]">
+              <span className="flex items-center gap-1.5">
+                <PlatformMark platform={row.platform} className="h-3.5 w-3.5" />
+                {PLATFORM_LABEL[row.platform]}
+              </span>
+              <span>{publishedLabel(row.publishedAt)}</span>
+            </div>
+            <div className="mt-1 line-clamp-2 text-sm text-white">
+              <PostLink row={row} />
+            </div>
+            <RowTags row={row} />
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--muted-foreground)]">
+              <span>
+                <span className="font-semibold tabular-nums text-white">
+                  <ViewsCell row={row} />
+                </span>{" "}
+                views
+              </span>
+              <span>
+                <span className="font-semibold tabular-nums text-white">{formatRate(row.engagementRate)}</span> engagement
+              </span>
+              <Sparkline values={row.trend} />
+            </div>
+          </li>
+        ))}
+      </ul>
       {rows.length > shown ? (
         <div className="border-t border-[var(--border)] p-3 text-center">
           <Button variant="secondary" onClick={onMore}>
@@ -318,6 +370,21 @@ export function PerformanceBody({
                 </button>
               ))}
             </div>
+            <label className="sr-only" htmlFor="performance-sort">
+              Sort by
+            </label>
+            <Select
+              id="performance-sort"
+              value={view.sort}
+              onChange={(event) => onSort(event.target.value as SortKey)}
+              className="h-9 w-auto min-w-32 text-xs sm:hidden"
+            >
+              {PERFORMANCE_SORTS.map((sort) => (
+                <option key={sort} value={sort}>
+                  {SORT_LABEL[sort]}
+                </option>
+              ))}
+            </Select>
             <label className="sr-only" htmlFor="performance-range">
               Published
             </label>
@@ -423,8 +490,16 @@ export function PerformancePage() {
   const syncNow = useCallback(async () => {
     try {
       const response = await fetch("/api/analytics/sync", { method: "POST" });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      toast.info("Sync started - this can take a few minutes");
+      const body = (await response.json().catch(() => ({}))) as { started?: boolean; retryAfterSeconds?: number };
+      if (response.status === 429) {
+        toast.info(`Sync now was used a moment ago. Try again in ${Math.ceil((body.retryAfterSeconds ?? 600) / 60)} min.`);
+      } else if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      } else if (body.started === false) {
+        toast.info("A sync is already running.");
+      } else {
+        toast.info("Sync started - this can take a few minutes");
+      }
     } catch (error) {
       toast.error(`Could not start the sync: ${error instanceof Error ? error.message : String(error)}`);
     }

@@ -20,6 +20,7 @@ const MONTH_DAYS = 30;
 const MONTH_GAP_MS = 20 * HOUR;
 const OLDER_GAP_MS = 70 * HOUR;
 const ERROR_BACKOFF_MS = 30 * MINUTE;
+const GONE_REPROBE_MS = 7 * DAY;
 
 export function dayKey(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -103,7 +104,11 @@ export function recordSnapshot(record: PostRecord, fetched: FetchedPost, now: Da
 
 export function dueForSync(record: PostRecord | undefined, now: Date, options: { force?: boolean } = {}): boolean {
   if (!record) return true;
-  if (record.status === "gone" || record.status === "unsupported" || record.final) return false;
+  if (record.status === "unsupported" || record.final) return false;
+  if (record.status === "gone") {
+    const looked = record.attemptedAt ? Date.parse(record.attemptedAt) : NaN;
+    return Boolean(options.force) || !Number.isFinite(looked) || now.getTime() - looked >= GONE_REPROBE_MS;
+  }
 
   const attempted = record.attemptedAt ? Date.parse(record.attemptedAt) : NaN;
   if (!options.force && record.status === "error" && Number.isFinite(attempted) && now.getTime() - attempted < ERROR_BACKOFF_MS) {

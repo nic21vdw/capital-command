@@ -8,6 +8,7 @@ export type HttpDeps = {
   maxDelayMs?: number;
   maxInlineWaitMs?: number;
   timeoutMs?: number;
+  onResponse?: (headers: Headers) => void;
 };
 
 export type JsonRequest = {
@@ -78,6 +79,8 @@ export async function requestJson<T = unknown>(url: string, request: JsonRequest
       throw new Error(`${request.label} network error: ${error instanceof Error ? error.message : String(error)}`);
     }
 
+    deps.onResponse?.(response.headers);
+
     if (response.ok) {
       const text = await response.text().catch(() => "");
       try {
@@ -139,6 +142,7 @@ export function classifyFailure(error: unknown): Failure {
   if (status === 429 || RATE_PATTERNS.some((pattern) => pattern.test(message))) {
     return { kind: "rate", retryAfterMs: DEFAULT_RATE_WAIT_MS };
   }
+  if (/missing permissions?/i.test(message)) return { kind: "other" };
   if (status === 404 || GONE_PATTERNS.some((pattern) => pattern.test(message))) return { kind: "gone" };
   return { kind: "other" };
 }

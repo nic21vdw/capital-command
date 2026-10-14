@@ -1,20 +1,45 @@
-import { classifyFailure, requestJson, type HttpDeps } from "@/lib/analytics/http";
+import { classifyFailure, type HttpDeps } from "@/lib/analytics/http";
 import { addNote, newOutcome, readEach, type FetchOutcome } from "@/lib/analytics/outcome";
-import type { FetchedPost, MetricValues } from "@/lib/analytics/types";
+import { pacedRequest, type Pacer } from "@/lib/analytics/pacing";
+import { isParameterError } from "@/lib/analytics/params";
+import type { FetchedPost, MetricValues, PostFormat } from "@/lib/analytics/types";
 
 export type FacebookSession = { token: string; graphBase: string };
 
-export type FacebookPost = { id: string; image: boolean };
+export type FacebookNode = "video" | "photo" | "post";
+
+export type FacebookPost = { id: string; node: FacebookNode };
 
 export const FACEBOOK_SCOPE_NOTE =
   "Facebook views and watch time need the read_insights permission; until the Page token is reconnected with it, only reactions, comments and shares are read.";
 
-const VIDEO_METRIC_SETS = [
-  ["total_video_views", "total_video_avg_time_watched", "total_video_view_total_time"],
-  ["post_video_views", "post_video_avg_time_watched", "post_video_view_time"]
-];
+const INSIGHT_SETS: Record<FacebookNode, string[][]> = {
+  video: [
+    ["blue_reels_play_count", "post_video_avg_time_watched", "post_video_view_time"],
+    ["fb_reels_total_plays", "post_video_avg_time_watched", "post_video_view_time"],
+    ["total_video_views", "total_video_avg_time_watched", "total_video_view_total_time"]
+  ],
+  post: [["post_media_view"]],
+  photo: []
+};
 
-const POST_METRIC_SETS = [["post_media_view"]];
+const INSIGHT_EDGE: Record<FacebookNode, string> = { video: "video_insights", post: "insights", photo: "insights" };
+
+const REACTIONS = "reactions.summary(true).limit(0)";
+const LIKES = "likes.summary(true).limit(0)";
+const COMMENTS = "comments.summary(true).limit(0)";
+
+const FIELD_LISTS: Record<FacebookNode, string[]> = {
+  video: [`${LIKES},${COMMENTS}`, `${REACTIONS},${COMMENTS}`],
+  photo: [`${REACTIONS},${COMMENTS}`, `${LIKES},${COMMENTS}`],
+  post: [`${REACTIONS},${COMMENTS},shares`, `${REACTIONS},${COMMENTS}`]
+};
+
+export function facebookNodeOf(target: { postId: string; format: PostFormat }): FacebookNode {
+  if (target.format === "video" || target.format === "long-form") return "video";
+  if (target.format === "carousel" || target.postId.includes("_")) return "post";
+  return "photo";
+}
 
 export function parseFacebookInsights(body: unknown): MetricValues {
   const metrics: MetricValues = {};
@@ -24,10 +49,12 @@ export function parseFacebookInsights(body: unknown): MetricValues {
     const value = entry?.values?.[0]?.value;
     if (typeof value !== "number" || !Number.isFinite(value)) continue;
     switch (entry.name) {
+      case "blue_reels_play_count":
+      case "fb_reels_total_plays":
       case "total_video_views":
       case "post_video_views":
       case "post_media_view":
-        metrics.views = value;
+        metrics.views = metrics.views ?? value;
         break;
       case "total_video_avg_time_watched":
       case "post_video_avg_time_watched":
@@ -35,6 +62,7 @@ export function parseFacebookInsights(body: unknown): MetricValues {
         break;
       case "total_video_view_total_time":
       case "post_video_view_time":
+      case "fb_reels_video_view_total_time":
         metrics.watchMinutes = value / 60_000;
         break;
     }
@@ -59,67 +87,67 @@ export function parseFacebookBasic(body: unknown): MetricValues {
   return metrics;
 }
 
-function isParameterError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return classifyFailure(error).kind === "other" && /\(HTTP 400\)/.test(message) && /"code"\s*:\s*100\b/.test(message);
-}
-
-async function readInsights(session: FacebookSession, post: FacebookPost, deps: HttpDeps): Promise<MetricValues> {
-  const sets = post.image ? POST_METRIC_SETS : VIDEO_METRIC_SETS;
-  const edge = post.image ? "insights" : "video_insights";
-  let last: unknown;
-  for (const metrics of sets) {
-    const query = new URLSearchParams({ metric: metrics.join(","), access_token: session.token });
-    try {
-      return parseFacebookInsights(
-        await requestJson(`${session.graphBase}/${encodeURIComponent(post.id)}/${edge}?${query}`, { label: "Facebook insights" }, deps)
-      );
-    } catch (error) {
-      if (!isParameterError(error)) throw error;
-      last = error;
-    }
-  }
-  throw last;
-}
-
-async function readBasic(session: FacebookSession, post: FacebookPost, deps: HttpDeps): Promise<MetricValues> {
-  const fields = post.image
-    ? "reactions.summary(true).limit(0),comments.summary(true).limit(0),shares"
-    : "likes.summary(true).limit(0),comments.summary(true).limit(0)";
-  const query = new URLSearchParams({ fields, access_token: session.token });
-  return parseFacebookBasic(
-    await requestJson(`${session.graphBase}/${encodeURIComponent(post.id)}?${query}`, { label: "Facebook post" }, deps)
-  );
-}
-
 export async function fetchFacebookMetrics(
   session: FacebookSession,
   posts: FacebookPost[],
-  deps: HttpDeps = {}
+  deps: HttpDeps = {},
+  pacer?: Pacer
 ): Promise<FetchOutcome> {
   const outcome = newOutcome();
+  const request = pacedRequest(pacer, deps);
   const byId = new Map(posts.map((post) => [post.id, post]));
+  const insightIndex = new Map<FacebookNode, number>();
+  const insightsOff = new Set<FacebookNode>();
+  const fieldIndex = new Map<FacebookNode, number>();
   let insightsAllowed = true;
+
+  async function readInsights(post: FacebookPost): Promise<MetricValues> {
+    const sets = INSIGHT_SETS[post.node];
+    if (!insightsAllowed || insightsOff.has(post.node) || sets.length === 0) return {};
+    for (;;) {
+      const index = insightIndex.get(post.node) ?? 0;
+      const query = new URLSearchParams({ metric: sets[index].join(","), access_token: session.token });
+      try {
+        return parseFacebookInsights(
+          await request(`${session.graphBase}/${encodeURIComponent(post.id)}/${INSIGHT_EDGE[post.node]}?${query}`, { label: "Facebook insights" })
+        );
+      } catch (error) {
+        if (classifyFailure(error).kind === "scope") {
+          insightsAllowed = false;
+          addNote(outcome, FACEBOOK_SCOPE_NOTE);
+          return {};
+        }
+        if (!isParameterError(error)) throw error;
+        if (index >= sets.length - 1) {
+          insightsOff.add(post.node);
+          return {};
+        }
+        insightIndex.set(post.node, index + 1);
+      }
+    }
+  }
+
+  async function readBasic(post: FacebookPost): Promise<MetricValues> {
+    const lists = FIELD_LISTS[post.node];
+    for (;;) {
+      const index = fieldIndex.get(post.node) ?? 0;
+      const query = new URLSearchParams({ fields: lists[index], access_token: session.token });
+      try {
+        return parseFacebookBasic(await request(`${session.graphBase}/${encodeURIComponent(post.id)}?${query}`, { label: "Facebook post" }));
+      } catch (error) {
+        if (!isParameterError(error) || index >= lists.length - 1) throw error;
+        fieldIndex.set(post.node, index + 1);
+      }
+    }
+  }
 
   await readEach(
     posts.map((post) => post.id),
     outcome,
     async (id): Promise<FetchedPost> => {
       const post = byId.get(id)!;
-      let insights: MetricValues = {};
-      if (insightsAllowed) {
-        try {
-          insights = await readInsights(session, post, deps);
-        } catch (error) {
-          if (classifyFailure(error).kind === "scope") {
-            insightsAllowed = false;
-            addNote(outcome, FACEBOOK_SCOPE_NOTE);
-          } else if (!isParameterError(error)) {
-            throw error;
-          }
-        }
-      }
-      const basic = await readBasic(session, post, deps);
+      const insights = await readInsights(post);
+      const basic = await readBasic(post);
       const metrics = { ...insights, ...basic };
       if (Object.keys(metrics).length === 0) throw new Error(`Facebook returned no numbers for post ${id}.`);
       return { source: Object.keys(insights).length > 0 ? "facebook-insights" : "facebook-basic", metrics };

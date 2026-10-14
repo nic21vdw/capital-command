@@ -77,6 +77,39 @@ describe("fetchThreadsMetrics", () => {
     expect(outcome.results.has("t2")).toBe(true);
   });
 
+  it("falls back to a shorter metric set when Threads rejects one, and remembers which works for the rest of the run", async () => {
+    const asked = (call: { url: string }) => new URL(call.url).searchParams.get("metric")!;
+    const { deps, calls } = httpDeps([
+      {
+        match: "/insights",
+        reply: (call) =>
+          asked(call).includes("shares")
+            ? { status: 400, body: { error: { code: 100, message: "(#100) shares is not a valid metric" } } }
+            : { body: insights({ views: 5, likes: 1, replies: 0, reposts: 0, quotes: 0 }) }
+      }
+    ]);
+
+    const outcome = await fetchThreadsMetrics(creds, ["t1", "t2", "t3"], deps);
+
+    expect(outcome.results.size).toBe(3);
+    expect(calls.map((call) => asked(call))).toEqual([
+      "views,likes,replies,reposts,quotes,shares",
+      "views,likes,replies,reposts,quotes",
+      "views,likes,replies,reposts,quotes",
+      "views,likes,replies,reposts,quotes"
+    ]);
+  });
+
+  it("does not count a post's own 400 toward giving up on the account", async () => {
+    const { deps, calls } = httpDeps([{ match: "/insights", reply: { status: 400, body: { error: { code: 100, message: "(#100) Invalid parameter" } } } }]);
+
+    const outcome = await fetchThreadsMetrics(creds, ["a", "b", "c", "d", "e", "f", "g"], { ...deps, maxRetries: 0 });
+
+    expect(outcome.stopped).toBeNull();
+    expect(outcome.failed).toHaveLength(7);
+    expect(calls.length).toBeGreaterThanOrEqual(7);
+  });
+
   it("gives up on an account after five failed reads in a row", async () => {
     const { deps, calls } = httpDeps([{ match: "/insights", reply: { status: 500, body: "boom" } }]);
 

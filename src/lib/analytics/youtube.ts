@@ -91,8 +91,14 @@ function analyticsUrl(videos: YoutubeVideo[], now: Date): string {
   return `${ANALYTICS_API}?${query}`;
 }
 
+export type QuotaDebit = (units: number) => Promise<{ ok: true; remaining: number } | { ok: false; reason: string; remaining: number }>;
+
+export const YOUTUBE_QUOTA_NOTE = "YouTube's daily allowance for background reads is used up; it comes back at midnight Pacific time.";
+
+const VIDEOS_LIST_UNITS = 1;
+
 export async function fetchYoutubeMetrics(
-  input: { token: string; videos: YoutubeVideo[]; now: Date; analytics?: "try" | "skip" },
+  input: { token: string; videos: YoutubeVideo[]; now: Date; analytics?: "try" | "skip"; debit?: QuotaDebit },
   deps: HttpDeps = {}
 ): Promise<YoutubeOutcome> {
   const outcome: YoutubeOutcome = { ...newOutcome(), analytics: input.analytics === "skip" ? "skipped" : "used" };
@@ -101,6 +107,13 @@ export async function fetchYoutubeMetrics(
   let analyticsRead = false;
 
   for (const batch of chunk(input.videos, YOUTUBE_BATCH_SIZE)) {
+    if (input.debit) {
+      const granted = await input.debit(VIDEOS_LIST_UNITS);
+      if (!granted.ok) {
+        outcome.stopped = { kind: "quota", message: YOUTUBE_QUOTA_NOTE };
+        break;
+      }
+    }
     let counts: Map<string, MetricValues>;
     try {
       counts = parseVideoStatistics(
