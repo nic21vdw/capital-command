@@ -30,6 +30,7 @@ export const SCREENS: Screen[] = [
   { id: "music", href: "/music", label: "Music Studio", purpose: "background music" },
   { id: "voiceover", href: "/voiceover", label: "Voiceover", purpose: "generated voiceover" },
   { id: "outliers", href: "/outliers", label: "Outlier Radar", purpose: "competitor and outlier research" },
+  { id: "inbox", href: "/inbox", label: "Inbox", purpose: "comments and replies on published posts from YouTube, Instagram, Facebook and Threads, with drafted replies to approve" },
   { id: "listening", href: "/listening", label: "Listening", purpose: "public threads where someone describes the problem CoLateral solves, to mark replied or ignored" },
   { id: "outreach", href: "/outreach", label: "Outreach", purpose: "the creators, newsletters and podcasts to offer CoLateral to, and who is due a follow-up" },
   { id: "execution", href: "/execution", label: "Execution", purpose: "recurring content, networking and build goals" },
