@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- A dead Threads token now shows up the moment the app tries to renew it, not hours later when a post fails. Before, the red banner and the Windows toast only fired when a post was rejected, so with the day's posts already scheduled an expired token sat unreported while `threads-autopilot.log` said "Session has expired". A renewal that Meta turns down for a bad or expired token now marks that account as broken straight away, the same as a failed post; a Meta outage or a dropped connection does not. YouTube and TikTok do the same when Google or TikTok refuses to renew their login. A renewal that works clears the banner.
+
 - **The server log stops filling up while posts wait on a limit.** When YouTube's daily upload cap, TikTok's inbox or Facebook's early hand-over cap holds posts back, the publish runner now writes one summary line per tick (for example `deferred 281: tiktok inbox full 279, youtube daily cap 2`) instead of one line per waiting post, which was about 14 MB of server output a day. Published, failed and token-rejected posts still get their own line, and the publish results and automation history are unchanged.
 
 ## 2026-10-13

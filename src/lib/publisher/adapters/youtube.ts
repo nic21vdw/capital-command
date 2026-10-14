@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import { noteRefreshAccepted, noteRefreshRejected } from "@/lib/platform-health/refresh";
 import { primaryAccountId } from "@/lib/publisher/accounts";
 import { publisherConfig } from "@/lib/publisher/config";
 import {
@@ -74,6 +75,7 @@ export async function youtubeAccessToken(accountId: string = primaryAccountId("y
       })
     });
     cachedTokens.set(accountId, { accessToken: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 });
+    await noteRefreshAccepted("youtube", accountId);
     return data.access_token;
   } catch (error) {
     if (isYoutubeReconnectRequired(error)) {
@@ -81,8 +83,11 @@ export async function youtubeAccessToken(accountId: string = primaryAccountId("y
       // A revoked grant cannot recover through backoff. Record a permanent,
       // user-safe reason so the UI asks for one reconnect instead of exposing
       // Google's raw invalid_grant JSON or promising a retry that cannot work.
-      throw new PermanentError(YOUTUBE_RECONNECT_REQUIRED);
+      const reconnect = new PermanentError(YOUTUBE_RECONNECT_REQUIRED);
+      await noteRefreshRejected("youtube", accountId, reconnect);
+      throw reconnect;
     }
+    await noteRefreshRejected("youtube", accountId, error);
     throw error;
   }
 }

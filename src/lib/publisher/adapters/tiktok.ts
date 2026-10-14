@@ -1,4 +1,5 @@
 import { open, stat } from "node:fs/promises";
+import { noteRefreshAccepted, noteRefreshRejected } from "@/lib/platform-health/refresh";
 import { itemAccountId, primaryAccountId, tiktokRefreshTokenKey } from "@/lib/publisher/accounts";
 import { publisherConfig } from "@/lib/publisher/config";
 import { PermanentError, StillProcessingError, ThrottledError, fetchJson, fetchRaw } from "@/lib/publisher/http";
@@ -124,25 +125,32 @@ async function accessToken(accountId: string = primaryAccountId("tiktok")): Prom
   // TikTok may rotate the refresh token — prefer the persisted rotation over
   // the .env seed, and store any new value the response carries.
   const refreshToken = (stored ?? seeded)!;
-  const data = await fetchJson<{
+  let data: {
     access_token?: string;
     expires_in?: number;
     refresh_token?: string;
     error?: string;
     error_description?: string;
-  }>(`${API_BASE}/oauth/token/`, {
-    label: "TikTok token refresh",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_key: tiktok.clientKey,
-      client_secret: tiktok.clientSecret,
-      grant_type: "refresh_token",
-      refresh_token: refreshToken
-    })
-  });
-  if (!data.access_token) {
-    throw new PermanentError(`TikTok token refresh failed: ${data.error ?? ""} ${data.error_description ?? ""}`.trim());
+  };
+  try {
+    data = await fetchJson<typeof data>(`${API_BASE}/oauth/token/`, {
+      label: "TikTok token refresh",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_key: tiktok.clientKey,
+        client_secret: tiktok.clientSecret,
+        grant_type: "refresh_token",
+        refresh_token: refreshToken
+      })
+    });
+    if (!data.access_token) {
+      throw new PermanentError(`TikTok token refresh failed: ${data.error ?? ""} ${data.error_description ?? ""}`.trim());
+    }
+  } catch (error) {
+    await noteRefreshRejected("tiktok", accountId, error);
+    throw error;
   }
+  await noteRefreshAccepted("tiktok", accountId);
   if (data.refresh_token && data.refresh_token !== refreshToken) {
     await setCachedToken(tiktokRefreshTokenKey(accountId), data.refresh_token);
   }

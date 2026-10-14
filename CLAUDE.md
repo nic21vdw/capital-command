@@ -468,6 +468,15 @@ pauses the others.
   `publisherConfig()` and an added account from its cached refresh token;
   Instagram and Facebook added accounts are manual reminders and never call the
   API. An account that no longer exists drops out of the list.
+- A rejected token REFRESH trips the same breaker without waiting for a post:
+  `refreshThreadsTokens` (`threads/tokens.ts`) and the YouTube and TikTok
+  adapters' access-token refresh call `recordAuthRejection` (`store.ts`), which
+  applies `isAuthFailure` itself, so a 5xx or a network error records nothing.
+  It never overwrites an existing break for the same credentials (no stacked
+  `failures`, no pushed-back trial), and a Threads refresh that is skipped
+  during its 6 hour cool-off re-reads the stored error so a failure logged
+  before the account was tracked still shows. A refresh that works calls
+  `clearAuthState`. `platform-health/refresh.ts` is the publisher-side wrapper.
 - The Threads runner holds the failing account and carries on with the rest.
   The publisher runner (`runDue`) does the same per `platform + item.accountId`
   and releases the item through `queue.releaseForAuth`, which keeps attempts and
