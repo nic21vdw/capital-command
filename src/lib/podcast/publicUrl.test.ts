@@ -91,6 +91,10 @@ describe("applyEnvValue", () => {
     );
   });
 
+  it("writes a value containing replacement patterns literally", () => {
+    expect(applyEnvValue("A=old\n", "A", "x$&y$'z$`w$1")).toBe("A=x$&y$'z$`w$1\n");
+  });
+
   it("leaves a commented-out line commented and appends the real one", () => {
     const before = "# S3_PUBLIC_BASE_URL=https://example.invalid\nS3_REGION=auto\n";
     expect(applyEnvValue(before, PUBLIC_BASE_URL_KEY, url)).toBe(

@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { dataPath } from "@/lib/paths";
-import { atomicWriteFile } from "@/lib/storage/atomic-json";
-import { withFileLock } from "@/lib/storage/file-lock";
+import { atomicWriteFile, type AtomicWriteOptions } from "@/lib/storage/atomic-json";
+import { DEFAULT_LOCK_STALE_MS, withFileLock } from "@/lib/storage/file-lock";
 
 /**
  * Queue persistence. The queue itself is a single JSON document (matching the
@@ -26,8 +26,15 @@ export interface QueueStore {
   withLock?<T>(work: () => Promise<T>): Promise<T>;
 }
 
+export const QUEUE_LOCK_TIMEOUT_MS = DEFAULT_LOCK_STALE_MS + 15_000;
+
+const QUEUE_WRITE_OPTIONS: AtomicWriteOptions = { attempts: 40, maxBackoffMs: 500 };
+
 export class FileQueueStore implements QueueStore {
-  constructor(private readonly filePath = dataPath("publish-queue.json")) {}
+  constructor(
+    private readonly filePath = dataPath("publish-queue.json"),
+    private readonly writeOptions: AtomicWriteOptions = {}
+  ) {}
 
   describe(): string {
     return this.filePath;
@@ -53,11 +60,11 @@ export class FileQueueStore implements QueueStore {
   }
 
   async save(text: string): Promise<void> {
-    await atomicWriteFile(this.filePath, text);
+    await atomicWriteFile(this.filePath, text, { ...QUEUE_WRITE_OPTIONS, ...this.writeOptions });
   }
 
   withLock<T>(work: () => Promise<T>): Promise<T> {
-    return withFileLock(this.filePath, work);
+    return withFileLock(this.filePath, work, { timeoutMs: QUEUE_LOCK_TIMEOUT_MS });
   }
 }
 

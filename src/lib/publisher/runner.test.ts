@@ -508,3 +508,28 @@ describe("runDue", () => {
     expect(report.outcomes).toEqual([]);
   });
 });
+
+describe("runDue next to another writer", () => {
+  it("does not upload a leg another writer published after this run listed it as due", async () => {
+    const store = new MemoryQueueStore();
+    const config = testConfig();
+    const queue = new PublishQueue(store, config);
+    const other = new PublishQueue(store, config);
+    const item = testItem({ clipPath, platformIds: ["youtube"] });
+    await queue.add(item);
+
+    const claim = queue.claim.bind(queue);
+    vi.spyOn(queue, "claim").mockImplementation(async (...args) => {
+      const theirs = (await other.get(item.id))!;
+      await other.recordSuccess(theirs, "youtube", { status: "published", postId: "yt-from-other-writer" }, DUE);
+      return claim(...args);
+    });
+    const youtube = fakeAdapter("youtube", async () => ({ status: "published", postId: "yt-from-this-run" }));
+
+    await runDue(DUE, { queue, config, log: () => undefined, adapters: { youtube } });
+
+    expect(youtube.calls).toHaveLength(0);
+    const saved = (JSON.parse(store.text!) as Array<{ platforms: { youtube: { postId?: string } } }>)[0];
+    expect(saved.platforms.youtube.postId).toBe("yt-from-other-writer");
+  });
+});

@@ -292,7 +292,13 @@ save now takes the queue's lock file, re-reads the file, and merges item by item
 before it writes (`queueMerge.ts`): an item the other process added or deleted
 survives, and two edits to different fields of one item both land. Only when both
 sides changed the SAME field does the newer `updatedAt` win, so a second process
-moving a `publishAt` the app also moved can still lose that one field. Before
+moving a `publishAt` the app also moved can still lose that one field. A platform
+leg is the exception: one that has a `postId`, a `publishedAt` or a published
+status always beats one that does not, and between two retrying legs the higher
+attempt count wins, so a stale writer can never un-publish a post and trigger a
+second upload. `claim()` checks the stored leg under the lock too and returns
+false unless it is still due and unclaimed, which is what keeps two runners from
+both uploading the same leg. Before
 this, a second process's edit was reverted the next time the app saved anything,
 and it looked like it worked — the file was right, the audit log recorded it —
 and then it was silently gone.

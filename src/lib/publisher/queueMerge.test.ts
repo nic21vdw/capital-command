@@ -121,3 +121,101 @@ describe("mergeById", () => {
     expect(mergeById(base, mine, theirs).get("a")).toBe(mine.get("a"));
   });
 });
+
+describe("mergeById when two writers changed the same platform leg", () => {
+  const published = { status: "published" as const, attempts: 0, postId: "yt-1", publishedAt: T1, uploadedAt: T1 };
+
+  it("keeps a published leg and its post id even when the other writer's claim is newer", () => {
+    const { base, mine, theirs } = setup(testItem({ id: "a" }));
+    theirs.get("a")!.platforms.youtube = { ...published };
+    theirs.get("a")!.updatedAt = T1;
+    mine.get("a")!.platforms.youtube!.claimedAt = T3;
+    mine.get("a")!.updatedAt = T3;
+
+    const leg = mergeById(base, mine, theirs).get("a")!.platforms.youtube!;
+    expect(leg.status).toBe("published");
+    expect(leg.postId).toBe("yt-1");
+    expect(leg.publishedAt).toBe(T1);
+  });
+
+  it("keeps this writer's published leg when the other writer's pending leg is newer", () => {
+    const { base, mine, theirs } = setup(testItem({ id: "a" }));
+    mine.get("a")!.platforms.youtube = { ...published };
+    mine.get("a")!.updatedAt = T1;
+    theirs.get("a")!.platforms.youtube!.claimedAt = T3;
+    theirs.get("a")!.updatedAt = T3;
+
+    const leg = mergeById(base, mine, theirs).get("a")!.platforms.youtube!;
+    expect(leg.status).toBe("published");
+    expect(leg.postId).toBe("yt-1");
+  });
+
+  it("treats a leg with only a post id or only a published time as published", () => {
+    for (const marker of [{ postId: "ig-9" }, { publishedAt: T1 }]) {
+      const { base, mine, theirs } = setup(testItem({ id: "a" }));
+      theirs.get("a")!.platforms.instagram = { status: "uploaded", attempts: 0, ...marker };
+      mine.get("a")!.platforms.instagram!.claimedAt = T3;
+      mine.get("a")!.updatedAt = T3;
+
+      const leg = mergeById(base, mine, theirs).get("a")!.platforms.instagram!;
+      expect({ postId: leg.postId, publishedAt: leg.publishedAt }).toEqual({ postId: undefined, publishedAt: undefined, ...marker });
+    }
+  });
+
+  it("never drops a post id or publish time when both legs carry one", () => {
+    const { base, mine, theirs } = setup(testItem({ id: "a" }));
+    mine.get("a")!.platforms.youtube = { status: "uploaded", attempts: 0, postId: "yt-1" };
+    mine.get("a")!.updatedAt = T3;
+    theirs.get("a")!.platforms.youtube = { status: "published", attempts: 0, publishedAt: T2 };
+    theirs.get("a")!.updatedAt = T1;
+
+    const leg = mergeById(base, mine, theirs).get("a")!.platforms.youtube!;
+    expect(leg.status).toBe("published");
+    expect(leg.postId).toBe("yt-1");
+    expect(leg.publishedAt).toBe(T2);
+  });
+
+  it("keeps the higher attempt count when a failed leg meets a pending one", () => {
+    const { base, mine, theirs } = setup(testItem({ id: "a" }));
+    theirs.get("a")!.platforms.tiktok = { status: "failed", attempts: 3, error: "rejected" };
+    theirs.get("a")!.updatedAt = T1;
+    mine.get("a")!.platforms.tiktok!.claimedAt = T3;
+    mine.get("a")!.updatedAt = T3;
+
+    const leg = mergeById(base, mine, theirs).get("a")!.platforms.tiktok!;
+    expect(leg.status).toBe("failed");
+    expect(leg.attempts).toBe(3);
+  });
+
+  it("keeps the higher attempt count between two retrying legs, and the newer one on a tie", () => {
+    const { base, mine, theirs } = setup(testItem({ id: "a" }));
+    mine.get("a")!.platforms.tiktok = { status: "pending", attempts: 1, error: "mine" };
+    mine.get("a")!.updatedAt = T3;
+    theirs.get("a")!.platforms.tiktok = { status: "pending", attempts: 2, error: "theirs" };
+    theirs.get("a")!.updatedAt = T1;
+    expect(mergeById(base, mine, theirs).get("a")!.platforms.tiktok!.error).toBe("theirs");
+
+    theirs.get("a")!.platforms.tiktok!.attempts = 1;
+    expect(mergeById(base, mine, theirs).get("a")!.platforms.tiktok!.error).toBe("mine");
+  });
+
+  it("leaves a leg only one writer touched alone", () => {
+    const { base, mine, theirs } = setup(testItem({ id: "a" }));
+    theirs.get("a")!.platforms.youtube = { ...published };
+    mine.get("a")!.platforms.tiktok!.claimedAt = T3;
+
+    const merged = mergeById(base, mine, theirs).get("a")!;
+    expect(merged.platforms.youtube!.postId).toBe("yt-1");
+    expect(merged.platforms.tiktok!.claimedAt).toBe(T3);
+  });
+
+  it("protects a Buffer delivery that already has update ids", () => {
+    const { base, mine, theirs } = setup(testItem({ id: "a" }));
+    theirs.get("a")!.buffer = { status: "scheduled", attempts: 0, updateIds: ["u1"] };
+    theirs.get("a")!.updatedAt = T1;
+    mine.get("a")!.buffer = { status: "pending", attempts: 0, claimedAt: T3 };
+    mine.get("a")!.updatedAt = T3;
+
+    expect(mergeById(base, mine, theirs).get("a")!.buffer!.updateIds).toEqual(["u1"]);
+  });
+});

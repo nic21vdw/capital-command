@@ -93,7 +93,7 @@ export function applyEnvValue(contents: string, key: string, value: string): str
   const assignment = new RegExp(`^\\s*(?:export\\s+)?${key}\\s*=`);
   const matches = lines.flatMap((line, index) => (assignment.test(line) ? [index] : []));
   if (matches.length > 0) {
-    for (const index of matches) lines[index] = lines[index].replace(/=.*$/, `=${value}`);
+    for (const index of matches) lines[index] = lines[index].replace(/=.*$/, () => `=${value}`);
   } else if (lines[lines.length - 1] === "") {
     lines.splice(lines.length - 1, 0, `${key}=${value}`);
   } else {

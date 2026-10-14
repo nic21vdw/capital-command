@@ -232,7 +232,7 @@ async function main() {
   }
 
   if (command === "instagram") {
-    const { connectInstagram, envUpdatesFor, applyEnvUpdates, inspectInstagram, REQUIRED_SCOPES } = await import(
+    const { connectInstagram, envUpdatesFor, saveEnvUpdates, inspectInstagram, REQUIRED_SCOPES } = await import(
       "@/lib/publisher/instagramConnect"
     );
     const sub = args.positional[1] ?? "connect";
@@ -326,11 +326,8 @@ async function main() {
 
     const updates = envUpdatesFor(connection, { appId, appSecret });
     if (args.flags.has("write")) {
-      const { readFile } = await import("node:fs/promises");
-      const { atomicWriteFile } = await import("@/lib/storage/atomic-json");
       const envPath = path.join(process.cwd(), ".env");
-      const existing = await readFile(envPath, "utf8").catch(() => "");
-      await atomicWriteFile(envPath, applyEnvUpdates(existing, updates), { createFolder: false });
+      await saveEnvUpdates(envPath, updates);
       console.log(`[publisher] wrote ${Object.keys(updates).join(", ")} to ${envPath}`);
       console.log("[publisher] confirm with `npm run publish:instagram:check`, then add instagram to PUBLISH_PLATFORMS.");
     } else {

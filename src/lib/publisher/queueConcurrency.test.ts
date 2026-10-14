@@ -123,6 +123,153 @@ describe("two writers on one publish queue file", () => {
   });
 });
 
+describe("claiming a leg next to another writer", () => {
+  const SLOT = "2026-07-10T22:30:00.000Z";
+  const PAST_SLOT = new Date("2026-07-11T00:00:00.000Z");
+
+  it("refuses a claim on a leg another writer already published, and does not overwrite it", async () => {
+    const server = open();
+    const cli = open();
+    await server.add(testItem({ id: "post", publishAt: SLOT }));
+    const held = (await cli.get("post"))!;
+
+    const live = (await server.get("post"))!;
+    await server.recordSuccess(live, "youtube", { status: "published", postId: "yt-1" }, NOW);
+
+    expect(await cli.claim(held, "youtube", NOW)).toBe(false);
+
+    const saved = (await onDisk()).find((entry) => entry.id === "post")!;
+    expect(saved.platforms.youtube!.status).toBe("published");
+    expect(saved.platforms.youtube!.postId).toBe("yt-1");
+    expect(held.platforms.youtube!.postId).toBe("yt-1");
+    expect(held.platforms.youtube!.claimedAt).toBeUndefined();
+  });
+
+  it("gives a leg to the first writer that claims it and refuses the second", async () => {
+    const first = open();
+    const second = open();
+    await first.add(testItem({ id: "post", publishAt: SLOT }));
+    const heldByFirst = (await first.get("post"))!;
+    const heldBySecond = (await second.get("post"))!;
+
+    expect(await first.claim(heldByFirst, "youtube", NOW)).toBe(true);
+    expect(await second.claim(heldBySecond, "youtube", NOW)).toBe(false);
+
+    expect(heldBySecond.platforms.youtube!.claimedAt).toBe(NOW.toISOString());
+    expect((await onDisk())[0].platforms.youtube!.claimedAt).toBe(NOW.toISOString());
+  });
+
+  it("refuses a claim on a leg another writer has backed off into the future", async () => {
+    const server = open();
+    const cli = open();
+    await server.add(testItem({ id: "post", publishAt: SLOT }));
+    const held = (await cli.get("post"))!;
+
+    await server.deferAttempt((await server.get("post"))!, "youtube", "rate limited", 60, NOW);
+
+    expect(await cli.claim(held, "youtube", NOW)).toBe(false);
+    expect(held.platforms.youtube!.claimedAt).toBeUndefined();
+  });
+
+  it("refuses a claim on a post another writer removed", async () => {
+    const server = open();
+    const cli = open();
+    await server.add(testItem({ id: "post", publishAt: SLOT }));
+    const held = (await cli.get("post"))!;
+
+    await server.remove("post");
+
+    expect(await cli.claim(held, "youtube", NOW)).toBe(false);
+    expect(await onDisk()).toEqual([]);
+  });
+
+  it("refuses a claim before the slot for a platform that waits for it, unless the run is forced", async () => {
+    const queue = open();
+    await queue.add(testItem({ id: "post", publishAt: "2026-12-01T10:00:00.000Z" }));
+    const item = (await queue.get("post"))!;
+
+    expect(await queue.claim(item, "instagram", NOW)).toBe(false);
+    expect(await queue.claim(item, "instagram", NOW, { force: true })).toBe(true);
+  });
+
+  it("never lets a forced claim take a published leg", async () => {
+    const queue = open();
+    await queue.add(testItem({ id: "post", publishAt: SLOT }));
+    const item = (await queue.get("post"))!;
+    await queue.recordSuccess(item, "youtube", { status: "published", postId: "yt-1" }, NOW);
+
+    expect(await queue.claim(item, "youtube", PAST_SLOT, { force: true })).toBe(false);
+  });
+});
+
+describe("a leg clash between two writers", () => {
+  const SLOT = "2026-07-10T22:30:00.000Z";
+
+  it("keeps the published leg and post id when a stale writer saves a newer change to the same leg", async () => {
+    const server = open();
+    const cli = open();
+    await server.add(testItem({ id: "post", publishAt: SLOT }));
+    const held = (await cli.get("post"))!;
+
+    await server.recordSuccess((await server.get("post"))!, "youtube", { status: "published", postId: "yt-1" }, NOW);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await cli.recordHandle(held, "youtube", "container-from-stale-writer");
+
+    const leg = (await onDisk())[0].platforms.youtube!;
+    expect(leg.status).toBe("published");
+    expect(leg.postId).toBe("yt-1");
+    expect(leg.publishedAt).toBe(NOW.toISOString());
+  });
+
+  it("keeps a leg object a caller is holding live when another writer changes that leg", async () => {
+    const server = open();
+    const cli = open();
+    await server.add(testItem({ id: "post", publishAt: SLOT }));
+    const held = (await cli.get("post"))!;
+    const leg = held.platforms.youtube!;
+
+    await server.deferAttempt((await server.get("post"))!, "youtube", "rate limited", 30, NOW);
+    await cli.claim(held, "instagram", new Date("2026-07-11T00:00:00.000Z"));
+
+    expect(held.platforms.youtube).toBe(leg);
+    expect(leg.error).toBe("rate limited");
+    expect(leg.nextAttemptAt).toBeTruthy();
+  });
+});
+
+function runRacer(role: "publisher" | "claimer", barrier: string): Promise<{ code: number | null; output: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      ["--import", "tsx", path.join(process.cwd(), "src", "lib", "publisher", "queueRacerChild.ts"), file, role, barrier],
+      { cwd: process.cwd(), env: { ...process.env, CAPITAL_COMMAND_DATA_DIR: dir }, stdio: ["ignore", "pipe", "pipe"] }
+    );
+    let output = "";
+    child.stdout.on("data", (chunk) => (output += String(chunk)));
+    child.stderr.on("data", (chunk) => (output += String(chunk)));
+    child.once("error", reject);
+    child.once("exit", (code) => resolve({ code, output }));
+  });
+}
+
+describe("a second process claiming a leg the first has just published", () => {
+  it("is refused, so nothing is uploaded twice and the post id survives", async () => {
+    await open().add(testItem({ id: "post", publishAt: "2026-07-10T22:30:00.000Z", platformIds: ["youtube"] }));
+    const barrier = path.join(dir, "racer-barrier");
+    await mkdir(barrier);
+
+    const [publisher, claimer] = await Promise.all([runRacer("publisher", barrier), runRacer("claimer", barrier)]);
+
+    expect(publisher.output).toBe("");
+    expect(claimer.output).toBe("");
+    expect([publisher.code, claimer.code]).toEqual([0, 0]);
+    expect(await readFile(path.join(barrier, "claim-result"), "utf8")).toBe("false");
+    const leg = (await onDisk())[0].platforms.youtube!;
+    expect(leg.status).toBe("published");
+    expect(leg.postId).toBe("yt-from-publisher");
+  }, 90_000);
+});
+
 function runWriter(name: string, barrier: string): Promise<{ code: number | null; output: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(

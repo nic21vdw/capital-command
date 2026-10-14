@@ -111,6 +111,44 @@ describe("withFileLock", () => {
     expect((await stat(lockFilePath(target))).isFile()).toBe(true);
   });
 
+  it("throws a clear error instead of hanging when the work asks for the same lock again", async () => {
+    await expect(
+      withFileLock(target, async () => {
+        await withFileLock(target, async () => undefined);
+      })
+    ).rejects.toThrow(/already holds the lock/);
+    expect(await readdir(dir)).toEqual([]);
+  });
+
+  it("still lets the work take the lock on a different file", async () => {
+    const other = path.join(dir, "other.json");
+    const seen: string[] = [];
+    await withFileLock(target, async () => {
+      await withFileLock(other, async () => {
+        seen.push("inner");
+      });
+    });
+    expect(seen).toEqual(["inner"]);
+  });
+
+  it("lets several processes take over one stale lock without any two holding it at once", async () => {
+    const pid = await deadPid();
+    await writeFile(lockFilePath(target), JSON.stringify({ pid, token: "gone", acquiredAt: new Date().toISOString() }));
+
+    const results = await Promise.all(Array.from({ length: 4 }, () => runHolder(target)));
+
+    expect(results.map((result) => result.output)).toEqual(["", "", "", ""]);
+    expect(results.map((result) => result.code)).toEqual([0, 0, 0, 0]);
+    const spans = (await readFile(path.join(dir, "spans.log"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => line.split(" ").map(Number));
+    expect(spans).toHaveLength(20);
+    spans.sort((a, b) => a[0] - b[0]);
+    for (let index = 1; index < spans.length; index += 1) expect(spans[index][0]).toBeGreaterThanOrEqual(spans[index - 1][1]);
+    expect((await readdir(dir)).filter((name) => name.includes(".lock") || name.includes(".break"))).toEqual([]);
+  }, 60_000);
+
   it("does not remove a lock another holder took over while the work ran", async () => {
     await withFileLock(target, async () => {
       await writeFile(
@@ -121,6 +159,21 @@ describe("withFileLock", () => {
     expect(JSON.parse(await readFile(lockFilePath(target), "utf8")).token).toBe("someone-else");
   });
 });
+
+function runHolder(lockTarget: string): Promise<{ code: number | null; output: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      ["--import", "tsx", path.join(process.cwd(), "src", "lib", "storage", "lockHolderChild.ts"), lockTarget, path.join(dir, "spans.log")],
+      { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] }
+    );
+    let output = "";
+    child.stdout.on("data", (chunk) => (output += String(chunk)));
+    child.stderr.on("data", (chunk) => (output += String(chunk)));
+    child.once("error", reject);
+    child.once("exit", (code) => resolve({ code, output }));
+  });
+}
 
 describe("isLockHeld", () => {
   it("is true for a fresh lock owned by a running process", async () => {

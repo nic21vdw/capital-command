@@ -2,6 +2,10 @@ type Stamped = { id: string; updatedAt?: string };
 
 type Fields = Record<string, unknown>;
 
+type Clash = (key: string, ours: unknown, other: unknown, base: unknown) => unknown;
+
+const CARRIED_FIELDS = ["postId", "publishedAt", "uploadedAt", "updateIds"] as const;
+
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 const isRecord = (value: unknown): value is Fields => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -12,7 +16,33 @@ export function snapshotById<T extends Stamped>(items: Iterable<T>): Map<string,
   return snapshot;
 }
 
-function mergeKeys(base: Fields, mine: Fields, theirs: Fields, mineWinsClash: boolean): Fields {
+function delivered(leg: Fields): boolean {
+  if (leg.status === "published" || Boolean(leg.postId) || Boolean(leg.publishedAt)) return true;
+  return Array.isArray(leg.updateIds) && leg.updateIds.length > 0;
+}
+
+function attemptsOf(leg: Fields): number {
+  return typeof leg.attempts === "number" ? leg.attempts : 0;
+}
+
+function mergeLeg(ours: Fields, other: Fields, mineWinsClash: boolean): Fields {
+  const oursDelivered = delivered(ours);
+  const otherDelivered = delivered(other);
+  let mineWins = mineWinsClash;
+  if (oursDelivered !== otherDelivered) mineWins = oursDelivered;
+  else if (oursDelivered && (ours.status === "published") !== (other.status === "published")) mineWins = ours.status === "published";
+  else if (attemptsOf(ours) !== attemptsOf(other)) mineWins = attemptsOf(ours) > attemptsOf(other);
+
+  const winner = mineWins ? ours : other;
+  const loser = mineWins ? other : ours;
+  const merged: Fields = { ...winner };
+  for (const key of CARRIED_FIELDS) {
+    if (merged[key] === undefined && loser[key] !== undefined) merged[key] = loser[key];
+  }
+  return merged;
+}
+
+function mergeKeys(base: Fields, mine: Fields, theirs: Fields, onClash: Clash): Fields {
   const merged: Fields = {};
   for (const key of new Set([...Object.keys(base), ...Object.keys(mine), ...Object.keys(theirs)])) {
     const ours = mine[key];
@@ -21,9 +51,7 @@ function mergeKeys(base: Fields, mine: Fields, theirs: Fields, mineWinsClash: bo
     if (same(ours, other)) pick = ours;
     else if (same(ours, base[key])) pick = other;
     else if (same(other, base[key])) pick = ours;
-    else if (key === "platforms" && isRecord(ours) && isRecord(other)) {
-      pick = mergeKeys(isRecord(base[key]) ? (base[key] as Fields) : {}, ours, other, mineWinsClash);
-    } else pick = mineWinsClash ? ours : other;
+    else pick = onClash(key, ours, other, base[key]);
     if (pick !== undefined) merged[key] = pick;
   }
   return merged;
@@ -41,7 +69,17 @@ function mergeItem<T extends Stamped>(was: string | undefined, mine: T, theirs: 
   const { updatedAt: mineStamp, ...mineFields } = mine as Fields;
   const { updatedAt: theirStamp, ...theirFields } = theirs as Fields;
   const mineWinsClash = ((mineStamp as string | undefined) ?? "") >= ((theirStamp as string | undefined) ?? "");
-  const merged = mergeKeys(baseFields, mineFields, theirFields, mineWinsClash);
+
+  const legClash: Clash = (_leg, ours, other) =>
+    isRecord(ours) && isRecord(other) ? mergeLeg(ours, other, mineWinsClash) : mineWinsClash ? ours : other;
+  const itemClash: Clash = (key, ours, other, baseValue) => {
+    if (!isRecord(ours) || !isRecord(other)) return mineWinsClash ? ours : other;
+    if (key === "platforms") return mergeKeys(isRecord(baseValue) ? baseValue : {}, ours, other, legClash);
+    if (key === "buffer") return mergeLeg(ours, other, mineWinsClash);
+    return mineWinsClash ? ours : other;
+  };
+
+  const merged = mergeKeys(baseFields, mineFields, theirFields, itemClash);
   const stamp = newest(mineStamp as string | undefined, theirStamp as string | undefined);
   if (stamp !== undefined) merged.updatedAt = stamp;
   return merged as T;
