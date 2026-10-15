@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- Threads sends queued posts before planning, rescues a completely missed day with spaced future slots while keeping reviewed copy, holds uncertain publishes and replies for checking instead of sending them again, refuses to skip or move a post once delivery has started, respects the posting window across account offsets, and shows skipped-only days truthfully. The fallback idea library also has fresh small-tool and business-building angles.
+
 - **Publishing holds stay in effect while Buffer prepares a post.** Existing Buffer receipts keep being tracked, and an approval stop leaves retries untouched. The canvas can place channels on Hold; setting Auto takes a person in Settings.
 
 - **A refused policy change cannot release part of your held queue.** Every requested channel is checked together before anything is saved, and the posts stay held if the policy cannot be saved. Threads also checks the latest approval policy when claiming a post and before starting delivery, so turning Hold on while a tick waits takes effect before an unsent post goes out. Posts already approved or started keep their delivery state.
