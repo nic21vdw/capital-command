@@ -1,3 +1,5 @@
+import { Readable } from "node:stream";
+
 /**
  * Small fetch helpers shared by the platform adapters. Errors are classified
  * so the runner knows whether to retry with backoff (transient) or mark the
@@ -80,10 +82,10 @@ function forMessage(text: string): string {
 export type JsonRequest = {
   method?: string;
   headers?: Record<string, string>;
-  body?: string | URLSearchParams | Buffer;
+  body?: string | URLSearchParams | Buffer | Readable;
   /** Label used in error messages, e.g. "YouTube resumable init". */
   label: string;
-  /** Deadline for a JSON call. `fetchRaw` (media bytes) is never bounded. */
+  /** Deadline for a JSON call; 0 disables it for a streamed media transfer. */
   timeoutMs?: number;
 };
 
@@ -122,13 +124,15 @@ export async function fetchRaw(url: string, request: JsonRequest): Promise<Respo
 
 async function doFetch(url: string, request: JsonRequest): Promise<Response> {
   try {
-    return await fetch(url, {
+    const init: RequestInit & { duplex?: "half" } = {
       method: request.method ?? "POST",
       headers: request.headers,
-      // Buffer is a valid BodyInit in Node but the DOM lib types don't know it.
+      // Node accepts Buffers and Readable streams beyond the DOM BodyInit type.
       body: request.body as BodyInit | undefined,
+      ...(request.body instanceof Readable ? { duplex: "half" as const } : {}),
       signal: request.timeoutMs ? AbortSignal.timeout(request.timeoutMs) : undefined
-    });
+    };
+    return await fetch(url, init);
   } catch (error) {
     throw new TransientError(
       `${request.label} network error: ${error instanceof Error ? error.message : String(error)}`

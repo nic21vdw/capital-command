@@ -3,11 +3,13 @@ import { DEFAULT_CENTER_BLUR_ZOOM, MAX_CENTER_BLUR_ZOOM } from "./centerBlur";
 import { CLIP_LAYOUTS } from "./layouts";
 import {
   animatedReframeChain,
+  isOpaqueReframeInput,
   reframeChain,
   renderCaptionedVertical,
   renderSourceClip,
   renderVertical,
-  stackedLayoutChain
+  stackedLayoutChain,
+  verticalCompositionChain
 } from "./render";
 
 const runFfmpeg = vi.fn((..._args: unknown[]): Promise<void> => Promise.resolve());
@@ -17,6 +19,51 @@ vi.mock("./ffmpeg", () => ({
   runFfmpeg: (...args: unknown[]) => runFfmpeg(...args),
   probeVideoStream: (...args: unknown[]) => probeVideoStream(...args)
 }));
+
+describe("opaque reframe input guard", () => {
+  const h264 = "  Stream #0:0[0x1](und): Video: h264 (High), yuv420p, 1920x1080";
+  const alpha = "  Stream #0:1: Video: vp9 (Profile 0), yuva420p, 1920x1080";
+
+  it("only opts in for an explicitly identified opaque H.264 video", () => {
+    expect(isOpaqueReframeInput(h264)).toBe(true);
+    expect(isOpaqueReframeInput(h264.replace("yuv420p", "yuv444p"))).toBe(true);
+    expect(isOpaqueReframeInput(alpha)).toBe(false);
+    expect(isOpaqueReframeInput("")).toBe(false);
+    expect(isOpaqueReframeInput("  Stream #0:0: Audio: aac, 48000 Hz")).toBe(false);
+  });
+
+  it("keeps the blur when any video stream could carry transparency", () => {
+    // Automatic selection may pick the larger second stream, not the first.
+    expect(isOpaqueReframeInput(h264 + "\n" + alpha)).toBe(false);
+    expect(isOpaqueReframeInput(h264.replace("h264 (High)", "prores"))).toBe(false);
+  });
+
+  it("preserves the original alpha-capable graph unless opacity is proven", () => {
+    const original = reframeChain("0:v", "vout", 1080, 1920, 1.8, 0.4, -0.25);
+    const opaque = reframeChain("0:v", "vout", 1080, 1920, 1.8, 0.4, -0.25, { opaqueInput: true });
+    expect(original).toContain("boxblur=24:4,eq=brightness=-0.08");
+    expect(reframeChain("0:v", "vout", 1080, 1920, 1.8, 0.4, -0.25, { opaqueInput: false })).toBe(original);
+    // Only the invisible effects are removed: retain the same scale/crop,
+    // split and overlay, including the main stream's SAR/format/timing path.
+    expect(opaque).toBe(original.replace(",boxblur=24:4,eq=brightness=-0.08", ""));
+  });
+
+  it("preserves animated alpha behavior and passes the guard through the no-zoom fallback", () => {
+    const original = animatedReframeChain("0:v", "vout", 1920, 1080, 1.3);
+    const opaque = animatedReframeChain("0:v", "vout", 1920, 1080, 1.3, 0, 0, 0.5, 30, { opaqueInput: true });
+    expect(original).toContain("boxblur=24:4,eq=brightness=-0.08");
+    expect(opaque).toBe(original.replace(",boxblur=24:4,eq=brightness=-0.08", ""));
+    expect(animatedReframeChain("0:v", "vout", 1920, 1080, 1, 0, 0, 0.5, 30, { opaqueInput: true }))
+      .toBe(reframeChain("0:v", "vout", 1920, 1080, 1, 0, 0, { opaqueInput: true }));
+  });
+
+  it("keeps the visible center-blur and stacked-layout backgrounds", () => {
+    const center = verticalCompositionChain();
+    expect(center).toContain("boxblur=12:2,eq=brightness=-0.08");
+    expect(center).toContain("overlay=(W-w)/2:(H-h)/2");
+    expect(stackedLayoutChain("restream-stack")).toContain("boxblur=12:2,eq=brightness=-0.12");
+  });
+});
 
 describe("reframeChain", () => {
   it("uses cover crop math so zoom and pan affect the exported frame", () => {

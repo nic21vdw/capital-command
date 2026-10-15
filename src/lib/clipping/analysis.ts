@@ -34,9 +34,30 @@ const TARGET_CLIP_SEC = 24;
 export { MAX_CLIP_COUNT, MIN_CLIP_COUNT, TARGET_CLIP_COUNT, clampClipCount } from "@/lib/clipping/clip-count";
 import { TARGET_CLIP_COUNT, clampClipCount } from "@/lib/clipping/clip-count";
 
+/** Incrementally collects astats records without retaining a stream-length log. */
+export function createEnergyCollector(): { windows: EnergyWindow[]; onLine: (line: string) => void } {
+  const windows: EnergyWindow[] = [];
+  let currentTime: number | null = null;
+  const onLine = (line: string) => {
+    const timeMatch = line.match(/pts_time:([\d.]+)/);
+    if (timeMatch) {
+      currentTime = Number(timeMatch[1]);
+      return;
+    }
+    const rmsMatch = line.match(/lavfi\.astats\.Overall\.RMS_level=(-?[\d.]+|-inf)/);
+    if (rmsMatch && currentTime !== null) {
+      const rms = rmsMatch[1] === "-inf" ? -90 : Math.max(-90, Number(rmsMatch[1]));
+      windows.push({ time: currentTime, rms });
+      currentTime = null;
+    }
+  };
+  return { windows, onLine };
+}
+
 /** Extracts per-window RMS loudness for the first audio stream. */
 export async function extractEnergy(inputPath: string): Promise<EnergyWindow[]> {
-  const { stdout } = await runFfmpeg([
+  const collector = createEnergyCollector();
+  await runFfmpeg([
     "-hide_banner",
     "-i",
     inputPath,
@@ -51,24 +72,8 @@ export async function extractEnergy(inputPath: string): Promise<EnergyWindow[]> 
     "-f",
     "null",
     "-"
-  ]);
-
-  const windows: EnergyWindow[] = [];
-  let currentTime: number | null = null;
-  for (const line of stdout.split("\n")) {
-    const timeMatch = line.match(/pts_time:([\d.]+)/);
-    if (timeMatch) {
-      currentTime = Number(timeMatch[1]);
-      continue;
-    }
-    const rmsMatch = line.match(/lavfi\.astats\.Overall\.RMS_level=(-?[\d.]+|-inf)/);
-    if (rmsMatch && currentTime !== null) {
-      const rms = rmsMatch[1] === "-inf" ? -90 : Math.max(-90, Number(rmsMatch[1]));
-      windows.push({ time: currentTime, rms });
-      currentTime = null;
-    }
-  }
-  return windows;
+  ], { captureStdout: false, onStdoutLine: collector.onLine });
+  return collector.windows;
 }
 
 /**

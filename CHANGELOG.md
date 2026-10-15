@@ -14,6 +14,10 @@ already shipped.
 
 ## Unreleased
 
+- **Video processing uses less memory.** YouTube uploads stream the remaining bytes from disk, transcription shares bounded decode windows even when a duration header cannot be read, and long-recording energy analysis parses FFmpeg output as it arrives. Interrupted transfers clean up their partial files, and a transcription worker that exits while starting no longer blocks the shared queue.
+
+- **Previews and exports skip work they do not show.** Opaque H.264 crop-fill exports avoid blurring a covered background, native-shape previews avoid a redundant video decoder, and late long-form selections skip discarded opening footage while retaining decode preroll. Needed preview backgrounds still follow playback and paused scrubbing; existing render quality settings are unchanged.
+
 - **Publishing holds stay in effect while Buffer prepares a post.** Existing Buffer receipts keep being tracked, and an approval stop leaves retries untouched. The canvas can place channels on Hold; setting Auto takes a person in Settings.
 
 - **A refused policy change cannot release part of your held queue.** Every requested channel is checked together before anything is saved, and the posts stay held if the policy cannot be saved. Threads also checks the latest approval policy when claiming a post and before starting delivery, so turning Hold on while a tick waits takes effect before an unsent post goes out. Posts already approved or started keep their delivery state.

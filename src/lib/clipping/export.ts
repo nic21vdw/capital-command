@@ -4,7 +4,7 @@ import { brandKit } from "@/lib/brand/kit";
 import { shortsAudioArgs, shortsAudioFilter } from "@/lib/clipping/audio";
 import { containScale, masterVideoArgs, scaleFilter } from "@/lib/clipping/encode";
 import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue } from "@/lib/clipping/captions";
-import { hasAudioStream, isRenderCanceled, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { isRenderCanceled, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { attachEditedClipRender, outputDir, workDir } from "@/lib/clipping/jobs";
 import { renderSignature } from "@/lib/clipping/export-signature";
 import { removeQuietly } from "@/lib/disk/cleanup";
@@ -16,7 +16,7 @@ import {
   remapClipOverlays
 } from "@/lib/clipping/segments";
 import { LAYOUT_MODE_PRESETS } from "@/lib/clipping/layouts";
-import { reframeChain, stackedLayoutChain } from "@/lib/clipping/render";
+import { isOpaqueReframeInput, reframeChain, stackedLayoutChain } from "@/lib/clipping/render";
 import { maybeAutoEnqueueExport } from "@/lib/publisher/enqueue";
 import { planSfxCues } from "@/lib/sfx/cues";
 import { resolveSoundPath } from "@/lib/sfx/sounds";
@@ -235,7 +235,7 @@ function fitChain(inLabel: string, outLabel: string, w: number, h: number): stri
   );
 }
 
-function sourceCompositionChain(spec: ExportSpec, w: number, h: number): string {
+function sourceCompositionChain(spec: ExportSpec, w: number, h: number, opaqueInput: boolean): string {
   const layoutPreset = LAYOUT_MODE_PRESETS[spec.compositionMode];
   if (layoutPreset && h > w) {
     return stackedLayoutChain(layoutPreset, undefined, w, h, spec.faceSource, spec.screenSource).replace(/\[vout\]$/, "[v0]");
@@ -244,7 +244,7 @@ function sourceCompositionChain(spec: ExportSpec, w: number, h: number): string 
     return fitChain("0:v", "v0", w, h);
   }
   if (spec.compositionMode === "crop-fill") {
-    return reframeChain("0:v", "v0", w, h, spec.reframe.scale, spec.reframe.offsetX, spec.reframe.offsetY);
+    return reframeChain("0:v", "v0", w, h, spec.reframe.scale, spec.reframe.offsetX, spec.reframe.offsetY, { opaqueInput });
   }
   return centerBlurChain("0:v", "v0", w, h, spec.reframe.scale, spec.reframe.offsetX, spec.reframe.offsetY);
 }
@@ -257,7 +257,12 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
   const dur = trimDuration(spec);
   if (dur < 0.05) throw new Error("Nothing to export — every timeline segment is cut.");
   const selectExpr = selectExpression(spec);
-  const hasAudio = await hasAudioStream(basePath).catch(() => false);
+  // Reuse the existing audio probe for the opacity guard as well. A filename
+  // or a job record alone cannot prove that the actual file has no alpha.
+  const probe = await runFfmpeg(["-hide_banner", "-i", basePath], { allowFailure: true })
+    .catch(() => ({ stderr: "" }));
+  const hasAudio = /Stream #\d+:\d+.*Audio/.test(probe.stderr);
+  const opaqueInput = isOpaqueReframeInput(probe.stderr);
 
   const images = await writeOverlayImages(spec, dir);
   const assPath = path.join(dir, "subs.ass");
@@ -305,7 +310,7 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
 
   // --- Video filtergraph ---
   const parts: string[] = [];
-  parts.push(sourceCompositionChain(spec, w, h));
+  parts.push(sourceCompositionChain(spec, w, h, opaqueInput));
   parts.push(`[v0]select='${selectExpr}',setpts=N/FRAME_RATE/TB[vcut]`);
   let last = "vcut";
   images.forEach((img, k) => {

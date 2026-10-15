@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs";
 import { chmod, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { dataPath } from "@/lib/paths";
 import { clipSectionFormat, fullVideoFormat } from "@/lib/clipping/encode";
 import { DEFAULT_OUTPUT_QUALITY, type OutputQuality } from "@/lib/pipeline/outputQuality";
@@ -32,6 +33,7 @@ function ffmpegLocation(): string | null {
 }
 
 let cached: string | null | undefined;
+let resolving: Promise<string> | undefined;
 
 function canRun(cmd: string): Promise<boolean> {
   return new Promise((resolve) => {
@@ -56,7 +58,17 @@ async function fileExists(p: string): Promise<boolean> {
  */
 export async function ensureYtDlp(): Promise<string> {
   if (cached) return cached;
+  // Concurrent jobs share first-use probing/downloading instead of racing to
+  // write the same binary. Clear a failed attempt so the next job can retry.
+  if (!resolving) {
+    resolving = resolveYtDlp().finally(() => {
+      resolving = undefined;
+    });
+  }
+  return resolving;
+}
 
+async function resolveYtDlp(): Promise<string> {
   // 1. Prefer a system install if the user already has one.
   for (const name of process.platform === "win32" ? ["yt-dlp.exe", "yt-dlp"] : ["yt-dlp"]) {
     if (await canRun(name)) {
@@ -81,16 +93,18 @@ export async function ensureYtDlp(): Promise<string> {
       `Could not download yt-dlp (HTTP ${response.status}). Check your internet connection, or install yt-dlp manually and put it on your PATH.`
     );
   }
-  await new Promise<void>((resolve, reject) => {
-    const out = createWriteStream(tmpPath);
-    Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0])
-      .pipe(out)
-      .on("finish", () => resolve())
-      .on("error", reject);
-  });
-  await rename(tmpPath, localPath);
-  if (process.platform !== "win32") {
-    await chmod(localPath, 0o755);
+  try {
+    await pipeline(
+      Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
+      createWriteStream(tmpPath)
+    );
+    if (process.platform !== "win32") await chmod(tmpPath, 0o755);
+    await rename(tmpPath, localPath);
+  } catch (error) {
+    // pipeline closes both streams on failure, so the partial can be removed
+    // on Windows as well. Never let a broken download become the cached binary.
+    await rm(tmpPath, { force: true }).catch(() => undefined);
+    throw error;
   }
   cached = localPath;
   return cached;

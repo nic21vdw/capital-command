@@ -1,4 +1,5 @@
-import { readFile, stat } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
 import { noteRefreshAccepted, noteRefreshRejected } from "@/lib/platform-health/refresh";
 import { primaryAccountId } from "@/lib/publisher/accounts";
 import { publisherConfig } from "@/lib/publisher/config";
@@ -359,24 +360,39 @@ async function adoptResumableSession(sessionUrl: string, token: string, size: nu
 async function sendResumableBytes(
   sessionUrl: string,
   token: string,
-  media: Buffer,
+  localPath: string,
   size: number,
   from: number
 ): Promise<string> {
-  const remaining = from > 0 ? media.subarray(from) : media;
-  const upload = await fetchJson<{ id?: string }>(sessionUrl, {
-    label: "YouTube video upload",
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "video/mp4",
-      "Content-Length": String(remaining.length),
-      ...(from > 0 ? { "Content-Range": `bytes ${from}-${size - 1}/${size}` } : {})
-    },
-    body: remaining
-  });
-  if (!upload.id) throw new PermanentError("YouTube upload finished but returned no video id.");
-  return upload.id;
+  // Open only the remaining range, after the session handle is durable. Memory
+  // stays bounded even for multi-hour masters, and a resumed upload never reads
+  // the already-accepted prefix.
+  const remaining = size - from;
+  if (!Number.isSafeInteger(from) || from < 0 || remaining <= 0) {
+    throw new TransientError("YouTube resumable session returned no valid remaining byte range. Retry to query its status.");
+  }
+  const media = createReadStream(localPath, { start: from, end: size - 1 });
+  try {
+    const upload = await fetchJson<{ id?: string }>(sessionUrl, {
+      label: "YouTube video upload",
+      method: "PUT",
+      // This is a media transfer, not a small JSON call. A long-form upload
+      // must not inherit the helper's 20-second metadata deadline.
+      timeoutMs: 0,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "video/mp4",
+        "Content-Length": String(remaining),
+        ...(from > 0 ? { "Content-Range": `bytes ${from}-${size - 1}/${size}` } : {})
+      },
+      body: media
+    });
+    if (!upload.id) throw new PermanentError("YouTube upload finished but returned no video id.");
+    return upload.id;
+  } finally {
+    // Also close on an early HTTP rejection or network error.
+    media.destroy();
+  }
 }
 
 export const youtubeAdapter: PlatformAdapter = {
@@ -419,11 +435,10 @@ export const youtubeAdapter: PlatformAdapter = {
     // leave two copies of the same clip. Finish that one instead.
     if (state?.postId) return finalizeYoutube(input.item, state, { publishNow: input.publishNow });
     // Everything up to here is safe to repeat: reading config, refreshing the
-    // token and loading the file put nothing on the channel. A failure in this
+    // token and checking the file put nothing on the channel. A failure in this
     // stretch (the "token refresh network error" kind) can retry freely.
     const token = await youtubeAccessToken(input.item.accountId);
     const { body, scheduled, held } = buildBody(input);
-    const media = await readFile(input.localPath);
     const size = (await stat(input.localPath)).size;
     const describe = (id: string): PostResult => ({
       status: scheduled ? "scheduled" : "published",
@@ -446,7 +461,7 @@ export const youtubeAdapter: PlatformAdapter = {
       const resumed = await adoptResumableSession(existing, token, size);
       if (resumed.videoId) return describe(resumed.videoId);
       if (resumed.receivedBytes !== undefined) {
-        const id = await sendResumableBytes(existing, token, media, size, resumed.receivedBytes);
+        const id = await sendResumableBytes(existing, token, input.localPath, size, resumed.receivedBytes);
         return describe(id);
       }
       // The session is gone (expired or unknown). Falling through starts a new
@@ -471,8 +486,8 @@ export const youtubeAdapter: PlatformAdapter = {
     // creating a second video.
     await input.onHandle?.(sessionUrl);
 
-    // Step 2: send the bytes. Clips are small, so a single PUT is fine.
-    const id = await sendResumableBytes(sessionUrl, token, media, size, 0);
+    // Step 2: stream the bytes; the saved session can resume after a drop.
+    const id = await sendResumableBytes(sessionUrl, token, input.localPath, size, 0);
     return describe(id);
   },
 

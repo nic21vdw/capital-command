@@ -52,14 +52,24 @@ export type FfmpegResult = {
   code: number;
 };
 
-/** Runs ffmpeg with the given args, capturing stdout/stderr. */
+// Captures are diagnostic text, not media. Long-running analyzers stream their
+// records through line callbacks instead of retaining the entire child output.
+const MAX_CAPTURE_CHARS = 4 * 1024 * 1024;
+const MAX_LINE_CHARS = 64 * 1024;
+
+export type FfmpegOptions = {
+  allowFailure?: boolean;
+  onLine?: (line: string) => void;
+  onStdoutLine?: (line: string) => void;
+  /** Disable capture when stdout is consumed incrementally by onStdoutLine. */
+  captureStdout?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Runs ffmpeg with bounded diagnostic buffers and optional streaming parsers. */
 export function runFfmpeg(
   args: string[],
-  {
-    allowFailure = false,
-    onLine,
-    signal
-  }: { allowFailure?: boolean; onLine?: (line: string) => void; signal?: AbortSignal } = {}
+  { allowFailure = false, onLine, onStdoutLine, captureStdout = true, signal }: FfmpegOptions = {}
 ): Promise<FfmpegResult> {
   const bin = resolveFfmpeg();
   return new Promise((resolve, reject) => {
@@ -67,62 +77,103 @@ export function runFfmpeg(
       reject(new Error(FFMPEG_MISSING_MESSAGE));
       return;
     }
-    // Already stopped before we even spawned — don't start a doomed process.
     if (signal?.aborted) {
       reject(new RenderCanceledError());
       return;
     }
-    const child = spawn(bin, args, { windowsHide: true });
-    // Stopping the export kills the ffmpeg process so it releases the CPU/GPU
-    // and stops writing immediately, then the promise rejects as canceled.
+    // No caller supplies interactive input. Closing stdin also prevents an
+    // unattended child from waiting forever for an overwrite/console prompt.
+    const child = spawn(bin, args, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let stdoutLineBuffer = "";
+    let stderrLineBuffer = "";
+    let failure: Error | undefined;
+    let settled = false;
     const onAbort = () => {
+      if (settled) return;
       try {
         child.kill("SIGKILL");
       } catch {
         /* process may have already exited */
       }
     };
-    if (signal) signal.addEventListener("abort", onAbort, { once: true });
-    let stdout = "";
-    let stderr = "";
-    let lineBuffer = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+    const stopWithError = (error: unknown) => {
+      // A parser is application code: its exception must reject this work,
+      // never escape a stream event and bring down every other render.
+      failure ??= error instanceof Error ? error : new Error(String(error));
+      onAbort();
+    };
+    const lines = (pending: string, text: string, callback: (line: string) => void): string => {
+      const parts = (pending + text).split(/[\r\n]/);
+      const tail = parts.pop() ?? "";
+      for (const part of parts) {
+        if (part.length > MAX_LINE_CHARS) throw new Error("ffmpeg emitted an oversized diagnostic line.");
+        if (part.trim()) callback(part.trim());
+      }
+      if (tail.length > MAX_LINE_CHARS) throw new Error("ffmpeg emitted an oversized diagnostic line.");
+      return tail;
+    };
+    child.stdout?.on("data", (chunk) => {
+      if (failure || settled) return;
+      const text = String(chunk);
+      try {
+        if (captureStdout) {
+          if (stdout.length + text.length > MAX_CAPTURE_CHARS) {
+            throw new Error("ffmpeg stdout exceeded its capture limit; consume long output with onStdoutLine.");
+          }
+          stdout += text;
+        }
+        if (onStdoutLine) stdoutLineBuffer = lines(stdoutLineBuffer, text, onStdoutLine);
+      } catch (error) {
+        stopWithError(error);
+      }
     });
-    child.stderr.on("data", (chunk) => {
+    child.stderr?.on("data", (chunk) => {
+      if (failure || settled) return;
       const text = String(chunk);
       stderr += text;
-      // Keep memory bounded on long renders. Anything that must see every
-      // line (e.g. silencedetect output on a multi-hour stream) has to parse
-      // via onLine — the captured stderr only reliably holds the tail.
+      // Keep a diagnostic tail; analyzers that need every record use onLine.
       if (stderr.length > 400_000) stderr = stderr.slice(-200_000);
-      if (onLine) {
-        // ffmpeg redraws progress with \r; split on both so we see live time=.
-        lineBuffer += text;
-        const parts = lineBuffer.split(/[\r\n]/);
-        lineBuffer = parts.pop() ?? "";
-        for (const part of parts) if (part.trim()) onLine(part.trim());
+      try {
+        if (onLine) stderrLineBuffer = lines(stderrLineBuffer, text, onLine);
+      } catch (error) {
+        stopWithError(error);
       }
     });
     child.on("error", (error) => {
-      if (signal) signal.removeEventListener("abort", onAbort);
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        reject(new Error(FFMPEG_MISSING_MESSAGE));
-      } else {
-        reject(error);
-      }
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (signal?.aborted) reject(new RenderCanceledError());
+      else if ((error as NodeJS.ErrnoException).code === "ENOENT") reject(new Error(FFMPEG_MISSING_MESSAGE));
+      else reject(failure ?? error);
     });
     child.on("close", (code) => {
-      if (signal) signal.removeEventListener("abort", onAbort);
-      // A non-zero exit caused by our own SIGKILL is a stop, not a failure.
-      if (signal?.aborted) {
-        reject(new RenderCanceledError());
-      } else if (code !== 0 && !allowFailure) {
-        reject(new Error(`ffmpeg exited with code ${code}: ${stderr.slice(-800)}`));
-      } else {
-        resolve({ stdout, stderr, code: code ?? -1 });
+      if (settled) return;
+      // Child streams may finish without a newline. Deliver the last complete
+      // record too, unless parsing failed or this work was deliberately stopped.
+      if (!failure && !signal?.aborted) {
+        try {
+          if (stdoutLineBuffer.trim()) onStdoutLine?.(stdoutLineBuffer.trim());
+          if (stderrLineBuffer.trim()) onLine?.(stderrLineBuffer.trim());
+        } catch (error) {
+          failure = error instanceof Error ? error : new Error(String(error));
+        }
       }
+      settled = true;
+      cleanup();
+      if (signal?.aborted) reject(new RenderCanceledError());
+      else if (failure) reject(failure);
+      else if (code !== 0 && !allowFailure) {
+        reject(new Error(`ffmpeg exited with code ${code}: ${stderr.slice(-800)}`));
+      } else resolve({ stdout, stderr, code: code ?? -1 });
     });
+    // Install lifecycle/stream handlers before killing: an abort can happen
+    // during spawn, before this listener exists. Recheck closes that race.
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
   });
 }
 

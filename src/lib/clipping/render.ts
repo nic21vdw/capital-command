@@ -25,6 +25,19 @@ import { assFilter } from "@/lib/clipping/caption-fonts";
 /** An auto-framing decision plus the geometry it was planned against. */
 export type ClipFramingSpec = { framing: ClipFraming; target: FramingTarget };
 
+/** Only set opaqueInput after inspecting the decoded input's codec/format. */
+export type ReframeOptions = { opaqueInput?: boolean };
+
+/**
+ * H.264 has no alpha channel. Require every video stream to be H.264 because
+ * FFmpeg's automatic stream selection can choose a different stream from the
+ * first one listed. Unknown codecs/probe failures retain the original blur.
+ */
+export function isOpaqueReframeInput(stderr: string): boolean {
+  const streams = stderr.split(/\r?\n/).filter((line) => /Stream #\d+:\d+.*: Video:/.test(line));
+  return streams.length > 0 && streams.every((line) => /: Video:\s*h264(?:[\s,(]|$)/i.test(line));
+}
+
 const FRAME_W = 1080;
 const FRAME_H = 1920;
 
@@ -75,8 +88,10 @@ function layerChain(layer: LayoutLayer, layerName: string, frameW: number, frame
 
 /**
  * Builds a reframe filter chain that crops the source to fill a target WxH.
- * A blurred, dimmed cover of the source remains behind the crop so aggressive
- * pans/zooms never expose black edges.
+ * A blurred, dimmed cover remains behind the crop for inputs that may carry
+ * transparency. A proven opaque foreground covers every output pixel, so its
+ * hidden background can skip blur and brightness work. Keep the background
+ * scale/crop and overlay to preserve format negotiation, SAR and timestamps.
  *
  * `inLabel` is consumed and `outLabel` produced inside a filter_complex.
  */
@@ -87,8 +102,10 @@ export function reframeChain(
   h: number,
   scale = 1,
   offsetX = 0,
-  offsetY = 0
+  offsetY = 0,
+  options: ReframeOptions = {}
 ): string {
+  const backgroundEffects = options.opaqueInput ? "" : ",boxblur=24:4,eq=brightness=-0.08";
   const cropScale = Math.max(1, scale);
   const sx = Math.max(-1, Math.min(1, offsetX));
   const sy = Math.max(-1, Math.min(1, offsetY));
@@ -96,7 +113,7 @@ export function reframeChain(
   const cropY = `(ih-${h})/2+${sy.toFixed(4)}*(ih-${h})/2`;
   return (
     `[${inLabel}]split=2[__bg][__fg];` +
-    `[__bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=24:4,eq=brightness=-0.08[__bgb];` +
+    `[__bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}${backgroundEffects}[__bgb];` +
     `[__fg]${coverScale(w, h)},${scaleFilter(`iw*${cropScale}`, `ih*${cropScale}`)},crop=${w}:${h}:x='${cropX}':y='${cropY}'[__fgs];` +
     `[__bgb][__fgs]overlay=0:0[${outLabel}]`
   );
@@ -129,8 +146,10 @@ export function animatedReframeChain(
   offsetX = 0,
   offsetY = 0,
   rampSec = 0.5,
-  fps = 30
+  fps = 30,
+  options: ReframeOptions = {}
 ): string {
+  const backgroundEffects = options.opaqueInput ? "" : ",boxblur=24:4,eq=brightness=-0.08";
   const target = Math.max(1, targetScale);
   const sx = Math.max(-1, Math.min(1, offsetX));
   const sy = Math.max(-1, Math.min(1, offsetY));
@@ -138,7 +157,7 @@ export function animatedReframeChain(
 
   // No zoom requested: nothing to animate, fall back to the plain cover crop.
   if (target <= 1.001) {
-    return reframeChain(inLabel, outLabel, w, h, 1, offsetX, offsetY);
+    return reframeChain(inLabel, outLabel, w, h, 1, offsetX, offsetY, options);
   }
 
   // z(it): 1 -> target over `ramp` seconds on an ease-out cubic (1-(1-p)^3),
@@ -155,7 +174,7 @@ export function animatedReframeChain(
   const y = `(ih-ih/zoom)/2*(1+${sy.toFixed(4)})`;
   return (
     `[${inLabel}]fps=${fps},split=2[__bg][__fg];` +
-    `[__bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=24:4,eq=brightness=-0.08[__bgb];` +
+    `[__bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}${backgroundEffects}[__bgb];` +
     `[__fg]${coverScale(srcW, srcH)},crop=${srcW}:${srcH},` +
       `zoompan=z='${z}':x='${x}':y='${y}':d=1:s=${w}x${h}:fps=${fps}[__fgs];` +
     `[__bgb][__fgs]overlay=0:0[${outLabel}]`

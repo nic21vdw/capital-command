@@ -14,6 +14,7 @@ import { animatedReframeChain } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
 import { getTrack, trackFilePath } from "@/lib/longform/music";
 import { overlayFilePath } from "@/lib/longform/overlays";
+import { bodyInputWindow } from "@/lib/longform/body-input";
 import { editedDurationSec, exportRanges, extendCaptionSegments, projectForTopic, remapCaptionsToOutput, sourceTimeToOutput, sourceToOutputIntervals, type KeptRange } from "@/lib/longform/plan";
 import { getProject, projectOutputDir, projectWorkDir, setTopicExport, updateProject, withFullTranscript } from "@/lib/longform/store";
 import type { LongformExportRecord, LongformProject } from "@/lib/longform/types";
@@ -448,8 +449,8 @@ async function renderExport(projectId: string, recordId: string, signal: AbortSi
   // audio are re-stamped back-to-back, which is exactly the jump-cut edit.
   if (bodyRanges.length > 0) {
     const bodyPath = path.join(workDir, `export-${recordId}-body.mp4`);
-    const expr = selectExpression(bodyRanges);
-    const lastEnd = bodyRanges[bodyRanges.length - 1].end;
+    const bodyInput = bodyInputWindow(bodyRanges);
+    const expr = selectExpression(bodyInput.selectRanges);
     // Wide fits the kept frames into 16:9 with letterbox padding; vertical
     // centers them at full width over a blurred fill of themselves.
     // Zoom cuts: jump cuts inside continuous footage alternate between the
@@ -488,8 +489,9 @@ async function renderExport(projectId: string, recordId: string, signal: AbortSi
     await runFfmpeg(
       [
         "-y",
-        "-t",
-        (lastEnd + 1).toFixed(3),
+        // Late topic/highlight passages must not decode hours of discarded
+        // opening footage. Selectors below use the same seek-relative window.
+        ...bodyInput.inputArgs,
         "-i",
         srcPath,
         "-filter_complex_script",
