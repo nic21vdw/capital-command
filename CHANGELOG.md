@@ -14,6 +14,10 @@ already shipped.
 
 ## Unreleased
 
+- **Video processing uses less memory.** YouTube uploads stream the remaining bytes from disk, transcription shares bounded decode windows even when a duration header cannot be read, and long-recording energy analysis parses FFmpeg output as it arrives. Interrupted transfers clean up their partial files, and a transcription worker that exits while starting no longer blocks the shared queue.
+
+- **Previews and exports skip work they do not show.** Opaque H.264 crop-fill exports avoid blurring a covered background, native-shape previews avoid a redundant video decoder, and late long-form selections skip discarded opening footage while retaining decode preroll. Needed preview backgrounds still follow playback and paused scrubbing; existing render quality settings are unchanged.
+
 - **Account checks can recover.** A failed status read shows Retry instead of asking you to reconnect, and keeps the last known accounts visible on desktop and phone layouts.
 - **Clip Editor reads and saves say what happened.** Failed clip and caption reads offer Retry. Failed saves keep a local recovery draft, stay marked unsaved, and wait for a confirmed save before leaving or scheduling an existing export. Reopening a project uses fresh details.
 - **TikTok account checks stay shared.** An older failed creator check no longer discards a newer answer when several consent panels are open.
