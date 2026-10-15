@@ -1,0 +1,27 @@
+
+> colateral-marketing@0.1.0 test
+> vitest run src/components/editor/clip-library.test.ts src/components/editor/project-persistence.test.ts src/components/editor/drafts.test.ts src/components/editor/export-tracker.test.ts src/lib/marketing/workflow-resource.test.ts src/components/layout/shell-connections.test.ts src/components/uploading-center/use-tiktok-creator-info.test.ts src/components/layout/review-policy-surface.test.ts src/app/settings/review-policy-authorization.test.ts
+
+
+ RUN  v3.2.4 /workspace/marketing-usability
+
+ ✓ src/components/editor/project-persistence.test.ts (4 tests) 81ms
+ ✓ src/components/editor/export-tracker.test.ts (31 tests) 235ms
+ ✓ src/components/editor/clip-library.test.ts (17 tests) 77ms
+ ✓ src/components/uploading-center/use-tiktok-creator-info.test.ts (7 tests) 310ms
+ ✓ src/components/editor/drafts.test.ts (12 tests) 68ms
+ ✓ src/components/layout/shell-connections.test.ts (13 tests) 55ms
+ ✓ src/lib/marketing/workflow-resource.test.ts (5 tests) 35ms
+ ✓ src/app/settings/review-policy-authorization.test.ts (3 tests) 22ms
+ ✓ src/components/layout/review-policy-surface.test.ts (5 tests) 7ms
+
+ Test Files  9 passed (9)
+      Tests  97 passed (97)
+   Start at  21:49:39
+   Duration  9.53s (transform 1.01s, setup 238ms, collect 1.71s, tests 891ms, environment 4ms, prepare 1.75s)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0
+npm notice To update run: npm install -g npm@12.2.0
+npm notice

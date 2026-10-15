@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -49,7 +49,8 @@ import {
   OverlaysPanel,
   StylePanel
 } from "@/components/editor/panels";
-import { writeDraftProject } from "@/components/editor/drafts";
+import { ClipProjectPersistence, afterConfirmedSave } from "@/components/editor/project-persistence";
+import { WorkflowLoadNotice } from "@/components/marketing/workflow-load-notice";
 import { useEditorExports } from "@/components/editor/exports-provider";
 import { placeChannelVideos } from "@/lib/publisher/channelPlacement";
 import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
@@ -100,10 +101,12 @@ function sameProject(a: ClipProject, b: ClipProject): boolean {
 
 export function ClipEditor({
   initialProject,
+  initialSaved = true,
   onClose,
   onOpenClip
 }: {
   initialProject: ClipProject;
+  initialSaved?: boolean;
   onClose: () => void;
   onOpenClip?: (job: ClipJob, clip: ClipCandidate, index: number) => void;
 }) {
@@ -127,8 +130,18 @@ export function ClipEditor({
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
   const [cropEditing, setCropEditing] = useState<CropTarget>(null);
   const [fetchingCaptions, setFetchingCaptions] = useState(false);
-  const [saved, setSaved] = useState(true);
+  const [savedProject, setSavedProject] = useState<ClipProject | null>(() => initialSaved ? project : null);
+  const saved = project === savedProject;
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const currentProject = useRef(project);
+  useLayoutEffect(() => { currentProject.current = project; }, [project]);
+  const persistenceActive = useRef(true);
+  useEffect(() => {
+    persistenceActive.current = true;
+    return () => { persistenceActive.current = false; };
+  }, []);
+  const [persistence] = useState(() => new ClipProjectPersistence(mutate));
   const [sourceJob, setSourceJob] = useState<ClipJob | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -235,23 +248,36 @@ export function ClipEditor({
     v.volume = volume;
   }, [muted, volume]);
 
+  const persistProject = useCallback(async (snapshot: ClipProject): Promise<boolean> => {
+    try {
+      const confirmed = await persistence.save(snapshot, () => persistenceActive.current && currentProject.current === snapshot);
+      if (confirmed) {
+        setSavedProject(snapshot);
+        setSaveError(null);
+      }
+      return confirmed;
+    } catch (error) {
+      if (persistenceActive.current && currentProject.current === snapshot) {
+        setSaveError(error instanceof Error && error.name === "TimeoutError"
+          ? "The save timed out. Keep this editor open and retry."
+          : "Your changes have not been saved to the server. Keep this editor open and retry.");
+      }
+      return false;
+    }
+  }, [persistence]);
+
   // Debounced autosave so every edit survives a refresh.
   const firstRender = useRef(true);
   useEffect(() => {
     if (firstRender.current) {
       firstRender.current = false;
-      return;
+      if (initialSaved) return;
     }
-    setSaved(false);
     const timer = setTimeout(() => {
-      const next = { ...project, updatedAt: new Date().toISOString() };
-      // Mirror every save into the local draft so a reload can never resurrect
-      // an out-of-date snapshot (and edits survive even if the server save fails).
-      writeDraftProject(next);
-      void mutate("upsertClipProject", next).then(() => setSaved(true));
+      void persistProject(project);
     }, 700);
     return () => clearTimeout(timer);
-  }, [project, mutate]);
+  }, [initialSaved, project, persistProject]);
 
   const patch = useCallback((partial: Partial<ClipProject>) => {
     setProject((prev) => ({ ...prev, ...partial }));
@@ -368,23 +394,19 @@ export function ClipEditor({
   const saveNow = useCallback(async () => {
     setSaving(true);
     try {
-      const next = { ...project, updatedAt: new Date().toISOString() };
-      writeDraftProject(next);
-      await mutate("upsertClipProject", next);
-      setSaved(true);
-      toast.success("Project saved.");
-    } catch {
-      toast.error("Could not save the project. Try again.");
+      const confirmed = await persistProject(currentProject.current);
+      if (confirmed) toast.success("Project saved.");
+      return confirmed;
     } finally {
       setSaving(false);
     }
-  }, [project, mutate]);
+  }, [persistProject]);
 
   const flushThen = useCallback(
     (next: () => void) => {
-      void (saved ? Promise.resolve() : saveNow()).then(next);
+      void afterConfirmedSave(() => currentProject.current === savedProject ? Promise.resolve(true) : saveNow(), next);
     },
-    [saved, saveNow]
+    [savedProject, saveNow]
   );
 
   const seek = useCallback((t: number) => {
@@ -1140,6 +1162,8 @@ export function ClipEditor({
           onOpenUploadingCenter={() => runSchedule({ type: "navigate" })}
         />
       </div>
+
+      {saveError ? <WorkflowLoadNotice title="Your clip changes are not saved" message={saveError} retrying={saving} onRetry={() => void saveNow()} /> : null}
 
       <DescriptionDropdown
         description={project.description}

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import {
   AtSign,
   Bot,
@@ -27,6 +27,7 @@ import {
   Podcast,
   Presentation,
   Radar,
+  RefreshCw,
   Rocket,
   Scissors,
   Settings,
@@ -57,6 +58,19 @@ import { reconnectBlocker, signInVerifiable } from "@/lib/publisher/connections"
 import { PlatformIcon, PLATFORM_LABEL, type PlatformIconKey } from "@/components/ui/platform-icon";
 import { cn } from "@/lib/utils";
 import { ColateralMarketingMark } from "@/components/layout/colateral-marketing-mark";
+import {
+  CHANNEL_CACHE_KEY,
+  CHANNEL_CACHE_TTL_MS,
+  EMPTY_CONNECTIONS,
+  connectionsFailed,
+  fetchAccountRows,
+  readConnectionsCache,
+  summarize,
+  type Connections,
+  type ChannelSummary,
+  type Profile,
+  type PlatformConnection
+} from "@/components/layout/shell-connections";
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
 
@@ -249,51 +263,7 @@ function Brand({ collapsed = false }: { collapsed?: boolean }) {
 /* Connected publishing accounts                                       */
 /* ------------------------------------------------------------------ */
 
-type Profile = { title: string; thumbnail: string | null; handle?: string | null };
-
-/** One platform's standing: who it posts as, and whether it can. */
-type PlatformConnection = {
-  platform: PlatformKey;
-  profile: Profile | null;
-  /** How many accounts on this platform are signed in. */
-  connected: number;
-  /** Signed in, but something still stops it publishing unattended. */
-  blocker: string | null;
-  /** The account whose last post died on an expired or revoked connection, if any. */
-  reconnectAccountId: string | null;
-};
-
-type ChannelSummary = Profile & {
-  /** How many other connected YouTube accounts exist beyond this one. */
-  extraConnected: number;
-  /** Set when this channel's last post failed on the connection: "connected" is no longer true in practice. */
-  reconnect: boolean;
-};
-
-/** Every platform the app can publish as, and whether it is signed in. */
-type Connections = {
-  loaded: boolean;
-  /** The YouTube channel this whole pipeline publishes as, when signed in. */
-  channel: ChannelSummary | null;
-  /** The non-YouTube platforms, in the order the sidebar lists them. */
-  others: PlatformConnection[];
-};
-
-type AccountRow = {
-  id: string;
-  platform: string;
-  primary: boolean;
-  connected: boolean;
-  profile?: Profile | null;
-  blocker?: string | null;
-  needsReconnect?: boolean;
-  youtube: Profile | null;
-  tiktok?: Profile | null;
-};
-
 type PlatformKey = PlatformIconKey;
-
-const OTHER_PLATFORMS: PlatformKey[] = ["instagram", "tiktok", "facebook"];
 
 const PLATFORM_STYLE: Record<PlatformKey, { label: string; tint: string; background: string }> = {
   youtube: { label: PLATFORM_LABEL.youtube, tint: "text-[#ff4d4d]", background: "bg-[#ff0000]/15" },
@@ -323,43 +293,6 @@ function PlatformBadge({ platform, className }: { platform: PlatformKey; classNa
   );
 }
 
-const CHANNEL_CACHE_KEY = "capital-command:connected-accounts";
-const CHANNEL_CACHE_TTL_MS = 60_000;
-
-const EMPTY_CONNECTIONS: Connections = { loaded: false, channel: null, others: [] };
-
-function profileOf(account: AccountRow): Profile | null {
-  return account.profile ?? account.youtube ?? account.tiktok ?? null;
-}
-
-function connectedOn(accounts: AccountRow[], platform: string) {
-  return accounts.filter((account) => account.platform === platform && account.connected);
-}
-
-function summarize(accounts: AccountRow[]): Connections {
-  const youtube = connectedOn(accounts, "youtube").filter((account) => profileOf(account));
-  // The primary channel is the face of the app; any primary-connected account
-  // wins, otherwise the first connected one does.
-  const lead = youtube.find((account) => account.primary) ?? youtube[0];
-  const leadProfile = lead ? profileOf(lead) : null;
-  return {
-    loaded: true,
-    channel: leadProfile
-      ? { ...leadProfile, extraConnected: youtube.length - 1, reconnect: Boolean(lead?.needsReconnect) }
-      : null,
-    others: OTHER_PLATFORMS.map((platform) => {
-      const signedIn = connectedOn(accounts, platform);
-      return {
-        platform,
-        profile: signedIn.map(profileOf).find(Boolean) ?? null,
-        connected: signedIn.length,
-        blocker: signedIn.map((account) => account.blocker).find(Boolean) ?? null,
-        reconnectAccountId: signedIn.find((account) => account.needsReconnect)?.id ?? null
-      };
-    })
-  };
-}
-
 /** The @handle the greeting uses: the YouTube channel's, else any connected. */
 function leadHandle(state: Connections): string | null {
   return state.channel?.handle || state.others.map((row) => row.profile?.handle).find(Boolean) || null;
@@ -371,67 +304,90 @@ function handleLabel(profile: Profile | null, fallback: string): string {
   return profile?.title ?? fallback;
 }
 
-// Both the brand line and the channel card ask for this on the same mount, so
-// the request is shared rather than fired twice.
-let inFlight: Promise<Connections> | null = null;
+const ConnectionsContext = createContext<{ state: Connections; retry: () => void } | null>(null);
 
-function loadConnections(): Promise<Connections> {
-  if (!inFlight) {
-    inFlight = (
-      fetch("/api/publish/accounts", { cache: "no-store" })
-        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`${res.status}`)))) as Promise<{ accounts?: AccountRow[] }>
-    )
-      .then((json) => summarize(json.accounts ?? []))
-      .finally(() => {
-        inFlight = null;
-      });
-  }
-  return inFlight;
-}
-
-/**
- * Which publishing accounts are signed in, resolved through the local backend
- * (tokens never reach the browser). Cached briefly in sessionStorage so
- * page-to-page navigation doesn't flash the loading state or refetch every time.
- */
-function useConnections(): Connections {
+/** One account read and retry state for the brand, desktop card and mobile bar. */
+function ConnectionsProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<Connections>(EMPTY_CONNECTIONS);
+  const requestRef = useRef<Promise<void> | null>(null);
+  const liveRef = useRef(false);
 
-  useEffect(() => {
-    try {
-      const raw = window.sessionStorage.getItem(CHANNEL_CACHE_KEY);
-      if (raw) {
-        const cached = JSON.parse(raw) as { at: number; state: Connections };
-        if (Date.now() - cached.at < CHANNEL_CACHE_TTL_MS && cached.state?.loaded) {
-          // Deferred like the sidebar-collapse read: a synchronous setState
-          // inside an effect body triggers a cascading re-render lint error.
-          queueMicrotask(() => setState(cached.state));
-          return;
-        }
-      }
-    } catch {
-      // Bad cache — fall through to a fresh fetch.
-    }
-    let live = true;
-    void loadConnections()
-      .then((next) => {
-        if (!live) return;
-        setState(next);
+  const retry = useCallback(() => {
+    if (requestRef.current) return;
+    setState((current) => ({ ...current, loading: true }));
+    const request = fetchAccountRows()
+      .then((accounts) => {
+        if (!liveRef.current) return;
+        setState(summarize(accounts));
         try {
-          window.sessionStorage.setItem(CHANNEL_CACHE_KEY, JSON.stringify({ at: Date.now(), state: next }));
+          window.sessionStorage.setItem(CHANNEL_CACHE_KEY, JSON.stringify({ at: Date.now(), accounts }));
         } catch {
-          // Non-critical cache write.
+          // The cache is optional; a successful read still recovers the UI.
         }
       })
       .catch(() => {
-        if (live) setState({ ...EMPTY_CONNECTIONS, loaded: true });
+        if (liveRef.current) setState(connectionsFailed);
+      })
+      .finally(() => {
+        requestRef.current = null;
       });
-    return () => {
-      live = false;
-    };
+    requestRef.current = request;
   }, []);
 
-  return state;
+  useEffect(() => {
+    liveRef.current = true;
+    // Cache and network updates run after the initial hydration render.
+    queueMicrotask(() => {
+      if (!liveRef.current) return;
+      let cached = null;
+      try {
+        cached = readConnectionsCache(window.sessionStorage.getItem(CHANNEL_CACHE_KEY));
+      } catch {
+        // Storage may be disabled.
+      }
+      if (cached) {
+        setState(summarize(cached.accounts));
+        const age = Date.now() - cached.at;
+        if (age >= 0 && age < CHANNEL_CACHE_TTL_MS) return;
+      }
+      retry();
+    });
+    return () => {
+      liveRef.current = false;
+    };
+  }, [retry]);
+
+  return <ConnectionsContext.Provider value={{ state, retry }}>{children}</ConnectionsContext.Provider>;
+}
+
+function useConnections(): Connections {
+  const context = useContext(ConnectionsContext);
+  if (!context) throw new Error("ConnectionsProvider is missing");
+  return context.state;
+}
+
+/** A failed status read asks for a read retry, never a new sign-in. */
+function ConnectionStatusNotice({ compact = false }: { compact?: boolean }) {
+  const context = useContext(ConnectionsContext);
+  if (!context?.state.error) return null;
+  const { state, retry } = context;
+  const label = `${state.error}. ${state.loading ? "Checking account status" : "Retry account status"}`;
+  return (
+    <div className={cn("min-w-0 text-xs text-amber-200", !compact && "rounded-lg border border-amber-400/30 px-2.5 py-2")}>
+      {!compact && <p role="status">{state.error}</p>}
+      <button
+        type="button"
+        onClick={retry}
+        disabled={state.loading}
+        aria-label={label}
+        title={label}
+        className={cn("inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg text-amber-200 hover:bg-white/5 disabled:opacity-60", compact ? "h-10 w-10 shrink-0" : "mt-1 px-2")}
+      >
+        <RefreshCw aria-hidden="true" className={cn("h-4 w-4 shrink-0", state.loading && "animate-spin")} />
+        {compact ? <span className="sr-only">{label}</span> : state.loading ? "Checking…" : "Retry"}
+      </button>
+    </div>
+  );
 }
 
 /**
@@ -464,7 +420,7 @@ function ChannelAvatar({ channel, className }: { channel: ChannelSummary; classN
 /**
  * The channel card right under the brand: who this whole pipeline publishes
  * as. Connected → avatar, channel name, live dot (opens the Uploading Center);
- * not connected → a sign-in call to action straight into Google OAuth.
+ * not connected → a link to Settings; unavailable status → a read retry.
  */
 function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
   const state = useConnections();
@@ -478,7 +434,7 @@ function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
     ? "min-h-[58px] [@media(max-height:960px)]:min-h-[42px]"
     : "min-h-[94px] [@media(max-height:960px)]:min-h-[42px]";
 
-  if (!state.loaded) {
+  if (!state.loaded && !state.error) {
     return (
       <div className={reserve}>
         <div
@@ -502,7 +458,8 @@ function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
   return (
     // On a short screen the account chips sit beside the channel instead of
     // under it: the row is worth more as height for the nav.
-    <div className={cn("space-y-2", reserve, !collapsed && "[@media(max-height:960px)]:flex [@media(max-height:960px)]:items-center [@media(max-height:960px)]:gap-1.5 [@media(max-height:960px)]:space-y-0")}>
+    <div className={cn("space-y-2", reserve, !collapsed && !state.error && "[@media(max-height:960px)]:flex [@media(max-height:960px)]:items-center [@media(max-height:960px)]:gap-1.5 [@media(max-height:960px)]:space-y-0")}>
+      <ConnectionStatusNotice compact={collapsed} />
       {channel ? (
         <Link
           href={channel.reconnect ? "/api/auth/google" : "/uploading-center"}
@@ -527,7 +484,7 @@ function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
             </span>
           </span>
         </Link>
-      ) : nothingConnected(state) ? (
+      ) : !state.error && nothingConnected(state) ? (
         <Link
           href="/settings#accounts"
           title="Connect accounts: pick where posts go. Start with YouTube."
@@ -1102,7 +1059,9 @@ export function AppShell({ children, frame = false }: { children: React.ReactNod
         <ListeningLeadsProvider>
           <StreamProvider>
             <SetupGate>
-              <AppChrome frame={frame}>{children}</AppChrome>
+              <ConnectionsProvider>
+                <AppChrome frame={frame}>{children}</AppChrome>
+              </ConnectionsProvider>
             </SetupGate>
           </StreamProvider>
         </ListeningLeadsProvider>
@@ -1313,12 +1272,13 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
 /** The connected accounts, shrunk to avatar chips for the mobile top bar. */
 function MobileChannelChip() {
   const state = useConnections();
-  if (!state.loaded) return <span className="h-7 w-7 animate-pulse rounded-full bg-white/10" />;
+  if (!state.loaded && !state.error) return <span className="h-7 w-7 animate-pulse rounded-full bg-white/10" />;
 
   const others = state.others.filter((row) => row.connected > 0);
 
   return (
     <span className="flex items-center gap-1.5">
+      <ConnectionStatusNotice compact />
       {state.channel ? (
         <Link
           href={state.channel.reconnect ? "/api/auth/google" : "/uploading-center"}
@@ -1329,7 +1289,7 @@ function MobileChannelChip() {
         >
           <ChannelAvatar channel={state.channel} className="h-7 w-7" />
         </Link>
-      ) : nothingConnected(state) ? (
+      ) : !state.error && nothingConnected(state) ? (
         <Link
           href="/settings#accounts"
           aria-label="Connect accounts"
