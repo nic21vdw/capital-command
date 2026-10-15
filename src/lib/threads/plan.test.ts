@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 import { fitToThreads, planBatch } from "@/lib/threads/plan";
 import { plugReplyFor } from "@/lib/threads/plug";
@@ -311,5 +311,27 @@ describe("planBatch link replies", () => {
     expect(items.every((item) => !item.plugText)).toBe(true);
     expect(items[0].text).toBe("The punchy line");
     expect(items[0].publishAt).toBe("2026-07-22T07:15:00.000Z");
+  });
+});
+
+
+afterEach(() => { delete process.env.THREADS_DAY_END; delete process.env.THREADS_DAY_START; });
+
+describe("posting window with account offsets", () => {
+  it("drops a slot for every account if the stagger would cross the curfew", () => {
+    process.env.THREADS_DAY_START = "07:00";
+    process.env.THREADS_DAY_END = "23:00";
+    const latePack = pack();
+    latePack.posts = [{ ...latePack.posts[0], time: "23:00" }];
+    const result = planBatch({ pack: latePack, config: config(), now: new Date("2026-07-22T07:00:00Z") });
+    expect(result.items).toEqual([]);
+    expect(result.droppedPastSlots).toBeGreaterThan(0);
+  });
+
+  it("reserves room for the stagger when recovering from now", () => {
+    process.env.THREADS_DAY_START = "07:00";
+    process.env.THREADS_DAY_END = "23:00";
+    const result = planBatch({ pack: pack(), config: config(), now: new Date("2026-07-22T22:54:00Z"), startNow: true });
+    for (const item of result.items) expect(Date.parse(item.publishAt)).toBeLessThanOrEqual(Date.parse("2026-07-22T23:00:00Z"));
   });
 });

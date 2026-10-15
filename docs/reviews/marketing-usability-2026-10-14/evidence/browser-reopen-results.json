@@ -1,0 +1,12 @@
+{
+  "results": [
+    {
+      "name": "Failed saves retain local edits, block leaving, and recover after reload",
+      "passed": true
+    }
+  ],
+  "exceptions": [],
+  "mutations": [],
+  "output": "/tmp/marketing-usability-browser-reopen",
+  "mode": "isolated next dev; fixture data; not deployment/performance evidence"
+}

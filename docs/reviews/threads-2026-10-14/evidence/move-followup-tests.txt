@@ -1,0 +1,21 @@
+Initial source validation at c82b0e1d: 595 tests passed across 39 files; original receipt remains focused-tests.txt.
+Skip follow-up at 360c89da: 84 tests passed across 6 files; receipt remains skip-followup-tests.txt.
+Move/skip follow-up: 143 tests passed across 8 affected files, including 8 new pure queue cases and 2 new real-route/runner sequences.
+The initial full scoped suite was not repeated for this narrow queue mutation follow-up.
+
+Command: npm test -- src/lib/threads/queue.test.ts src/lib/threads/skipSafety.test.ts src/lib/threads/removalSafety.test.ts src/lib/threads/runner.test.ts src/lib/threads/runnerPersistence.test.ts src/lib/threads/approval.test.ts src/lib/threads/approvalRace.test.ts src/lib/publisher/approval.test.ts
+Exit code: 0
+Environment: isolated Vitest data roots, synthetic credentials, mocked provider requests.
+
+ ✓ src/lib/publisher/approval.test.ts (22 tests) 542ms
+ ✓ src/lib/threads/runnerPersistence.test.ts (6 tests) 256ms
+ ✓ src/lib/threads/runner.test.ts (42 tests) 115ms
+ ✓ src/lib/threads/skipSafety.test.ts (8 tests) 213ms
+ ✓ src/lib/threads/approvalRace.test.ts (12 tests) 46ms
+ ✓ src/lib/threads/approval.test.ts (16 tests) 27ms
+ ✓ src/lib/threads/removalSafety.test.ts (4 tests) 20ms
+ ✓ src/lib/threads/queue.test.ts (33 tests) 10ms
+ Test Files  8 passed (8)
+      Tests  143 passed (143)
+   Start at  23:34:54
+   Duration  3.51s (transform 419ms, setup 45ms, collect 1.14s, tests 1.23s, environment 1ms, prepare 344ms)

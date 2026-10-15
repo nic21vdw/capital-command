@@ -36,7 +36,9 @@ export async function loadCreatorInfo(accountId: string): Promise<CreatorInfoSta
   const pending = request(accountId);
   requests.set(accountId, { at: Date.now(), pending });
   const settled = await pending;
-  if (settled.status === "error") requests.delete(accountId);
+  // A slow request can finish after a newer lookup replaced it. Its failure
+  // must not discard that newer answer (or its shared in-flight request).
+  if (settled.status === "error" && requests.get(accountId)?.pending === pending) requests.delete(accountId);
   return settled;
 }
 

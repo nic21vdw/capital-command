@@ -5,6 +5,7 @@ import type { ThreadsBatchSummary, ThreadsQueueItem } from "@/lib/threads/types"
 import { dataPath } from "@/lib/paths";
 import { atomicWriteJson } from "@/lib/storage/atomic-json";
 import { withFileLock } from "@/lib/storage/file-lock";
+import { hasStarted } from "@/lib/threads/rewrite";
 
 /**
  * The Threads autopilot queue: one JSON file of scheduled posts.
@@ -111,7 +112,9 @@ export function pruneOld(
   config: ThreadsConfig = threadsConfig()
 ): ThreadsQueueItem[] {
   const cutoff = now.getTime() - config.retentionDays * 86_400_000;
-  return items.filter((item) => new Date(item.publishAt).getTime() >= cutoff);
+  return items.filter((item) => new Date(item.publishAt).getTime() >= cutoff
+    || (!item.postId && Boolean(item.publishAttemptedAt || item.containerId))
+    || (!item.plugPostId && Boolean(item.plugPublishAttemptedAt || item.plugContainerId)));
 }
 
 export function hasBatch(items: ThreadsQueueItem[], date: string): boolean {
@@ -197,28 +200,30 @@ export function rescheduleItem(items: ThreadsQueueItem[], id: string, publishAt:
   const target = items.find((item) => item.id === id);
   if (!target) return { items, changed: 0, error: "No such queued post." };
   if (!editable(target)) return { items, changed: 0, error: `That post is already ${target.status}.` };
+  if (hasStarted(target)) return { items, changed: 0, error: "This post has already started sending. Its scheduled time cannot be changed during delivery." };
   if (Number.isNaN(new Date(publishAt).getTime())) return { items, changed: 0, error: "That isn't a valid time." };
 
   target.publishAt = new Date(publishAt).toISOString();
-  // A post that was backed off or half-claimed gets a clean slate at its new
-  // time, or the runner would keep honouring gates set for the old one.
+  // Only an unstarted post can move. Clear its backoff for the new time,
+  // while a delivery claim remains protected by the guard above.
   delete target.nextAttemptAt;
-  delete target.claimedAt;
   return { items, changed: 1 };
 }
 
-/** Shifts every still-pending post of a day by the given minutes. */
+/** Shifts unstarted pending posts of a day, retaining every delivery claim. */
 export function shiftBatch(items: ThreadsQueueItem[], date: string, minutes: number): QueueEditResult {
   if (!Number.isFinite(minutes) || minutes === 0) {
     return { items, changed: 0, error: "Give a non-zero number of minutes." };
   }
-  const pending = items.filter((item) => item.batchDate === date && editable(item));
-  if (pending.length === 0) return { items, changed: 0, error: "Nothing pending on that day to move." };
+  const waiting = items.filter((item) => item.batchDate === date && editable(item));
+  const pending = waiting.filter((item) => !hasStarted(item));
+  if (pending.length === 0) return { items, changed: 0, error: waiting.length
+    ? "The pending posts on that day have already started sending and cannot be moved."
+    : "Nothing pending on that day to move." };
 
   for (const item of pending) {
     item.publishAt = new Date(new Date(item.publishAt).getTime() + minutes * 60_000).toISOString();
     delete item.nextAttemptAt;
-    delete item.claimedAt;
   }
   return { items, changed: pending.length };
 }
@@ -238,6 +243,9 @@ export function retryItem(items: ThreadsQueueItem[], id: string, now: Date): Que
   }
   // It carries a Threads post id, so it went live even though the queue ended
   // up recording a failure. Sending it again would post the same thing twice.
+  if (!target.postId && (target.publishAttemptedAt || (target.containerId && !target.containerPreparedAt))) {
+    return { items, changed: 0, error: "This publish outcome is unknown. Check Threads and reconcile its receipt before retrying." };
+  }
   if (target.postId) {
     return { items, changed: 0, error: "That post already reached Threads, so it won't be sent again." };
   }
@@ -264,7 +272,7 @@ export function editItemText(items: ThreadsQueueItem[], id: string, text: string
   if (!editable(target) && !recoverable(target)) {
     return { items, changed: 0, error: `That post is already ${target.status}.` };
   }
-  if (target.postId || target.containerId || target.claimedAt) {
+  if (target.postId || target.containerId || target.claimedAt || target.publishAttemptedAt) {
     return { items, changed: 0, error: "This post has already started sending. Its saved copy cannot be changed during delivery." };
   }
 

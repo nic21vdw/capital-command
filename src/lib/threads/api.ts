@@ -1,4 +1,4 @@
-import { PermanentError, TransientError, fetchJson, isTransient } from "@/lib/publisher/http";
+import { PermanentError, TransientError, fetchJson, fetchRaw } from "@/lib/publisher/http";
 import { attributeLinks } from "@/lib/publisher/attribution";
 import { THREADS_TEXT_LIMIT, threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 
@@ -14,9 +14,8 @@ import { THREADS_TEXT_LIMIT, threadsConfig, type ThreadsAccount, type ThreadsCon
  */
 
 /**
- * Thrown when the container exists but has not gone live yet. Carries the
- * container id so the next attempt resumes instead of creating a second
- * container for the same post.
+ * Thrown when publishing has no trustworthy receipt. The container may be
+ * live already; preserve its id and hold the send for owner reconciliation.
  */
 export class ContainerPendingError extends TransientError {
   constructor(
@@ -106,17 +105,17 @@ export async function publishContainer(
   const body = new URLSearchParams({ creation_id: creationId, access_token: account.accessToken });
   const userId = await accountUserId(account, config);
 
-  const data = await fetchJson<PublishResponse>(endpoint(config, `${encodeURIComponent(userId)}/threads_publish`), {
+  // A successful HTTP response without a readable receipt is still an
+  // uncertain send. Only an explicit rejection can prove nothing went live.
+  const response = await fetchRaw(endpoint(config, `${encodeURIComponent(userId)}/threads_publish`), {
     label: `Threads publish (${account.label})`,
     headers: FORM_HEADERS,
-    body
+    body,
+    timeoutMs: 20_000
   });
-  if (!data.id) throw new PermanentError("Threads published the container but returned no post id.");
+  const data = await response.json() as PublishResponse;
+  if (typeof data.id !== "string" || !data.id.trim()) throw new TransientError("Threads publish returned no post id; check Threads before any resend.");
   return data.id;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export type ThreadsPublishResult = { containerId: string; postId: string };
@@ -129,7 +128,9 @@ export type ThreadsPublishInput = {
   attributionCode?: string;
   /** Persist a fresh handle before a publish call can put it on the feed. */
   onContainerCreated?: (containerId: string) => Promise<void>;
-  /** Re-check pause/settings after network waits and between publish retries. */
+  /** Save a durable uncertain-send guard BEFORE the publish request. */
+  onBeforePublish?: (containerId: string) => Promise<void>;
+  /** Re-check pause/settings after network waits. */
   shouldPublish?: () => Promise<boolean>;
 };
 
@@ -138,9 +139,8 @@ export type ThreadsPublishInput = {
  *
  * `containerId` may be passed back in from a previous attempt that created a
  * container but died before publishing it — re-using it is what keeps a retry
- * from leaving an orphan behind. Meta needs a moment to process a fresh
- * container, so publishing is retried briefly before the failure is handed to
- * the runner's own backoff.
+ * from leaving an orphan behind. The publish call is made once. A missing receipt leaves the
+ * durable send guard in place until a person reconciles it with Threads.
  */
 export async function postToThreads(
   input: ThreadsPublishInput,
@@ -157,25 +157,20 @@ export async function postToThreads(
   const containerId = input.containerId ?? await createTextContainer(account, input.text, config, input.replyToId, input.attributionCode);
   if (!input.containerId) await input.onContainerCreated?.(containerId);
 
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (attempt > 0) await sleep(5_000);
-    await checkControl(containerId);
-    try {
-      return { containerId, postId: await publishContainer(account, containerId, config) };
-    } catch (error) {
-      if (!isTransient(error)) {
-        throw new ContainerRejectedError(containerId, error instanceof Error ? error.message : String(error));
-      }
-      lastError = error;
+  await checkControl(containerId);
+  await input.onBeforePublish?.(containerId);
+  await checkControl(containerId);
+  try {
+    return { containerId, postId: await publishContainer(account, containerId, config) };
+  } catch (error) {
+    if (error instanceof PermanentError) {
+      throw new ContainerRejectedError(containerId, error.message);
     }
+    // Never replay threads_publish after a lost response, timeout, 5xx or
+    // unreadable success: the first request may already be on the feed.
+    throw new ContainerPendingError(containerId,
+      `Threads publish outcome is unknown; check Threads before any resend: ${error instanceof Error ? error.message : String(error)}`);
   }
-  throw new ContainerPendingError(
-    containerId,
-    `Threads did not publish the container after three attempts: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`
-  );
 }
 
 /** The profile a token belongs to — used by the connection check. */

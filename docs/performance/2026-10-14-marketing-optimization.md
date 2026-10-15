@@ -2,6 +2,7 @@
 
 Repository: nic21vdw/capital-command.
 Review base: 59454b4464665d1dde79b4fad78eb983d86542c3.
+Integrated main through 8c5c60e60294fd530574e1c035f7784c95ccfb2e after #499 and #500 landed. Their source changes do not overlap this batch; the shared Unreleased changelog entries were preserved.
 This batch is a draft. Source changes are not a release or measured speedup.
 
 ## Scope and ownership

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Clapperboard, Film, Loader2, Plus, Trash2 } from "lucide-react";
 import { useAppData } from "@/components/providers/app-provider";
@@ -18,6 +18,9 @@ import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { ClipEditor } from "@/components/editor/clip-editor";
 import { clearDraftProject, readDraftProject, writeDraftProject } from "@/components/editor/drafts";
 import { EditorExportsProvider } from "@/components/editor/exports-provider";
+import { clipProjectReadKey, currentClipProjectDetail, loadClipLibrary, loadFullClipProject, selectClipProject } from "@/components/editor/clip-library";
+import { WorkflowLoadNotice } from "@/components/marketing/workflow-load-notice";
+import { workflowLoadMessage } from "@/lib/marketing/workflow-resource";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import type { CaptionSegment, ClipProject } from "@/types/domain";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
@@ -64,14 +67,21 @@ export function ClipEditorPage() {
   const projects = data.clipProjects;
   const searchParams = useSearchParams();
   // Allow deep-linking straight into a project (e.g. from the Clip Generator).
-  const [openId, setOpenId] = useState<string | null>(() => searchParams.get("open"));
+  const [openSelection, setOpenSelection] = useState(() => ({ id: searchParams.get("open"), generation: 0 }));
+  const openId = openSelection.id;
+  const setOpenId = useCallback((id: string | null) => {
+    setOpenSelection((selection) => ({ id, generation: selection.generation + 1 }));
+  }, []);
   const sourceJobId = searchParams.get("job");
   const sourceFile = searchParams.get("file");
   const sourceClipIndex = searchParams.get("clip");
   const [picking, setPicking] = useState(false);
   const [jobs, setJobs] = useState<ClipJob[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
+  const [jobsError, setJobsError] = useState<string | null>(null);
+  const jobsRequest = useRef<AbortController | null>(null);
   const [draftProject, setDraftProject] = useState<ClipProject | null>(null);
+  const [draftReadGeneration, setDraftReadGeneration] = useState<number | null>(null);
   // The source filter is URL-backed so the sidebar can hand this page the
   // stream you are working on. `?job=` alone means "filter to it"; the
   // rebuild-from-a-clip flow below needs `open` and `file` as well, so the two
@@ -89,17 +99,14 @@ export function ClipEditorPage() {
   const [sortMode, setSortMode] = useState<"date" | "name">("date");
 
   const storedProject = projects.find((p) => p.id === openId) ?? null;
-  const draftForOpen = draftProject?.id === openId ? draftProject : null;
+  const draftReady = !openId || draftReadGeneration === openSelection.generation;
+  const draftForOpen = draftReady && draftProject?.id === openId ? draftProject : null;
   // The store is the source of truth; the local draft only wins when it is
   // strictly newer (a save that never reached the server). While the app data
   // is still loading we never mount from a draft — an out-of-date draft would
   // shadow the saved project and the next autosave would overwrite real edits.
-  const openProject =
-    storedProject && draftForOpen
-      ? draftForOpen.updatedAt > storedProject.updatedAt
-        ? draftForOpen
-        : storedProject
-      : (storedProject ?? (loading ? null : draftForOpen));
+  const selectedProject = selectClipProject(storedProject, draftForOpen, loading);
+  const openProject = selectedProject.project;
   // The project list arrives without captions (they are half the app-data
   // payload), so the one being opened is fetched in full first. This fails
   // CLOSED — the editor is never mounted on a project whose captions are
@@ -110,33 +117,37 @@ export function ClipEditorPage() {
   // render, rather than cleared by an effect: `next build` rejects a setState
   // in an effect body, and a stale copy must never reach a different project.
   const [loadedProject, setLoadedProject] = useState<{
-    id: string;
+    key: string;
     project: ClipProject | null;
+    error: string | null;
+    confirmed: boolean;
   } | null>(null);
+  const [projectAttempt, setProjectAttempt] = useState(0);
   const needsCaptions = Boolean(openProject?.captionsOmitted);
   const openProjectId = openProject?.id ?? null;
-  const loadedForOpen = loadedProject && loadedProject.id === openProjectId ? loadedProject : null;
+  const readKey = clipProjectReadKey(openProject, openSelection.generation, projectAttempt);
+  const loadedForOpen = currentClipProjectDetail(loadedProject, readKey);
   useEffect(() => {
-    if (!needsCaptions || !openProjectId) return;
+    if (!draftReady || !openProjectId || loadedForOpen) return;
     let cancelled = false;
+    const controller = new AbortController();
     void (async () => {
       let project: ClipProject | null = null;
+      let error: string | null = null;
       try {
-        const response = await fetch(`/api/clip-projects/${openProjectId}`, { cache: "no-store" });
-        if (response.ok) {
-          project = ((await response.json()) as { project?: ClipProject }).project ?? null;
-        }
-      } catch {
-        // Offline or a bad answer — reported as a refusal to open, below.
+        project = needsCaptions ? await loadFullClipProject(openProjectId, controller.signal) : await Promise.resolve(openProject);
+      } catch (cause) {
+        error = workflowLoadMessage(cause);
       }
-      if (!cancelled) setLoadedProject({ id: openProjectId, project });
+      if (!cancelled) setLoadedProject({ key: readKey, project, error, confirmed: selectedProject.confirmed });
     })();
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [needsCaptions, openProjectId]);
-  const editorProject = needsCaptions ? loadedForOpen?.project ?? null : openProject;
-  const captionsFailed = Boolean(needsCaptions && loadedForOpen && !loadedForOpen.project);
+  }, [draftReady, loadedForOpen, needsCaptions, openProject, openProjectId, readKey, selectedProject.confirmed]);
+  const editorProject = draftReady ? loadedForOpen?.project ?? null : null;
+  const captionsError = needsCaptions ? loadedForOpen?.error ?? null : null;
 
   const jobsById = useMemo(() => new Map(jobs.map((job) => [job.id, job])), [jobs]);
   const renderableJobs = useMemo(
@@ -197,12 +208,15 @@ export function ClipEditorPage() {
     if (!openId || typeof window === "undefined") return;
     let cancelled = false;
     queueMicrotask(() => {
-      if (!cancelled) setDraftProject(readDraftProject(openId));
+      if (!cancelled) {
+        setDraftProject(readDraftProject(openId));
+        setDraftReadGeneration(openSelection.generation);
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [openId]);
+  }, [openId, openSelection.generation]);
 
   // Rebuilding a project from the job is only valid for the id the page was
   // deep-linked with: after switching clips inside the editor the job/file/clip
@@ -236,15 +250,20 @@ export function ClipEditorPage() {
   }, [deepLinkId, draftProject, mutate, openId, sourceClipIndex, sourceFile, sourceJobId, storedProject]);
 
   const loadJobs = useCallback(async (showLoading = true) => {
+    jobsRequest.current?.abort();
+    const controller = new AbortController();
+    jobsRequest.current = controller;
     if (showLoading) setLoadingJobs(true);
     try {
-      const res = await fetch("/api/clips", { cache: "no-store" });
-      if (res.ok) {
-        const { jobs: list } = (await res.json()) as { jobs: ClipJob[] };
+      const list = await loadClipLibrary(controller.signal);
+      if (jobsRequest.current === controller && !controller.signal.aborted) {
         setJobs(list);
+        setJobsError(null);
       }
+    } catch (error) {
+      if (jobsRequest.current === controller && !controller.signal.aborted) setJobsError(workflowLoadMessage(error));
     } finally {
-      if (showLoading) setLoadingJobs(false);
+      if (jobsRequest.current === controller) setLoadingJobs(false);
     }
   }, []);
 
@@ -260,6 +279,7 @@ export function ClipEditorPage() {
     });
     return () => {
       cancelled = true;
+      jobsRequest.current?.abort();
     };
   }, [loadJobs]);
 
@@ -305,11 +325,15 @@ export function ClipEditorPage() {
     controls: openProject
       ? [
           { id: "closeProject", label: "Back to projects", group: "Editor" },
-          { id: "deleteProject", label: "Delete project", group: "Editor", destructive: true }
+          { id: "deleteProject", label: "Delete project", group: "Editor", destructive: true },
+          ...(captionsError ? [{ id: "retryProject", label: "Retry opening project", group: "Editor" }] : [])
         ]
-      : [{ id: "newProject", label: "New project", group: "Projects" }],
+      : [{ id: "newProject", label: "New project", group: "Projects" },
+          ...(jobsError ? [{ id: "retryClips", label: "Retry loading clips", group: "Projects", disabled: loadingJobs }] : [])],
     readings: [
       { label: "Projects", value: String(projects.length) },
+      ...(jobsError ? [{ label: "Clip library read", value: jobsError }] : []),
+      ...(captionsError ? [{ label: "Project read", value: captionsError }] : []),
       ...(openProject
         ? [
             { label: "Editing", value: openProject.name },
@@ -331,6 +355,14 @@ export function ClipEditorPage() {
         openPicker();
         return true;
       }
+      if (id === "retryProject" && captionsError) {
+        setProjectAttempt((attempt) => attempt + 1);
+        return true;
+      }
+      if (id === "retryClips" && jobsError && !loadingJobs) {
+        void loadJobs();
+        return true;
+      }
       if (id === "closeProject" && openProject) {
         setOpenId(null);
         return true;
@@ -345,7 +377,7 @@ export function ClipEditorPage() {
 
   // A project was requested but the store is still loading (or a just-created
   // project hasn't landed yet) — hold instead of flashing the project list.
-  if (!openProject && openId && loading) {
+  if (openId && (!draftReady || (!openProject && loading))) {
     return (
       <div className="flex items-center gap-2 py-16 text-sm text-[var(--muted-foreground)]">
         <Loader2 className="h-4 w-4 animate-spin" /> Loading clip project…
@@ -366,6 +398,8 @@ export function ClipEditorPage() {
           </Button>
         }
       />
+
+      {jobsError ? <WorkflowLoadNotice title="Your clips could not be refreshed" message={jobsError} retained={jobs.length > 0} retrying={loadingJobs} onRetry={() => void loadJobs()} /> : null}
 
       {/* The stream the sidebar handed this page arrives as `?job=`, so the
           summary has to name the filter in force — closed must never hide that
@@ -461,11 +495,12 @@ export function ClipEditorPage() {
       )}
 
       <Modal open={picking} title="New clip project" description="Pick a rendered clip to edit." onClose={() => setPicking(false)}>
+        {jobsError ? <WorkflowLoadNotice title="Your clips could not be refreshed" message={jobsError} retained={jobs.length > 0} retrying={loadingJobs} onRetry={() => void loadJobs()} /> : null}
         {loadingJobs ? (
           <div className="flex items-center gap-2 py-8 text-sm text-[var(--muted-foreground)]">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading rendered clips…
           </div>
-        ) : renderableJobs.length === 0 ? (
+        ) : renderableJobs.length === 0 && jobsError ? null : renderableJobs.length === 0 ? (
           <div className="space-y-2 py-6 text-center">
             <Film className="mx-auto h-7 w-7 text-[var(--accent)]" />
             <p className="text-sm text-white">No rendered clips found.</p>
@@ -523,13 +558,14 @@ export function ClipEditorPage() {
       {openProject ? (
         editorProject ? (
           <ClipEditor
-            key={editorProject.id}
+            key={`${editorProject.id}:${openSelection.generation}`}
             initialProject={editorProject}
+            initialSaved={loadedForOpen?.confirmed ?? false}
             onClose={() => setOpenId(null)}
             onOpenClip={switchToClip}
           />
         ) : (
-          <OpeningProject failed={captionsFailed} onBack={() => setOpenId(null)} />
+          <OpeningProject error={captionsError} onRetry={() => setProjectAttempt((attempt) => attempt + 1)} onBack={() => setOpenId(null)} />
         )
       ) : (
         projectList
@@ -539,11 +575,12 @@ export function ClipEditorPage() {
 }
 
 /** Shown while the opened project's captions are being fetched, or if that failed. */
-function OpeningProject({ failed, onBack }: { failed: boolean; onBack: () => void }) {
+function OpeningProject({ error, onRetry, onBack }: { error: string | null; onRetry: () => void; onBack: () => void }) {
   return (
     <Card className="flex flex-col items-center gap-3 p-10 text-center">
-      {failed ? (
+      {error ? (
         <>
+          <WorkflowLoadNotice title="This clip project could not be opened" message={error} onRetry={onRetry} />
           <p className="text-sm text-[var(--muted-foreground)]">
             Could not load this project&apos;s captions, so it wasn&apos;t opened — editing it
             without them would overwrite the ones you have.
@@ -553,7 +590,7 @@ function OpeningProject({ failed, onBack }: { failed: boolean; onBack: () => voi
           </Button>
         </>
       ) : (
-        <Loader2 className="h-5 w-5 animate-spin text-[var(--muted-foreground)]" />
+        <p role="status" className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]"><Loader2 className="h-5 w-5 animate-spin" /> Loading clip project…</p>
       )}
     </Card>
   );

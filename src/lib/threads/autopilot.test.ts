@@ -170,6 +170,47 @@ describe("planTomorrow", () => {
 });
 
 describe("catchUpToday", () => {
+  it.each(["skipped", "pending"] as const)("rescues a completely missed %s batch while preserving copy and approvals", async (status) => {
+    const { catchUpToday } = await import("@/lib/threads/daily");
+    const now = localAt(18);
+    store.items = dayWith(localKey(now), []).map((item) => ({ ...item, status,
+      publishAt: localAt(1).toISOString(), text: `Reviewed ${item.slot}`, approvedAt: item.slot % 2 === 0 ? localAt(0).toISOString() : undefined }));
+    const original = structuredClone(store.items);
+    const result = await catchUpToday({ now, log: () => {} });
+    expect(result?.created).toBeGreaterThan(0);
+    const recovered = store.items.filter((item) => item.status === "pending");
+    expect(new Set(store.items.map((item) => item.id)).size).toBe(store.items.length);
+    for (const item of recovered) {
+      const saved = original.find((row) => row.id === item.id)!;
+      expect(item.text).toBe(saved.text);
+      expect(item.approvedAt).toBe(saved.approvedAt);
+      expect(Date.parse(item.publishAt)).toBeGreaterThan(now.getTime());
+    }
+  });
+
+  it("keeps a wide gap after a recently published slot", async () => {
+    const { catchUpToday } = await import("@/lib/threads/daily");
+    const now = localAt(18);
+    store.items = dayWith(localKey(now), [1]);
+    store.items[0].publishedAt = localAt(17, 58).toISOString();
+    await catchUpToday({ now, log: () => {} });
+    const earliest = Math.min(...store.items.filter((item) => item.status === "pending").map((item) => Date.parse(item.publishAt)));
+    expect((earliest - Date.parse(store.items.find((item) => item.slot === 1)!.publishedAt!)) / 60_000).toBeGreaterThanOrEqual(20);
+  });
+
+  it("preserves failed, uncertain, claimed and manually skipped slots across accounts", async () => {
+    const { catchUpToday } = await import("@/lib/threads/daily");
+    const now = localAt(18);
+    store.items = dayWith(localKey(now), []);
+    Object.assign(store.items[0], { status: "failed", attempts: 1 });
+    Object.assign(store.items[1], { publishAttemptedAt: localAt(3).toISOString() });
+    Object.assign(store.items[2], { claimedAt: localAt(17).toISOString() });
+    Object.assign(store.items[3], { note: "Skipped by hand from the dashboard." });
+    const protectedRows = structuredClone(store.items.slice(0, 4));
+    await catchUpToday({ now, log: () => {} });
+    for (const saved of protectedRows) expect(store.items.filter((row) => row.slot === saved.slot)).toEqual([saved]);
+  });
+
   it("re-lays a day that was missed, without crowding the feed", async () => {
     const { catchUpToday } = await import("@/lib/threads/daily");
     const now = localAt(18);

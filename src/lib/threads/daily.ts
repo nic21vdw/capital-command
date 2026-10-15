@@ -1,6 +1,6 @@
 import { localCalendarParts, zonedToUtc } from "@/lib/publisher/time";
 import { envAccessTokens, threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
-import { endOfLocalDay, planBatch } from "@/lib/threads/plan";
+import { endOfPostingDay, planBatch } from "@/lib/threads/plan";
 import { autopilotItemsForDate, isAutopilotItem, mutateQueue, pruneOld, readQueue } from "@/lib/threads/queue";
 import { hasStarted } from "@/lib/threads/rewrite";
 import { runDue } from "@/lib/threads/runner";
@@ -72,7 +72,7 @@ export async function planTodaysBatch(
     // sending. Removing an in-flight row would lose its container/receipt and
     // let the replacement publish the same idea again.
     const protectedSlots = new Set(autopilotItemsForDate(kept, date)
-      .filter((item) => item.status === "published" || item.postId || item.containerId || item.claimedAt)
+      .filter((item) => hasStarted(item) || item.status === "failed" || item.attempts > 0 || Boolean(item.lastFailedAt))
       .map((item) => item.slot));
     const clearable = (item: (typeof kept)[number]) =>
       item.status === "pending" || (Boolean(options.replacePending) && item.status === "skipped" && !hasStarted(item));
@@ -95,7 +95,7 @@ export async function planTodaysBatch(
 
   // Anything already live keeps its slot out of the running: pressing "Schedule
   // from now" at noon must not put the morning's posts back through the feed.
-  const alreadyPosted = new Set(before.filter((item) => item.status === "published" || item.postId || item.containerId || item.claimedAt).map((item) => item.slot));
+  const alreadyPosted = new Set(before.filter((item) => hasStarted(item) || item.status === "failed" || item.attempts > 0 || Boolean(item.lastFailedAt)).map((item) => item.slot));
 
   const { items, droppedPastSlots, startedAt, gapMinutes } = planBatch({
     pack,
@@ -204,8 +204,8 @@ export async function slotsStillStanding(date: string, now: Date): Promise<Set<n
     items
       .filter(
         (item) =>
-          item.status === "published" ||
-          (item.status === "pending" && new Date(item.publishAt).getTime() > now.getTime())
+          hasStarted(item) || item.status === "failed" || item.attempts > 0 || Boolean(item.lastFailedAt) ||
+          (item.status === "pending" && new Date(item.publishAt).getTime() >= now.getTime())
       )
       .map((item) => item.slot)
   );
@@ -235,12 +235,12 @@ export async function catchUpToday(
 
   const date = localCalendarParts(now, config.timezone).dateKey;
   const standing = await slotsStillStanding(date, now);
-  // Nothing planned at all is a day that hasn't been planned yet, not a day
-  // that fell behind — leave that to the ordinary plan step.
-  if (standing.size === 0) return null;
+  // A completely missed batch still exists and can recover; an empty day
+  // belongs to the ordinary planner. Pipeline rows do not count as a batch.
+  if (autopilotItemsForDate(await readQueue(), date).length === 0) return null;
   if (config.postsPerDay - standing.size < config.catchUpMinShortfall) return null;
 
-  const minutesLeft = (endOfLocalDay(now, config.timezone).getTime() - now.getTime()) / 60_000;
+  const minutesLeft = (endOfPostingDay(now, config).getTime() - now.getTime()) / 60_000;
   if (minutesLeft < config.catchUpMinGapMinutes * 2) return null;
 
   const { lastCatchUpAt } = await readThreadsState();
@@ -253,12 +253,40 @@ export async function catchUpToday(
   log(
     `[threads] ${date} is ${config.postsPerDay - standing.size} slot(s) short — re-laying the rest of the day from now`
   );
-  const plan = await planTodaysBatch({
-    config,
-    now,
-    log,
-    startNow: true,
-    minGapMinutes: config.catchUpMinGapMinutes
+  const { pack, reason } = await ensureDailyPack({ date });
+  if (await isAutomationPaused("threads")) return null;
+  const plan = await mutateQueue((items) => {
+    const rows = autopilotItemsForDate(items, date);
+    // A failed/attempted send or an explicit manual skip needs a person's
+    // decision. Keep the whole slot protected across accounts.
+    const protectedSlots = new Set(rows.filter((item) => hasStarted(item) || item.status === "failed"
+      || item.attempts > 0 || item.lastFailedAt || item.note === "Skipped by hand from the dashboard.").map((item) => item.slot));
+    const latestDelivery = Math.max(0, ...items.filter((item) => item.batchDate === date && hasStarted(item)).map((item) =>
+      Date.parse(item.publishedAt ?? item.publishAttemptedAt ?? item.claimedAt ?? item.publishAt) || 0));
+    // Leave the same breathing room after a recent/uncertain send as between
+    // rescued slots. planBatch adds its own one-minute first-slot delay.
+    const recoveryStart = new Date(Math.max(now.getTime(), latestDelivery + (config.catchUpMinGapMinutes - 1) * 60_000));
+    const layout = planBatch({ pack, config, now: recoveryStart, startNow: true,
+      minGapMinutes: config.catchUpMinGapMinutes, skipSlots: protectedSlots });
+    const recovered = layout.items.map((planned) => {
+      const saved = rows.find((item) => item.slot === planned.slot && item.accountId === planned.accountId);
+      if (!saved) return planned;
+      // Recovery changes the time, never reviewed wording or approval.
+      const moved = { ...saved, publishAt: planned.publishAt, status: "pending" as const };
+      delete moved.note;
+      return moved;
+    });
+    const movedIds = new Set(recovered.map((item) => item.id));
+    const remaining = items.filter((item) => !movedIds.has(item.id)).map((item) => {
+      if (isAutopilotItem(item) && item.batchDate === date && item.status === "pending" && !protectedSlots.has(item.slot)) {
+        return { ...item, status: "skipped" as const, note: "No room remains for this unsent slot at the catch-up spacing." };
+      }
+      return item;
+    });
+    return { items: [...remaining, ...recovered], result: {
+      date, created: recovered.length, droppedPastSlots: layout.droppedPastSlots,
+      startedAt: layout.startedAt, gapMinutes: layout.gapMinutes, packReason: reason, packSource: pack.source
+    } };
   });
   await recordThreadsState({ lastCatchUpAt: now.toISOString() });
   return plan;
@@ -273,6 +301,8 @@ export type ThreadsTickResult = {
   catchUp?: ThreadsPlanResult;
   /** Token refreshes this tick made or failed; quiet when nothing was due. */
   tokens?: TokenRefreshOutcome[];
+  /** Delivery still runs when generation or planning fails. */
+  planningError?: string;
 };
 
 /**
@@ -280,11 +310,10 @@ export type ThreadsTickResult = {
  * call. Four steps, each idempotent, so running it every few minutes forever is
  * the entire automation:
  *
- *   1. make sure today's batch exists
- *   2. from the evening on, write tomorrow's too — a round-the-clock day has to
- *      be on the queue before its first slot arrives
- *   3. if today fell behind, re-lay what is left across the rest of it
- *   4. post whatever is due
+ *   1. deliver the existing due queue before generation can delay it
+ *   2. make sure today's batch exists
+ *   3. if today fell behind, re-lay genuinely unsent slots
+ *   4. from the evening on, write tomorrow's batch before midnight
  */
 export async function threadsTick(
   options: Parameters<typeof threadsTickInternal>[0] = {}
@@ -293,7 +322,7 @@ export async function threadsTick(
     const result = await threadsTickInternal(options);
     if (!options.dryRun) {
       const replies = result.run.replies;
-      const needsAttention = Boolean(result.run.persistenceError) || Boolean(result.run.authFailures?.length) || result.run.failed > 0 || result.run.outcomes.some((outcome) => outcome.outcome === "retrying")
+      const needsAttention = Boolean(result.planningError) || Boolean(result.run.uncertainSends) || Boolean(result.run.persistenceError) || Boolean(result.run.authFailures?.length) || result.run.failed > 0 || result.run.outcomes.some((outcome) => outcome.outcome === "retrying")
         || Boolean(replies && (replies.failed > 0 || replies.retrying > 0));
       await recordAutomationOutcome("threads", {
         at: new Date().toISOString(),
@@ -301,6 +330,7 @@ export async function threadsTick(
         detail: `${result.run.published} posts published, ${result.run.failed} post failures.`
           + (replies ? ` ${replies.published} follow-up replies published, ${replies.failed} reply failures, ${replies.retrying} replies waiting to retry, ${replies.skipped} replies skipped.` : "")
           + (result.run.note ? ` ${result.run.note}` : "")
+          + (result.planningError ? ` Planning failed: ${result.planningError}` : "")
       }).catch(() => undefined);
     }
     return result;
@@ -337,11 +367,25 @@ async function threadsTickInternal(
     tokens = (await refreshThreadsTokens(config, envAccessTokens(), now)).filter((entry) => entry.outcome !== "fresh");
     if (tokens.some((entry) => entry.outcome === "refreshed")) config = threadsConfig();
   }
-  const plan = await planTodaysBatch({ config, now, log: options.log });
-  // Both of these change what is queued, so a dry run has to stay out of them.
-  const ahead = options.dryRun ? null : await planTomorrow({ config, now, log: options.log });
-  const catchUp = options.dryRun ? null : await catchUpToday({ config, now, log: options.log });
+  // Drain the existing due queue before any potentially slow generation.
+  // Mutation and send passes remain sequential. Newly laid future slots are
+  // picked up by the next tick, rather than holding delivery behind a writer.
   const run = await runDue(now, { config, dryRun: options.dryRun, log: options.log });
+  let plan: ThreadsPlanResult = { date: localCalendarParts(now, config.timezone).dateKey, created: 0, droppedPastSlots: 0 };
+  let ahead: ThreadsPlanResult | null = null;
+  let catchUp: ThreadsPlanResult | null = null;
+  let planningError: string | undefined;
+  try {
+    const planningNow = () => options.now ?? new Date();
+    plan = await planTodaysBatch({ config, now: planningNow(), log: options.log });
+    // Both of these change what is queued, so a dry run stays out of them.
+    catchUp = options.dryRun ? null : await catchUpToday({ config, now: planningNow(), log: options.log });
+    ahead = options.dryRun ? null : await planTomorrow({ config, now: planningNow(), log: options.log });
+  } catch (error) {
+    planningError = error instanceof Error ? error.message : String(error);
+    plan.skipped ??= "Planning failed; existing due posts were processed first.";
+    options.log?.(`[threads] planning failed: ${planningError}`);
+  }
 
   // Stamped every tick, busy or idle: a queue of pending posts looks the same
   // whether the scheduler is alive or was switched off days ago, and the
@@ -356,5 +400,5 @@ async function threadsTickInternal(
     });
   }
 
-  return { plan, run, ...(ahead ? { ahead } : {}), ...(catchUp ? { catchUp } : {}), ...(tokens.length ? { tokens } : {}) };
+  return { plan, run, ...(ahead ? { ahead } : {}), ...(catchUp ? { catchUp } : {}), ...(tokens.length ? { tokens } : {}), ...(planningError ? { planningError } : {}) };
 }

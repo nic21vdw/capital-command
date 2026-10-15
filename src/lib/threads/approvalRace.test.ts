@@ -130,7 +130,7 @@ describe("Threads approval policy stays current through claim and dispatch", () 
   it.each([
     { approvedAt: "2026-07-22T07:00:00.000Z" },
     { attempts: 1, lastFailedAt: "2026-07-22T07:15:00.000Z" },
-    { containerId: "persisted-container" }
+    { containerId: "persisted-container", containerPreparedAt: "2026-07-22T07:00:00.000Z" }
   ])("preserves existing approval or delivery evidence through a policy change: %j", async (evidence) => {
     const { state, deps, post } = fixture(row(evidence));
     deps.read = async () => { await hold(); return structuredClone(state.items); };
