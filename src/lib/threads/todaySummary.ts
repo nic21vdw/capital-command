@@ -129,7 +129,9 @@ export function todayHeadline(
   if (summary.posts === 0) return `Nothing queued for today yet${nextStep}`;
   const today = plural(summary.posts, "post") + " today";
   if (next) return `${today}${nextStep}`;
-  return summary.failed > 0 ? `${today} - ${summary.failed} failed, retry below` : `${today} - all sent`;
+  if (summary.failed > 0) return `${today} - ${summary.failed} failed, retry below`;
+  if (summary.skipped > 0) return `${today} - ${summary.sent} sent, ${summary.skipped} skipped`;
+  return `${today} - all sent`;
 }
 
 /**

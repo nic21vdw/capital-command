@@ -127,7 +127,7 @@ export function itemAwaitingApproval(item: QueueItem, policy: ReviewPolicy): boo
 }
 
 export function threadsUnsent(item: ThreadsQueueItem): boolean {
-  return item.status === "pending" && !(item.attempts > 0) && !item.lastFailedAt && !item.postId && !item.containerId && !item.claimedAt;
+  return item.status === "pending" && !(item.attempts > 0) && !item.lastFailedAt && !item.postId && !item.containerId && !item.claimedAt && !item.publishAttemptedAt;
 }
 
 export function threadsAwaitingApproval(item: ThreadsQueueItem, policy: ReviewPolicy): boolean {

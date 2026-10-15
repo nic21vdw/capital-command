@@ -106,7 +106,7 @@ export async function runDue(
 let activeRun: Promise<ThreadsRunReport> | null = null;
 
 /** Only failed saves need memory recovery; durable container handles cover restarts. */
-type KnownDelivery = { containerId: string; postId?: string; publishedAt?: string; text: string; parentId?: string };
+type KnownDelivery = { containerId: string; preparedAt?: string; postId?: string; publishedAt?: string; text: string; parentId?: string };
 const defaultRecovery = new Map<string, KnownDelivery>();
 const injectedRecovery = new WeakMap<ThreadsRunDeps, Map<string, KnownDelivery>>();
 const MAX_REPLY_SENDS_PER_TICK = 3;
@@ -134,6 +134,7 @@ async function runDueInternal(
   const replyOutcomes: ThreadsOutcome[] = [];
   let note: string | undefined;
   let heldForApproval = 0;
+  let uncertainSends = 0;
   let persistenceError: string | undefined;
   const authFailures: Array<{ accountId: string; reason: string }> = [];
   const heldAccounts = new Set<string>();
@@ -143,6 +144,7 @@ async function runDueInternal(
     failed: outcomes.filter((outcome) => outcome.outcome === "failed").length,
     skipped: outcomes.filter((outcome) => outcome.outcome === "skipped").length,
     outcomes,
+    ...(uncertainSends ? { uncertainSends } : {}),
     ...(replyOutcomes.length ? { replies: {
       published: replyOutcomes.filter((outcome) => outcome.outcome === "published").length,
       retrying: replyOutcomes.filter((outcome) => outcome.outcome === "retrying").length,
@@ -260,11 +262,14 @@ async function runDueInternal(
   };
 
   let replySends = 0;
+  const unknownSend = (item: ThreadsQueueItem, reply = false) => reply
+    ? Boolean(!item.plugPostId && (item.plugPublishAttemptedAt || (item.plugContainerId && !item.plugContainerPreparedAt)))
+    : Boolean(!item.postId && (item.publishAttemptedAt || (item.containerId && !item.containerPreparedAt)));
   const prepareReply = (item: ThreadsQueueItem): boolean => {
-    if (awaitingApproval(item)) return false;
+    if (awaitingApproval(item) || unknownSend(item)) return false;
     const age = item.publishedAt ? (now.getTime() - new Date(item.publishedAt).getTime()) / 60_000 : NaN;
     const canPrepare = item.status === "pending" || (item.status === "published" && Number.isFinite(age) && age >= 0 && age <= config.plugWindowMinutes);
-    if (!currentConfig().plugReplies || !currentConfig().plugUrl || !canPrepare || item.plugPostId || item.plugDropped || item.plugContainerId || item.plugClaimedAt || (item.plugAttempts ?? 0)) return false;
+    if (!currentConfig().plugReplies || !currentConfig().plugUrl || !canPrepare || item.plugPostId || item.plugDropped || item.plugContainerId || item.plugClaimedAt || item.plugPublishAttemptedAt || (item.plugAttempts ?? 0)) return false;
     const text = plugReplyFor(item.text, item.id, currentConfig(), item.origin);
     if (text === item.plugText) return false;
     item.plugText = text;
@@ -286,7 +291,7 @@ async function runDueInternal(
         return false;
       }
       const prepared = prepareReply(fresh);
-      if (fresh.status === "pending" && !fresh.postId && Number.isFinite(dueAt) && dueAt <= now.getTime()
+      if (fresh.status === "pending" && !fresh.postId && !unknownSend(fresh) && Number.isFinite(dueAt) && dueAt <= now.getTime()
         && now.getTime() - dueAt <= config.lateGraceMinutes * 60_000
         && !retryWaiting(fresh.nextAttemptAt) && !hasLiveClaim(fresh.claimedAt)) {
         fresh.claimedAt = now.toISOString();
@@ -295,7 +300,7 @@ async function runDueInternal(
       }
       const age = fresh.publishedAt ? (now.getTime() - new Date(fresh.publishedAt).getTime()) / 60_000 : NaN;
       if (fresh.status === "published" && currentConfig().plugReplies && currentConfig().plugUrl && fresh.plugText && fresh.postId
-        && !fresh.plugPostId && !fresh.plugDropped && Number.isFinite(age) && age >= config.plugDelayMinutes && age <= config.plugWindowMinutes
+        && !fresh.plugPostId && !unknownSend(fresh, true) && !fresh.plugDropped && Number.isFinite(age) && age >= config.plugDelayMinutes && age <= config.plugWindowMinutes
         && (fresh.plugAttempts ?? 0) < config.maxAttempts && !retryWaiting(fresh.plugNextAttemptAt) && !hasLiveClaim(fresh.plugClaimedAt)
         && replySends < MAX_REPLY_SENDS_PER_TICK) {
         fresh.plugClaimedAt = now.toISOString();
@@ -320,7 +325,7 @@ async function runDueInternal(
       return;
     }
     if (!currentConfig().plugReplies || !currentConfig().plugUrl) return;
-    if (!item.plugText || item.plugPostId || item.plugDropped || !item.postId || !item.publishedAt) return;
+    if (!item.plugText || item.plugPostId || unknownSend(item, true) || item.plugDropped || !item.postId || !item.publishedAt) return;
     const sinceMinutes = (now.getTime() - new Date(item.publishedAt).getTime()) / 60_000;
     if (!Number.isFinite(sinceMinutes) || sinceMinutes < config.plugDelayMinutes) return;
 
@@ -355,9 +360,15 @@ async function runDueInternal(
       result = await deps.post({
         account, text: item.plugText, containerId: item.plugContainerId, replyToId: item.postId, attributionCode: postCode(item.id),
         shouldPublish: () => allowed(item, true, account.accessToken),
+        onBeforePublish: async (containerId) => {
+          item.plugContainerId = containerId;
+          item.plugPublishAttemptedAt = new Date().toISOString();
+          await persist();
+        },
         onContainerCreated: async (containerId) => {
           item.plugContainerId = containerId;
-          recovery.set(key, { containerId, text: item.plugText!, parentId: item.postId });
+          item.plugContainerPreparedAt = new Date().toISOString();
+          recovery.set(key, { containerId, preparedAt: item.plugContainerPreparedAt, text: item.plugText!, parentId: item.postId });
           await persist();
         }
       });
@@ -367,7 +378,13 @@ async function runDueInternal(
         item.plugContainerId = error.containerId ?? item.plugContainerId;
       }
       delete item.plugClaimedAt;
+      if (error instanceof ContainerPendingError) item.plugPublishAttemptedAt ??= new Date().toISOString();
+      if (error instanceof ContainerRejectedError) {
+        delete item.plugPublishAttemptedAt;
+        item.plugContainerPreparedAt ??= new Date().toISOString();
+      }
       if (error instanceof ThreadsPublishPausedError) {
+        delete item.plugPublishAttemptedAt;
         await persist();
         note = error.message;
         return;
@@ -375,6 +392,14 @@ async function runDueInternal(
       if (isAuthFailure(error)) {
         await persist();
         await stopOnAuthFailure(item, error, account, true);
+        return;
+      }
+      if (item.plugPublishAttemptedAt) {
+        replySends += 1;
+        item.plugError = "Publish outcome unknown. Check Threads and reconcile the receipt before resending.";
+        delete item.plugNextAttemptAt;
+        await persist();
+        await record(item, "failed", item.plugError, true);
         return;
       }
       replySends += 1;
@@ -392,6 +417,7 @@ async function runDueInternal(
     }
     replySends += 1;
     recovery.set(key, { ...result, text: item.plugText, parentId: item.postId });
+    delete item.plugPublishAttemptedAt;
     item.plugPostId = result.postId;
     item.plugContainerId = result.containerId;
     delete item.plugError;
@@ -413,7 +439,9 @@ async function runDueInternal(
         if (!receipt || receipt.text !== text || (reply && receipt.parentId !== item.postId)) continue;
         if (reply) {
           item.plugContainerId = receipt.containerId;
+          if (receipt.preparedAt) item.plugContainerPreparedAt = receipt.preparedAt;
           if (receipt.postId) {
+            delete item.plugPublishAttemptedAt;
             item.plugPostId = receipt.postId;
             delete item.plugError;
             delete item.plugNextAttemptAt;
@@ -422,7 +450,9 @@ async function runDueInternal(
           delete item.plugClaimedAt;
         } else {
           item.containerId = receipt.containerId;
+          if (receipt.preparedAt) item.containerPreparedAt = receipt.preparedAt;
           if (receipt.postId) {
+            delete item.publishAttemptedAt;
             item.postId = receipt.postId;
             item.publishedAt = receipt.publishedAt;
           }
@@ -452,7 +482,17 @@ async function runDueInternal(
       // The retained queue includes days of terminal history. Only rows this
       // tick could act on need a fresh atomic claim and its disk write.
       if (item.status !== "pending" && item.status !== "published") continue;
+      if (item.status === "published" && unknownSend(item, true)) {
+        uncertainSends += 1;
+        note = "A Threads reply outcome is unknown. Check Threads and reconcile its receipt before resending.";
+        continue;
+      }
       if (item.status === "published" && (!currentConfig().plugReplies || !item.plugText || item.plugPostId || item.plugDropped || !item.postId || !item.publishedAt)) continue;
+      if (item.status === "pending" && !item.postId && unknownSend(item)) {
+        uncertainSends += 1;
+        note = "A Threads publish outcome is unknown. Check Threads and reconcile its receipt before resending.";
+        continue;
+      }
       if (item.status === "pending" && !item.postId && (new Date(item.publishAt).getTime() > now.getTime() || retryWaiting(item.nextAttemptAt) || hasLiveClaim(item.claimedAt))) continue;
       if (item.status === "published" && (retryWaiting(item.plugNextAttemptAt) || hasLiveClaim(item.plugClaimedAt))) continue;
       if (
@@ -476,7 +516,9 @@ async function runDueInternal(
       }
       if (item.status !== "pending") continue;
 
+      if (unknownSend(item)) continue;
       if (item.postId) {
+        delete item.publishAttemptedAt;
         item.status = "published";
         item.publishedAt ??= now.toISOString();
         delete item.error;
@@ -536,9 +578,15 @@ async function runDueInternal(
         result = await deps.post({
           account, text: item.text, containerId: item.containerId, attributionCode: postCode(item.id),
           shouldPublish: () => allowed(item, false, account.accessToken),
+          onBeforePublish: async (containerId) => {
+            item.containerId = containerId;
+            item.publishAttemptedAt = new Date().toISOString();
+            await persist();
+          },
           onContainerCreated: async (containerId) => {
             item.containerId = containerId;
-            recovery.set(key, { containerId, text: item.text });
+            item.containerPreparedAt = new Date().toISOString();
+            recovery.set(key, { containerId, preparedAt: item.containerPreparedAt, text: item.text });
             await persist();
           }
         });
@@ -548,7 +596,13 @@ async function runDueInternal(
           item.containerId = error.containerId ?? item.containerId;
         }
         delete item.claimedAt;
+        if (error instanceof ContainerPendingError) item.publishAttemptedAt ??= new Date().toISOString();
+        if (error instanceof ContainerRejectedError) {
+          delete item.publishAttemptedAt;
+          item.containerPreparedAt ??= new Date().toISOString();
+        }
         if (error instanceof ThreadsPublishPausedError) {
+          delete item.publishAttemptedAt;
           await persist();
           if (awaitingApproval(item)) { heldForApproval += 1; continue; }
           note = error.message;
@@ -557,6 +611,13 @@ async function runDueInternal(
         if (isAuthFailure(error)) {
           await persist();
           await stopOnAuthFailure(item, error, account, false);
+          continue;
+        }
+        if (item.publishAttemptedAt) {
+          item.error = "Publish outcome unknown. Check Threads and reconcile the receipt before resending.";
+          delete item.nextAttemptAt;
+          await persist();
+          await record(item, "failed", item.error);
           continue;
         }
         item.attempts += 1;
@@ -576,6 +637,7 @@ async function runDueInternal(
         continue;
       }
       item.status = "published";
+      delete item.publishAttemptedAt;
       item.postId = result.postId;
       item.containerId = result.containerId;
       item.publishedAt = new Date().toISOString();

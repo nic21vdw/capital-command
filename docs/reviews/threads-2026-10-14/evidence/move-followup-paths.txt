@@ -1,0 +1,10 @@
+docs/reviews/threads-2026-10-14/CHANGELOG-ENTRY.md
+docs/reviews/threads-2026-10-14/IMPLEMENTATION-NOTES.md
+docs/reviews/threads-2026-10-14/evidence/changed-paths.txt
+docs/reviews/threads-2026-10-14/evidence/diff-check.txt
+docs/reviews/threads-2026-10-14/evidence/move-followup-paths.txt
+docs/reviews/threads-2026-10-14/evidence/move-followup-tests.txt
+docs/reviews/threads-2026-10-14/evidence/typecheck.txt
+src/lib/threads/queue.test.ts
+src/lib/threads/queue.ts
+src/lib/threads/skipSafety.test.ts

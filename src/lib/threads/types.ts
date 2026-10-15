@@ -44,6 +44,10 @@ export type ThreadsQueueItem = {
   postId?: string;
   /** Mid-flight handle: the Threads container created but not yet published. */
   containerId?: string;
+  /** Durable guard: publish may have reached Threads without a receipt. */
+  publishAttemptedAt?: string;
+  /** Written by the guarded sender when creation is safely saved before publishing. */
+  containerPreparedAt?: string;
   error?: string;
   /** Human note for the UI/log (e.g. why an item was skipped). Not an error. */
   note?: string;
@@ -61,6 +65,8 @@ export type ThreadsQueueItem = {
   plugText?: string;
   plugPostId?: string;
   plugContainerId?: string;
+  plugPublishAttemptedAt?: string;
+  plugContainerPreparedAt?: string;
   plugAttempts?: number;
   plugError?: string;
   /** Reply-specific retry time and lease; neither changes the parent post. */
@@ -112,6 +118,8 @@ export type ThreadsRunReport = {
   dryRun: boolean;
   /** Posts left untouched because they are waiting for approval. */
   heldForApproval?: number;
+  /** Sends held until their remote outcome has been reconciled. */
+  uncertainSends?: number;
   /** Set when the run did nothing at all (disabled, no account connected). */
   note?: string;
   /** Queue persistence stopped delivery independently of platform outcomes. */

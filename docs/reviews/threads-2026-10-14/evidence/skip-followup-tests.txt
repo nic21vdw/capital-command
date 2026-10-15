@@ -1,0 +1,18 @@
+Initial source validation at c82b0e1d: 595 tests passed across 39 files; original receipt remains focused-tests.txt.
+Follow-up validation: 84 tests passed across 6 affected files, including 6 new skip regressions.
+The full 595-test scope was not repeated for this narrow route/documentation follow-up.
+
+Command: npm test -- src/lib/threads/skipSafety.test.ts src/lib/threads/removalSafety.test.ts src/lib/threads/runner.test.ts src/lib/threads/runnerPersistence.test.ts src/lib/threads/approvalRace.test.ts src/lib/threads/todaySummary.test.ts
+Exit code: 0
+Environment: isolated Vitest data roots, synthetic credentials, mocked provider requests.
+
+ ✓ src/lib/threads/runnerPersistence.test.ts (6 tests) 249ms
+ ✓ src/lib/threads/runner.test.ts (42 tests) 117ms
+ ✓ src/lib/threads/approvalRace.test.ts (12 tests) 41ms
+ ✓ src/lib/threads/skipSafety.test.ts (6 tests) 84ms
+ ✓ src/lib/threads/removalSafety.test.ts (4 tests) 21ms
+ ✓ src/lib/threads/todaySummary.test.ts (14 tests) 8ms
+ Test Files  6 passed (6)
+      Tests  84 passed (84)
+   Start at  23:31:57
+   Duration  2.43s (transform 475ms, setup 37ms, collect 1.04s, tests 519ms, environment 1ms, prepare 256ms)

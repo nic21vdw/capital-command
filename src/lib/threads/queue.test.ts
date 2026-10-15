@@ -33,6 +33,13 @@ function item(overrides: Partial<ThreadsQueueItem> = {}): ThreadsQueueItem {
 const config: ThreadsConfig = { ...threadsConfig(), retentionDays: 14 };
 
 describe("pruneOld", () => {
+  it("retains unresolved parent and reply containers beyond the history window", () => {
+    const unresolved = [item({ publishAt: "2020-01-01T00:00:00Z", publishAttemptedAt: "2020-01-01T00:00:00Z" }),
+      item({ id: "legacy", publishAt: "2020-01-01T00:00:00Z", containerId: "legacy-container" }),
+      item({ id: "reply", publishAt: "2020-01-01T00:00:00Z", postId: "parent", plugContainerId: "unknown-reply" })];
+    expect(pruneOld(unresolved, new Date("2026-07-22T08:00:00Z"))).toEqual(unresolved);
+  });
+
   it("keeps recent batches and drops ones past the retention window", () => {
     const kept = pruneOld(
       [
@@ -114,8 +121,22 @@ describe("summarizeBatches", () => {
 });
 
 describe("rescheduleItem", () => {
+  it.each([
+    { claimedAt: "2026-07-22T07:16:00Z" },
+    { containerId: "fixture-container" },
+    { publishAttemptedAt: "2026-07-22T07:16:00Z" },
+    { postId: "fixture-receipt" }
+  ])("keeps delivery evidence and the original time after a refused move: %j", (evidence) => {
+    const original = item(evidence);
+    const before = structuredClone(original);
+    const result = rescheduleItem([original], original.id, "2026-07-22T18:00:00Z");
+    expect(result.changed).toBe(0);
+    expect(result.error).toContain("started sending");
+    expect(original).toEqual(before);
+  });
+
   it("moves a pending post and clears the gates set for its old time", () => {
-    const items = [item({ nextAttemptAt: "2026-07-22T07:20:00.000Z", claimedAt: "2026-07-22T07:16:00.000Z" })];
+    const items = [item({ nextAttemptAt: "2026-07-22T07:20:00.000Z" })];
 
     const result = rescheduleItem(items, "item-1", "2026-07-22T18:00:00.000Z");
 
@@ -142,6 +163,24 @@ describe("rescheduleItem", () => {
 });
 
 describe("shiftBatch", () => {
+  it.each([
+    { claimedAt: "2026-07-22T07:16:00Z" },
+    { containerId: "fixture-container" },
+    { publishAttemptedAt: "2026-07-22T07:16:00Z" },
+    { postId: "fixture-receipt" }
+  ])("moves only untouched rows and retains started evidence: %j", (evidence) => {
+    const started = item(evidence);
+    const before = structuredClone(started);
+    expect(shiftBatch([started], started.batchDate, 30)).toMatchObject({ changed: 0, error: expect.stringContaining("started sending") });
+    expect(started).toEqual(before);
+    const untouched = item({ id: "untouched" });
+    const result = shiftBatch([started, untouched], started.batchDate, 30);
+    expect(result.changed).toBe(1);
+    expect(result.error).toBeUndefined();
+    expect(started).toEqual(before);
+    expect(untouched.publishAt).toBe("2026-07-22T07:45:00.000Z");
+  });
+
   it("moves every pending post of the day and leaves the rest alone", () => {
     const items = [
       item({ id: "a" }),
@@ -211,6 +250,13 @@ describe("editItemText", () => {
 });
 
 describe("retryItem", () => {
+  it.each(["failed", "skipped"] as const)("rejects a forced retry of an uncertain %s send", (status) => {
+    const row = item({ status, publishAttemptedAt: "2026-07-22T07:15:00Z", containerId: "unknown-container" });
+    const before = structuredClone(row);
+    expect(retryItem([row], row.id, new Date("2026-07-22T08:00:00Z")).error).toContain("unknown");
+    expect(row).toEqual(before);
+  });
+
   const now = new Date("2026-07-22T09:00:00.000Z");
 
   it("puts a failed post back in the running at this moment, without its failure", () => {

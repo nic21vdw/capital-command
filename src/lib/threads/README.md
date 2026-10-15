@@ -12,19 +12,14 @@ itself.
 `threadsTick()` (`daily.ts`) is the only entry point the scheduler needs, and
 it does four things:
 
-1. **Plan** — if today's batch isn't on the queue yet, get today's pack
-   (`ensureDailyPack`, which generates it through DeepSeek on the first ask of
-   the day and caches it in the app data store), and turn every slot into one
-   queue item per connected account. Idempotent behind a batch-date check, so
-   calling it every five minutes plans exactly once a day.
-2. **Plan ahead** — from `THREADS_PLAN_AHEAD_HOUR` (21:00 local) on, write
-   **tomorrow's** batch too. Slots run round the clock, so a day planned on the
-   day itself arrives with its early hours already gone: planning at 07:00
-   drops every slot before it. Tomorrow has to be on the queue before midnight
-   or the small hours are lost every single day.
-3. **Catch up** — if today fell behind, re-lay what is left of it across the
-   time that remains (below).
-4. **Run** — post everything whose time has come (`runner.ts`).
+1. **Run** — process the existing due queue first (`runner.ts`), before a slow
+   writer or a failed plan can delay it.
+2. **Plan** — make today's batch if it is absent (`daily.ts`).
+3. **Catch up** — re-lay genuinely unsent slots across the time left today,
+   keeping their saved wording and approval.
+4. **Plan ahead** — write tomorrow's batch in the evening. Newly planned future
+   slots are picked up by the next tick. Planning errors are reported alongside
+   the completed delivery pass; queue mutations and sends stay sequential.
 
 Every step is safe to repeat, which is the whole design: the scheduled task is
 dumb and frequent, and the idempotency lives here.
@@ -53,8 +48,9 @@ one thing this design refuses to do. But stopping there means a day that
 quietly delivers four posts instead of twenty-four, which misses the point of
 an autopilot.
 
-So `catchUpToday()` re-lays what is left across the time that remains: the
-dashboard's **Post these starting now** button, pressed automatically. It is fenced in
+So `catchUpToday()` gives unsent slots new times across the time that remains,
+without replacing their saved copy or approval. A completely missed existing
+batch can recover too. It is fenced in
 on four sides so it can never become the burst it exists to avoid:
 
 - **A wide floor on the spacing.** Catch-up passes
@@ -66,8 +62,9 @@ on four sides so it can never become the burst it exists to avoid:
   genuinely no room left doesn't churn its own queue every five minutes.
 - **A shortfall threshold** (`THREADS_CATCHUP_MIN_SHORTFALL`, 2) — one lost slot
   isn't worth rewriting the day for.
-- **Published slots keep their place.** They are held out of the new layout, so
-  a catch-up can never put an idea through the feed twice.
+- **Started slots keep their place.** Published, claimed, attempted, failed and
+  uncertain sends stay out of recovery across every account. Manual skips stay
+  skipped. The first rescued slot also leaves a wide gap after a recent send.
 
 A day with nothing on the queue at all is not "behind", it is unplanned — that
 belongs to step 1, and catch-up leaves it alone. Switch the whole thing off with
@@ -232,10 +229,19 @@ changes the post's own status. `THREADS_PLUG_REPLY=false` turns it off, includin
 already queued replies, and `THREADS_PLUG_URL` changes the link. The Automations
 pause control stops both parent posts and replies. Reply failures and retry
 times appear separately from parent publication in the queue and worker
-outcome. Processing-container handles are saved before publication and reused
-after retries; claims and backoff protect repeated ticks. A remote acceptance
-whose response is lost can still require reconciliation: the API does not
-provide a transactional exactly-once guarantee with the local queue file.
+outcome. Container handles and a durable pre-publish guard are saved before the single
+`threads_publish` call. Network/timeout/5xx/408 errors and unreadable or missing
+success receipts hold the parent or reply for owner reconciliation. HTTP 429 is
+also held conservatively. An explicit HTTP rejection (other 4xx) clears the
+attempt guard; an accepted receipt is kept through failed saves.
+
+Ticks, retries, queue edits/replans and retention cannot erase or replay an
+uncertain send. Legacy containers without the new saved pre-publish phase are
+held too, since their old publish outcome cannot be proven from the queue.
+Containers proven to be saved before an unattempted publish can resume. There
+is no automatic remote reconciliation or resend override: the owner must check
+Threads and reconcile the local receipt. This reduces duplicate risk at the
+cost of holding sends whose remote outcome cannot be established.
 
 ## Two accounts, one version each
 

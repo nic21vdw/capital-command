@@ -1,0 +1,9 @@
+docs/reviews/threads-2026-10-14/CHANGELOG-ENTRY.md
+docs/reviews/threads-2026-10-14/IMPLEMENTATION-NOTES.md
+docs/reviews/threads-2026-10-14/evidence/changed-paths.txt
+docs/reviews/threads-2026-10-14/evidence/diff-check.txt
+docs/reviews/threads-2026-10-14/evidence/skip-followup-paths.txt
+docs/reviews/threads-2026-10-14/evidence/skip-followup-tests.txt
+docs/reviews/threads-2026-10-14/evidence/typecheck.txt
+src/app/api/threads/route.ts
+src/lib/threads/skipSafety.test.ts

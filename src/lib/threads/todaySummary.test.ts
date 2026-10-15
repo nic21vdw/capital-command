@@ -22,6 +22,13 @@ function fixtureDay(): Row[] {
 const TORONTO = { timeZone: "America/Toronto" };
 
 describe("today's Threads numbers", () => {
+  it("reports skipped-only and mixed days without claiming they were all sent", () => {
+    const skipped = row({ id: "skipped", slot: 1, status: "skipped" });
+    expect(todayHeadline(summarizeThreadsToday([skipped], "2026-10-10"), TORONTO)).toBe("1 post today - 0 sent, 1 skipped");
+    const sent = row({ id: "sent", slot: 2, status: "published" });
+    expect(todayHeadline(summarizeThreadsToday([skipped, sent], "2026-10-10"), TORONTO)).toBe("2 posts today - 1 sent, 1 skipped");
+  });
+
   it("counts a post once however many accounts send it, and includes hand-added posts", () => {
     const summary = summarizeThreadsToday(fixtureDay(), "2026-10-10");
     // 6 pack slots on two accounts (12 rows) + 1 hand-added post (1 row) = 7 posts, however many rows send them.
