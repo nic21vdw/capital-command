@@ -170,28 +170,23 @@ describe("Threads exposure across real planners and saved queue", () => {
     expect(post.mock.calls[1][0]).toMatchObject({ text: parent.plugText, replyToId: parent.postId });
   });
 
-  it("backs off a processing reply and resumes its saved container without reposting its parent", async () => {
+  it("retains an uncertain reply receipt guard without reposting its parent", async () => {
     const configured = config({ postsPerDay: 1, accounts: config().accounts.slice(0, 1), backoffBaseMinutes: 5 });
     await writeQueue(planned(configured));
     await tick("2026-10-03T12:01:00.000Z", configured);
     const parentId = (await readQueue())[0].postId;
-    post.mockImplementationOnce(async () => { throw new ContainerPendingError("reply-container", "Still processing"); });
-
-    const retry = await tick("2026-10-03T12:03:00.000Z", configured);
-    expect(retry.failed).toBe(0);
-    expect(retry.replies?.retrying).toBe(1);
-    expect((await readQueue())[0]).toMatchObject({
-      status: "published", postId: parentId, plugContainerId: "reply-container", plugAttempts: 1,
-      plugNextAttemptAt: "2026-10-03T12:08:00.000Z"
+    post.mockImplementationOnce(async (input) => {
+      await input.onContainerCreated?.("reply-container");
+      await input.onBeforePublish?.("reply-container");
+      throw new ContainerPendingError("reply-container", "Response lost");
     });
-    await tick("2026-10-03T12:04:00.000Z", configured);
-    expect(post).toHaveBeenCalledTimes(2);
-    const resumed = await tick("2026-10-03T12:08:00.000Z", configured);
-    expect(post).toHaveBeenCalledTimes(3);
-    expect(post.mock.calls[2][0]).toMatchObject({ containerId: "reply-container", replyToId: parentId, account: { id: "primary" } });
-    expect(resumed.replies?.published).toBe(1);
+    const held = await tick("2026-10-03T12:03:00.000Z", configured);
+    expect(held.replies?.failed).toBe(1);
+    expect((await readQueue())[0]).toMatchObject({ status: "published", postId: parentId, plugContainerId: "reply-container" });
+    expect((await readQueue())[0].plugPublishAttemptedAt).toBeTruthy();
+    expect((await readQueue())[0].plugNextAttemptAt).toBeUndefined();
     await tick("2026-10-03T12:20:00.000Z", configured);
-    expect(post).toHaveBeenCalledTimes(3);
+    expect(post).toHaveBeenCalledTimes(2);
   });
 
   it("does not send two replies when overlapping runner calls start from a saved queue", async () => {

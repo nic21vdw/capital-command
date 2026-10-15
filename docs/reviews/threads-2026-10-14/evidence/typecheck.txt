@@ -1,0 +1,17 @@
+Command: npm run typecheck
+Exit code: 0
+
+> colateral-marketing@0.1.0 typecheck
+> tsc --noEmit
+
+No type errors.
+
+Independent review follow-up: skip race guard and skipSafety.test.ts
+Command: npm run typecheck
+Exit code: 0
+No type errors.
+
+Independent review follow-up: preserve started rows during reschedule/shift
+Command: npm run typecheck
+Exit code: 0
+No type errors.

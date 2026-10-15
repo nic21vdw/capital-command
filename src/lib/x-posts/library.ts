@@ -22,6 +22,30 @@ export interface LibraryReply {
 
 export const POST_LIBRARY: LibraryPost[] = [
   {
+    format: "framework",
+    topic: "one real task before more screens",
+    text: "Before adding another screen to your AI app, try one real task from start to finish. The awkward step tells you what to build next.",
+    threadsVariant: "Watching a build stream can make the next feature feel obvious. Try the small workflow yourself first: put something in, get a result, fix a mistake. The point where you hesitate is a useful place to spend your next session."
+  },
+  {
+    format: "question",
+    topic: "who has the problem",
+    text: "Who would use your tiny app twice? Pick one person with a repeat problem before building features for an imaginary audience.",
+    threadsVariant: "A side project gets easier to explain when you can name the person and the job it helps with. Ask how they handle that job today, then build the smallest part you can compare with their answer. A feature list can wait."
+  },
+  {
+    format: "insight",
+    topic: "keep the work after an error",
+    text: "An app that fails politely is easier to trust. Keep the work someone typed, explain what happened, and give them a way to continue.",
+    threadsVariant: "Try breaking the little app you are building: lose the connection, paste the wrong file, close the tab halfway through. Does the work survive? Those moments matter to the person using it as much as the neat demo on a stream."
+  },
+  {
+    format: "observation",
+    topic: "a clear promise for a small tool",
+    text: "Describe your app with the task it helps someone finish. If the pitch needs six features, try narrowing the job before adding more.",
+    threadsVariant: "Building a small business around a tool starts with a promise someone can understand. Say what they put in and what they get back. If that takes a paragraph, you may still be deciding which problem the tool is meant to solve."
+  },
+  {
     format: "insight",
     topic: "one useful tool",
     text: "A tiny tool that sorts one annoying file can be a better first AI project than a whole app. You can tell when it works.",

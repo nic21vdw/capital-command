@@ -25,11 +25,11 @@ import type { ThreadsQueueItem } from "@/lib/threads/types";
  * Pure and dependency-free (types only) so the client component can import it.
  */
 
-type Row = Pick<ThreadsQueueItem, "batchDate" | "slot" | "status" | "origin" | "postId" | "containerId" | "claimedAt">;
+type Row = Pick<ThreadsQueueItem, "batchDate" | "slot" | "status" | "origin" | "postId" | "containerId" | "claimedAt" | "publishAttemptedAt">;
 
 /** Has this row reached Threads, or been picked up by a run that is sending it? */
-export function hasStarted(item: Pick<ThreadsQueueItem, "status" | "postId" | "containerId" | "claimedAt">): boolean {
-  return item.status === "published" || Boolean(item.postId || item.containerId || item.claimedAt);
+export function hasStarted(item: Pick<ThreadsQueueItem, "status" | "postId" | "containerId" | "claimedAt" | "publishAttemptedAt">): boolean {
+  return item.status === "published" || Boolean(item.postId || item.containerId || item.claimedAt || item.publishAttemptedAt);
 }
 
 export const REWRITE_STARTED_REASON = "Today's posts have started going out - edit or skip individual posts instead.";
