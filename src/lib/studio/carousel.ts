@@ -509,7 +509,7 @@ export async function illustrateFromRecording(input: {
     .then((cut) => cut.images.filter((image): image is CarouselImage => Boolean(image)))
     .catch(() => []);
   const reviewed = await reviewStory(illustrated, hookCandidates, {
-    title: input.carousel.title,
+    // The generated carousel title is draft copy, not original source evidence.
     transcript: input.transcript,
     atSeconds: input.drafts.map((slide) => slide.atSeconds)
   });
