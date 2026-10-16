@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- Best-of edits show retained visual-review counts, including unchecked and rejected passages, and recheck recognized opening back-references after visual filtering without restoring rejected setup passages.
+
 - **Account checks can recover.** A failed status read shows Retry instead of asking you to reconnect, and keeps the last known accounts visible on desktop and phone layouts.
 - **Clip Editor reads and saves say what happened.** Failed clip and caption reads offer Retry. Failed saves keep a local recovery draft, stay marked unsaved, and wait for a confirmed save before leaving or scheduling an existing export. Reopening a project uses fresh details.
 - **TikTok account checks stay shared.** An older failed creator check no longer discards a newer answer when several consent panels are open.
