@@ -20,6 +20,8 @@ already shipped.
 - **Clip Editor reads and saves say what happened.** Failed clip and caption reads offer Retry. Failed saves keep a local recovery draft, stay marked unsaved, and wait for a confirmed save before leaving or scheduling an existing export. Reopening a project uses fresh details.
 - **TikTok account checks stay shared.** An older failed creator check no longer discards a newer answer when several consent panels are open.
 
+- **Carousels keep their source through the rewrite.** Story review now gets bounded original text with selected cues kept first and missing context marked, keeps demo assumptions and unfinished work distinct from results, and can remove unsupported copy instead of restoring it. Decks choose one useful story rather than filling thirds of a recording. Copy below a framed still or photo is centered again, including its blue rule and final button. Framed stills now keep every source edge instead of zooming them off the slide; the signature stays in place.
+
 - Threads sends queued posts before planning, rescues a completely missed day with spaced future slots while keeping reviewed copy, holds uncertain publishes and replies for checking instead of sending them again, refuses to skip or move a post once delivery has started, respects the posting window across account offsets, and shows skipped-only days truthfully. The fallback idea library also has fresh small-tool and business-building angles.
 
 - **Publishing holds stay in effect while Buffer prepares a post.** Existing Buffer receipts keep being tracked, and an approval stop leaves retries untouched. The canvas can place channels on Hold; setting Auto takes a person in Settings.
