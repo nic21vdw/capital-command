@@ -422,24 +422,18 @@ const BACKDROP_BLUR_PX = 0.055;
 export const FRAME_POSITION = 0;
 
 /**
- * How much bigger than `contain` a framed still is drawn. A 16:9 frame fitted
- * inside a 4:5 slide is limited by its width, so it stops well short of the
- * copy band and the slide reads as a small picture floating on a blur. Ten per
- * cent closes that, at the cost of five per cent off each side — and the sides
- * of a stream frame are the desk and the wall, not the middle of the shot.
+ * Framed stills retain every source edge. Enlarging contain by ten per cent
+ * cropped five per cent off each side, including document content and the
+ * source wordmark. Keep the sharp frame at its contained size; only the
+ * decorative blurred bed fills the surrounding space.
  *
  * The editor scales its overlay by the same factor from the same origin.
  */
-export const FRAME_ZOOM = 1.1;
+export const FRAME_ZOOM = 1;
 
 /**
- * How much the still actually grows: up to FRAME_ZOOM, but never past the top
- * of the copy band, and never below the size it fits at.
- *
- * The cap is what keeps one layout serving every frame. At 4:5 and 9:16 a
- * widescreen still has room to spare above the copy and takes the full zoom; at
- * 1:1 it does not, and takes what is there. A 16:9 slide has no room at all —
- * the still already fills it — so the floor leaves that case exactly as it was.
+ * Keep the size contract shared with the editor. FRAME_ZOOM is one so a
+ * framed still is never enlarged beyond contain, regardless of band space.
  */
 function frameZoom(img: SlideImage, lw: number, lh: number, ly: number, bandTop: number): number {
   const contained = img.height * Math.min(lw / img.width, lh / img.height);
@@ -994,7 +988,7 @@ function drawPill(
   return pillW;
 }
 
-function drawSiteButton(ctx: SlideContext, left: number, top: number, scale: number) {
+function drawSiteButton(ctx: SlideContext, left: number, top: number, scale: number, centered = false) {
   const pillH = 76 * scale;
   const fontPx = 32 * scale;
   const mark = 40 * scale;
@@ -1004,6 +998,7 @@ function drawSiteButton(ctx: SlideContext, left: number, top: number, scale: num
   const label = `Try it at ${COLATERAL_SITE}`;
   const textW = ctx.measureText(label).width;
   const pillW = padX * 2 + mark + 16 * scale + textW;
+  if (centered) left -= pillW / 2;
   ctx.fillStyle = activeTheme.siteFill;
   roundedRectPath(ctx, left, top, pillW, pillH, pillH / 2);
   ctx.fill();
@@ -1085,15 +1080,16 @@ function drawBaseText(
   }
 
   const palette = layout === "bleed" ? SLIDE_THEMES.black : activeTheme;
+  const centered = layout === "framed" || layout === "photo";
   if (fit.kickerH) {
     const label = role === "cta" ? "WHAT'S NEXT" : String(index + 1).padStart(2, "0");
     ctx.font = `800 ${fit.kickerPx}px ${SLIDE_FONT_STACK}`;
     ctx.textAlign = "left";
     ctx.fillStyle = palette.accent;
     const baseline = y + fit.kickerPx * 0.86;
-    ctx.fillText(label, margin, baseline);
     const labelW = ctx.measureText(label).width;
-    ctx.fillRect(margin + labelW + 16 * scale, baseline - fit.kickerPx * 0.36, 64 * scale, 4 * scale);
+    ctx.fillText(label, centered ? (w - labelW) / 2 : margin, baseline);
+    ctx.fillRect(centered ? (w - 64 * scale) / 2 : margin + labelW + 16 * scale, centered ? baseline + 12 * scale : baseline - fit.kickerPx * 0.36, 64 * scale, 4 * scale);
     y += fit.kickerH;
   }
 
@@ -1103,7 +1099,7 @@ function drawBaseText(
     box: role === "hook" ? palette.accentDeep : undefined
   };
   for (const line of fit.headingLines) {
-    drawCopyLine(ctx, line, margin, y + fit.heading.px * 0.86, fit.heading, headingColors, images);
+    drawCopyLine(ctx, line, centered ? (w - measureLine(ctx, line, fit.heading)) / 2 : margin, y + fit.heading.px * 0.86, fit.heading, headingColors, images);
     y += fit.headingLineH;
   }
   if (fit.bodyLines.length) {
@@ -1113,11 +1109,11 @@ function drawBaseText(
       strong: palette.strong
     };
     for (const line of fit.bodyLines) {
-      drawCopyLine(ctx, line, margin, y + fit.body.px * 1.02, fit.body, bodyColors, images);
+      drawCopyLine(ctx, line, centered ? (w - measureLine(ctx, line, fit.body)) / 2 : margin, y + fit.body.px * 1.02, fit.body, bodyColors, images);
       y += fit.bodyLineH;
     }
   }
-  if (fit.siteH) drawSiteButton(ctx, margin, y + 36 * scale, scale);
+  if (fit.siteH) drawSiteButton(ctx, centered ? w / 2 : margin, y + 36 * scale, scale, centered);
 
   const right = w - 72 * scale;
   const pill =

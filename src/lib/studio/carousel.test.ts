@@ -19,6 +19,9 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.doUnmock("@/lib/ai");
+  vi.doUnmock("@/lib/carousels/storyReview");
+  vi.doUnmock("@/lib/carousels/videoFrames");
+  vi.doUnmock("@/lib/carousels/footage");
 });
 
 /** An AI gateway that always declines, counting how many times it was asked. */
@@ -234,7 +237,7 @@ describe("photo batches", () => {
 });
 
 describe("video stills", () => {
-  it("tells the model the stills are the video in order, and not to describe them", async () => {
+  it("keeps supplied still positions without inventing their timing or content", async () => {
     const { buildCarouselPrompt } = await import("@/lib/studio/carousel");
     const prompt = buildCarouselPrompt({
       title: "Stream",
@@ -243,9 +246,9 @@ describe("video stills", () => {
       imageCount: 8,
       imageMode: "backdrop"
     });
-    expect(prompt).toContain("still taken from the video itself");
-    expect(prompt).toContain("in the order it happened");
-    expect(prompt).toContain("you have not seen them");
+    expect(prompt).toContain("supplied recording stills, in their listed order");
+    expect(prompt).toContain("do not assume that slide number proves when an event happened");
+    expect(prompt).toContain("never describe unseen visual details");
     expect(prompt).not.toContain("caption for its own photo");
   });
 
@@ -264,7 +267,8 @@ describe("video stills", () => {
     expect(prompt).toContain("[00:00] opening the agent terminal");
     // The whole recording, so the deck cannot be written out of the opening.
     expect(prompt).toContain("[60:00] wrapping up for the night");
-    expect(prompt).toContain("It runs to [60:12]");
+    expect(prompt).toContain("Read across the WHOLE recording");
+    expect(prompt).toContain("Do not fill thirds of the runtime");
     expect(prompt).not.toContain("flat text that must not be used");
   });
 
@@ -303,6 +307,48 @@ describe("video stills", () => {
     const layer = carousel.slides[0].layers?.[0];
     expect(layer?.type === "image" && layer.height).toBe(1);
     expect(carousel.slides[0].scrim).toBeGreaterThan(0);
+  });
+});
+
+describe("source evidence through the review", () => {
+  function mockReview() {
+    const review = vi.fn(async ({ carousel }: { carousel: unknown }) => ({ carousel, note: null }));
+    vi.doMock("@/lib/carousels/storyReview", () => ({ reviewCarouselStory: review }));
+    return review;
+  }
+
+  it("passes pasted source and qualifications into the final rewrite", async () => {
+    mockAiWriting(4);
+    const review = mockReview();
+    const { generateCarousel } = await import("@/lib/studio/carousel");
+    await generateCarousel({ ...input, sourceText: "The launch brief is a demo. The forecast figures are invented assumptions." });
+    expect(review).toHaveBeenCalledOnce();
+    expect((review.mock.calls[0][0] as unknown as { evidence: string }).evidence).toContain("invented assumptions");
+  });
+
+  it("keeps the transcript when a batch has no recording to illustrate", async () => {
+    mockAiWriting(4);
+    const review = mockReview();
+    const { generateCarouselBatches } = await import("@/lib/studio/carousel");
+    await generateCarouselBatches({ ...input, transcript: [{ start: 0, end: 12, text: "This change is planned; it has not shipped." }], batchCount: 1 });
+    expect(review).toHaveBeenCalledOnce();
+    expect((review.mock.calls[0][0] as unknown as { evidence: string }).evidence).toContain("has not shipped");
+  });
+
+  it("carries exact chosen cue neighborhoods through recording illustration", async () => {
+    const review = mockReview();
+    vi.doMock("@/lib/carousels/footage", () => ({ footageKind: async () => "desk" }));
+    vi.doMock("@/lib/carousels/videoFrames", () => ({ framesForSlides: async () => ({ images: [], note: null }), framesForSource: async () => ({ images: [] }) }));
+    const { illustrateFromRecording } = await import("@/lib/studio/carousel");
+    await illustrateFromRecording({
+      carousel: { id: "source-check", title: "A source check", sourceType: "custom", createdAt: "2026-10-16T12:00:00.000Z", slides: [{ id: "s1", heading: "The draft", body: "" }, { id: "s2", heading: "The limit", body: "A demo." }] },
+      drafts: [{ heading: "The draft", body: "", atSeconds: 0 }, { heading: "The limit", body: "A demo.", atSeconds: 45 }],
+      sourceId: "isolated-source",
+      transcript: [{ start: 0, end: 10, text: "I opened the brief." }, { start: 40, end: 50, text: "The forecast is an invented demo, not revenue." }]
+    });
+    const evidence = JSON.parse((review.mock.calls[0][0] as unknown as { evidence: string }).evidence);
+    expect(evidence.chosenMoments[1]).toMatchObject({ slide: 2, atSeconds: 45 });
+    expect(evidence.chosenMoments[1].text).toContain("not revenue");
   });
 });
 
