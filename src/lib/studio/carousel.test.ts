@@ -341,12 +341,13 @@ describe("source evidence through the review", () => {
     vi.doMock("@/lib/carousels/videoFrames", () => ({ framesForSlides: async () => ({ images: [], note: null }), framesForSource: async () => ({ images: [] }) }));
     const { illustrateFromRecording } = await import("@/lib/studio/carousel");
     await illustrateFromRecording({
-      carousel: { id: "source-check", title: "A source check", sourceType: "custom", createdAt: "2026-10-16T12:00:00.000Z", slides: [{ id: "s1", heading: "The draft", body: "" }, { id: "s2", heading: "The limit", body: "A demo." }] },
+      carousel: { id: "source-check", title: "The demo earned one million dollars", sourceType: "custom", createdAt: "2026-10-16T12:00:00.000Z", slides: [{ id: "s1", heading: "The draft", body: "" }, { id: "s2", heading: "The limit", body: "A demo." }] },
       drafts: [{ heading: "The draft", body: "", atSeconds: 0 }, { heading: "The limit", body: "A demo.", atSeconds: 45 }],
       sourceId: "isolated-source",
       transcript: [{ start: 0, end: 10, text: "I opened the brief." }, { start: 40, end: 50, text: "The forecast is an invented demo, not revenue." }]
     });
     const evidence = JSON.parse((review.mock.calls[0][0] as unknown as { evidence: string }).evidence);
+    expect(evidence.title).toBeUndefined();
     expect(evidence.chosenMoments[1]).toMatchObject({ slide: 2, atSeconds: 45 });
     expect(evidence.chosenMoments[1].text).toContain("not revenue");
   });
