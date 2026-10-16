@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { formatClock } from "@/lib/clipping/editor";
 import { editedDurationSec } from "@/lib/longform/plan";
+import { highlightCoverage } from "@/lib/longform/highlightCoverage";
 import { formatRuntime } from "@/lib/longform/length";
 import type { LongformHighlightPassage, LongformProject, LongformStoryRole } from "@/lib/longform/types";
 import { cn } from "@/lib/utils";
@@ -170,6 +171,7 @@ export function BestOfPanel({
   const runtime = useMemo(() => editedDurationSec(project.segments, project.hook), [project.segments, project.hook]);
   const passages = highlight?.passages ?? [];
   const chapterList = highlight ? chapters : [];
+  const coverage = highlightCoverage(passages);
   const keptCount = passages.filter((passage) => passage.enabled).length;
   const visible = showAll ? passages : passages.filter((passage) => passage.enabled);
   const longStream = project.durationSec > 30 * 60;
@@ -237,9 +239,9 @@ export function BestOfPanel({
             <Stat label="Runtime" value={formatRuntime(runtime)} note={`target ${formatRuntime(highlight.targetSec)}`} />
             <Stat label="Passages" value={`${keptCount}`} note={`of ${passages.length}`} />
             <Stat
-              label="Watched"
-              value={highlight.watched === "vision" ? "Every clip" : highlight.watched === "scan" ? "Scan only" : "No"}
-              note={highlight.watched === "vision" ? "vision check" : highlight.watched === "scan" ? "no vision key" : "no footage"}
+              label="Visual review"
+              value={`${coverage.vision}/${coverage.total} clips`}
+              note={`${coverage.scan} scan only; ${coverage.unchecked} unchecked; ${coverage.rejected} rejected`}
             />
           </div>
 

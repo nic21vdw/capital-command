@@ -1,3 +1,4 @@
+import { highlightCoverage } from "@/lib/longform/highlightCoverage";
 import { aiConfigured, runAi } from "@/lib/ai";
 import { brandContext, brandKeywords } from "@/lib/brand/kit";
 import { analyzeTranscript, densityScore } from "@/lib/clipping/text-signals";
@@ -755,7 +756,7 @@ export function ensureStoryArc(
 // ----- Continuity -----
 
 const BACK_REFERENCE =
-  /^(?:(?:and|but|so|okay|ok|yeah|um|uh)[,\s]+)*(?:as i (?:said|mentioned)|like i said|that one|this one|same (?:thing|issue|error|problem)|it'?s still|still (?:not|broken|failing)|again\b|back to|the other one|that'?s why|which is why)/i;
+  /^(?:(?:and|but|so|okay|ok|yeah|um|uh)[,\s]+)*(?:as i (?:said|mentioned)|like i said|that one|this one|same (?:thing|issue|error|problem)|it(?:'?s| is) still|still (?:not|broken|failing)|again\b|back to|the other one|that(?:'?s| is) why|which is why)/i;
 
 /**
  * A passage that opens by pointing back ("like I said", "it's still broken",
@@ -766,7 +767,8 @@ const BACK_REFERENCE =
 export function repairContinuity(
   planned: Array<Pick<PlannedPassage, "start" | "end" | "text">>,
   runtimes: number[],
-  chosen: Set<number>
+  chosen: Set<number>,
+  allowBridges = true
 ): { chosen: Set<number>; bridges: Set<number>; dropped: Set<number> } {
   const next = new Set(chosen);
   const bridges = new Set<number>();
@@ -776,7 +778,7 @@ export function repairContinuity(
     if (!BACK_REFERENCE.test(planned[index].text.trim())) continue;
     const before = index - 1;
     const beside = planned[index].start - planned[before].end < CONTINUITY_GAP_SEC;
-    if (beside && runtimes[before] <= 100) {
+    if (allowBridges && beside && runtimes[before] <= 100) {
       next.add(before);
       bridges.add(before);
     } else {
@@ -894,6 +896,7 @@ export function applyHighlight(input: {
   return {
     highlight: {
       ...input.highlight,
+      watched: highlightCoverage(input.highlight.passages).level,
       coldOpen,
       opening: coldOpen ? "cold-open" : "natural",
       cleanup: { fillers: count("filler"), stutters: count("stutter"), gaps: count("gap"), runUps }
@@ -905,7 +908,7 @@ export function applyHighlight(input: {
 
 /**
  * The whole job: read what the screen does, find the story, pick the
- * passages that tell it, repair the joins, WATCH every passage that goes in
+ * passages that tell it, repair the joins, review passages within the budget
  * (swapping out the ones whose picture does not work for the next best), then
  * clean each one up and apply it all to the cut plan. Never throws for want of
  * AI: no text model falls back to the scorer and the offline arc, no vision
@@ -963,7 +966,8 @@ export async function buildHighlight(input: {
   chosen = repaired.chosen;
   const rejected = new Set<number>(repaired.dropped);
 
-  // Watch every passage that goes in. One whose picture does not work comes
+  // Review retained passages within the budget. Failed or unavailable reviews
+  // stay visibly unchecked. One whose picture does not work comes
   // out, and the best passage not yet tried takes its place (and is watched
   // too), until the edit is back at length or the watching budget is spent.
   const visuals = new Map<number, LongformPassageVisual>();
@@ -974,7 +978,6 @@ export async function buildHighlight(input: {
   const premise = decision?.premise;
   const roleOf = (index: number) =>
     decision?.roles.get(ids[index]) ?? guessRole(planned[index].text, index / Math.max(1, planned.length - 1));
-  let watched: LongformHighlight["watched"] = samples.length ? "scan" : "none";
 
   // The best passages not yet tried that bring the edit back to length.
   const refillIndexes = (limit: number, skip: Set<number>): number[] => {
@@ -1024,7 +1027,6 @@ export async function buildHighlight(input: {
           premise
         });
         if (review) {
-          watched = "vision";
           visuals.set(index, visionVerdict(review));
         }
       });
@@ -1048,6 +1050,9 @@ export async function buildHighlight(input: {
       round = refill;
     }
   }
+  // Visual rejection or replacement can remove the setup of a kept payoff.
+  // Do not reintroduce rejected or unreviewed bridges after the review budget.
+  chosen = repairContinuity(planned, runtimes, chosen, false).chosen;
   if (chosen.size === 0) return null;
 
   stage("Cutting fillers and dead space", 90);
@@ -1072,7 +1077,8 @@ export async function buildHighlight(input: {
   });
 
   // The editor's cold-open passage narrows where the line is looked for; the
-  // line itself is still the strongest sentence in it, and it has been watched.
+  // line itself is still the strongest sentence in it. Coverage is reported
+  // from the actual retained passage evidence below.
   const enabledWindows = passages.filter((passage) => passage.enabled).map((passage) => ({ start: passage.start, end: passage.end }));
   const coldOpenIndex = decision?.coldOpen ? ids.indexOf(decision.coldOpen) : -1;
   let coldOpen: LongformHighlight["coldOpen"] | undefined;
@@ -1093,7 +1099,7 @@ export async function buildHighlight(input: {
       selectedBy,
       builtAt: new Date().toISOString(),
       premise,
-      watched
+      watched: highlightCoverage(passages).level
     },
     baseSegments: input.baseSegments,
     baseHook: input.baseHook,
