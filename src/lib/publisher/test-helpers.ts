@@ -71,7 +71,8 @@ export function testConfig(overrides: Partial<PublisherConfig> = {}): PublisherC
       clientSecret: "tt-secret",
       refreshToken: "tt-refresh",
       audited: false,
-      inboxLimit: 10
+      inboxLimit: 10,
+      relay: null
     },
     spotify: { clientId: null, clientSecret: null },
     s3: { endpoint: null, bucket: null, accessKeyId: null, secretAccessKey: null, region: "auto", publicBaseUrl: null },

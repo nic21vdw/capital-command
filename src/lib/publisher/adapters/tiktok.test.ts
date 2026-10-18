@@ -77,6 +77,8 @@ beforeEach(() => {
   vi.stubEnv("TIKTOK_CLIENT_KEY", "tt-key");
   vi.stubEnv("TIKTOK_CLIENT_SECRET", "tt-secret");
   vi.stubEnv("TIKTOK_REFRESH_TOKEN", "tt-refresh");
+  vi.stubEnv("UPLOAD_POST_API_KEY", "");
+  vi.stubEnv("UPLOAD_POST_USER", "");
   vi.resetModules();
 });
 
