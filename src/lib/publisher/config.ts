@@ -26,6 +26,12 @@ function str(name: string): string | null {
   return raw ? raw : null;
 }
 
+function relayCredentials(): { apiKey: string; user: string } | null {
+  const apiKey = str("UPLOAD_POST_API_KEY");
+  const user = str("UPLOAD_POST_USER");
+  return apiKey && user ? { apiKey, user } : null;
+}
+
 function num(name: string, fallback: number): number {
   const raw = Number(process.env[name]);
   return Number.isFinite(raw) && raw > 0 ? raw : fallback;
@@ -140,6 +146,12 @@ export type PublisherConfig = {
      * them, so this ceiling never resets on its own.
      */
     inboxLimit: number;
+    /**
+     * Upload-Post (an audited TikTok partner) posts straight to the profile
+     * while this app's own client is unaudited. Null unless both
+     * UPLOAD_POST_API_KEY and UPLOAD_POST_USER are set.
+     */
+    relay: { apiKey: string; user: string } | null;
   };
   /**
    * Spotify Web API — read-only. Spotify has no creator write API, so these
@@ -256,9 +268,9 @@ export function publisherConfig(): PublisherConfig {
     mirror: {
       enabled: flag("PUBLISH_MIRROR", true),
       lead: platformList("PUBLISH_MIRROR_LEAD", ["youtube"])[0] ?? "youtube",
-      // TikTok is left out until its app clears audit — an unaudited client
+      // TikTok joins only when Upload-Post can post it — an unaudited client
       // can only drop clips in the creator's inbox, which is not a schedule.
-      targets: platformList("PUBLISH_MIRROR_TARGETS", ["instagram", "facebook"]),
+      targets: platformList("PUBLISH_MIRROR_TARGETS", relayCredentials() ? ["instagram", "facebook", "tiktok"] : ["instagram", "facebook"]),
       mode: str("PUBLISH_MIRROR_MODE")?.toLowerCase() === "shuffle" ? "shuffle" : "match"
     },
     youtube: {
@@ -291,7 +303,8 @@ export function publisherConfig(): PublisherConfig {
       clientSecret: str("TIKTOK_CLIENT_SECRET"),
       refreshToken: cachedRefreshToken("tiktok.refreshToken") ?? str("TIKTOK_REFRESH_TOKEN"),
       audited: flag("TIKTOK_AUDITED"),
-      inboxLimit: num("TIKTOK_INBOX_LIMIT", 10)
+      inboxLimit: num("TIKTOK_INBOX_LIMIT", 10),
+      relay: relayCredentials()
     },
     spotify: {
       clientId: str("SPOTIFY_CLIENT_ID"),

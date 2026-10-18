@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **TikTok can post itself.** With an Upload-Post API key and profile in `.env` (`UPLOAD_POST_API_KEY`, `UPLOAD_POST_USER`), every scheduled TikTok goes straight to your profile at its slot, like Instagram and Facebook, instead of waiting in your TikTok inbox for a tap. Mirrored schedules include TikTok when it is on.
+
 - Best-of edits show retained visual-review counts, including unchecked and rejected passages, and recheck recognized opening back-references after visual filtering without restoring rejected setup passages.
 
 - **Account checks can recover.** A failed status read shows Retry instead of asking you to reconnect, and keeps the last known accounts visible on desktop and phone layouts.
