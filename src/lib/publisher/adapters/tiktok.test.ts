@@ -79,6 +79,7 @@ beforeEach(() => {
   vi.stubEnv("TIKTOK_REFRESH_TOKEN", "tt-refresh");
   vi.stubEnv("UPLOAD_POST_API_KEY", "");
   vi.stubEnv("UPLOAD_POST_USER", "");
+  vi.stubEnv("BUFFER_API_KEY", "");
   vi.resetModules();
 });
 

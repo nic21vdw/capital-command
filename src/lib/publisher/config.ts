@@ -32,6 +32,11 @@ function relayCredentials(): { apiKey: string; user: string } | null {
   return apiKey && user ? { apiKey, user } : null;
 }
 
+function bufferTiktokCredentials(): { apiKey: string; channelId: string | null } | null {
+  const apiKey = str("BUFFER_API_KEY");
+  return apiKey ? { apiKey, channelId: str("BUFFER_TIKTOK_CHANNEL_ID") } : null;
+}
+
 function num(name: string, fallback: number): number {
   const raw = Number(process.env[name]);
   return Number.isFinite(raw) && raw > 0 ? raw : fallback;
@@ -152,6 +157,11 @@ export type PublisherConfig = {
      * UPLOAD_POST_API_KEY and UPLOAD_POST_USER are set.
      */
     relay: { apiKey: string; user: string } | null;
+    /**
+     * Buffer's audited TikTok client, free on its Free plan. Null unless
+     * BUFFER_API_KEY is set; BUFFER_TIKTOK_CHANNEL_ID is optional.
+     */
+    buffer: { apiKey: string; channelId: string | null } | null;
   };
   /**
    * Spotify Web API — read-only. Spotify has no creator write API, so these
@@ -268,9 +278,9 @@ export function publisherConfig(): PublisherConfig {
     mirror: {
       enabled: flag("PUBLISH_MIRROR", true),
       lead: platformList("PUBLISH_MIRROR_LEAD", ["youtube"])[0] ?? "youtube",
-      // TikTok joins only when Upload-Post can post it — an unaudited client
+      // TikTok joins only when Upload-Post or Buffer can post it — an unaudited client
       // can only drop clips in the creator's inbox, which is not a schedule.
-      targets: platformList("PUBLISH_MIRROR_TARGETS", relayCredentials() ? ["instagram", "facebook", "tiktok"] : ["instagram", "facebook"]),
+      targets: platformList("PUBLISH_MIRROR_TARGETS", relayCredentials() || bufferTiktokCredentials() ? ["instagram", "facebook", "tiktok"] : ["instagram", "facebook"]),
       mode: str("PUBLISH_MIRROR_MODE")?.toLowerCase() === "shuffle" ? "shuffle" : "match"
     },
     youtube: {
@@ -304,7 +314,8 @@ export function publisherConfig(): PublisherConfig {
       refreshToken: cachedRefreshToken("tiktok.refreshToken") ?? str("TIKTOK_REFRESH_TOKEN"),
       audited: flag("TIKTOK_AUDITED"),
       inboxLimit: num("TIKTOK_INBOX_LIMIT", 10),
-      relay: relayCredentials()
+      relay: relayCredentials(),
+      buffer: bufferTiktokCredentials()
     },
     spotify: {
       clientId: str("SPOTIFY_CLIENT_ID"),

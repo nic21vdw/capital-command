@@ -17,7 +17,22 @@ will not until TikTok approves the app — which it has already declined once.
 | The credentials in `.env` | the **sandbox** app's, so approval would not reach this machine on its own |
 | The product page, Terms and Privacy | live at `https://nic21vdw.github.io/capital-command/` — the URLs registered before this returned 404, because the repo was private |
 
-## Automatic posting today: Upload-Post
+## Automatic posting today: Buffer (free)
+
+Buffer's TikTok client is audited, and its Free plan publishes TikTok videos
+automatically (3 channels, 10 queued posts per channel, 25 TikTok posts a day,
+videos 3 s to 10 min). With `BUFFER_API_KEY` set, `tiktokBuffer.ts` hands each
+TikTok leg to Buffer's GraphQL API at its slot (`createPost`, `mode: shareNow`,
+`schedulingType: automatic`) with the clip's media-host URL, then follows the
+post until Buffer reports `sent`. Because each post is handed over at its own
+slot, Buffer's 10-post queue limit never fills. The leg's `containerId` is
+`buffer:<postId>`, so an interrupted run follows the same post instead of
+posting twice.
+
+Setup, once: sign up free at buffer.com, connect TikTok, create an API key at
+publish.buffer.com/settings/api, put it in `.env` as `BUFFER_API_KEY`, release.
+
+## Paid alternative: Upload-Post
 
 TikTok will not audit this app for one person's own accounts, so automatic
 posting goes through a partner whose client already passed audit:

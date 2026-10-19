@@ -17,6 +17,7 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.stubEnv("UPLOAD_POST_API_KEY", "up-key");
   vi.stubEnv("UPLOAD_POST_USER", "nic");
+  vi.stubEnv("BUFFER_API_KEY", "");
   vi.stubEnv("TIKTOK_CLIENT_KEY", "");
   vi.stubEnv("TIKTOK_CLIENT_SECRET", "");
   vi.stubEnv("TIKTOK_REFRESH_TOKEN", "");

@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Free automatic TikTok through Buffer.** Put a Buffer API key in `.env` (`BUFFER_API_KEY`) with TikTok connected in Buffer, and every scheduled TikTok is handed to Buffer at its slot and posted to your profile automatically, with no inbox tap and no paid plan.
+
 - **TikTok can post itself.** With an Upload-Post API key and profile in `.env` (`UPLOAD_POST_API_KEY`, `UPLOAD_POST_USER`), every scheduled TikTok goes straight to your profile at its slot, like Instagram and Facebook, instead of waiting in your TikTok inbox for a tap. Mirrored schedules include TikTok when it is on. The schedule board shows those slots as posting at the slot, not as inbox drafts.
 
 - Best-of edits show retained visual-review counts, including unchecked and rejected passages, and recheck recognized opening back-references after visual filtering without restoring rejected setup passages.
