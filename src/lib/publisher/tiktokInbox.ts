@@ -13,7 +13,7 @@ import type { QueueItem } from "@/lib/publisher/types";
  */
 
 export function tiktokRelayOn(): boolean {
-  return Boolean(process.env.UPLOAD_POST_API_KEY?.trim() && process.env.UPLOAD_POST_USER?.trim());
+  return process.env.TIKTOK_RELAY === "1" || Boolean(process.env.UPLOAD_POST_API_KEY?.trim() && process.env.UPLOAD_POST_USER?.trim());
 }
 
 export function usesTiktokInbox(item: Pick<QueueItem, "tiktok">): boolean {
