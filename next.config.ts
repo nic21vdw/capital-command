@@ -9,10 +9,11 @@ const nextConfig: NextConfig = {
   // stray lockfiles elsewhere on the machine (e.g. in the user's home folder).
   outputFileTracingRoot: projectRoot,
   eslint: { ignoreDuringBuilds: true },
-  // The board runs in the browser, which never sees the Upload-Post key; this
+  // The board runs in the browser, which never sees the Buffer or Upload-Post key; this
   // tells it TikTok posts go out directly instead of to the inbox.
   env: {
-    TIKTOK_RELAY: process.env.UPLOAD_POST_API_KEY?.trim() && process.env.UPLOAD_POST_USER?.trim() ? "1" : ""
+    TIKTOK_RELAY:
+      process.env.BUFFER_API_KEY?.trim() || (process.env.UPLOAD_POST_API_KEY?.trim() && process.env.UPLOAD_POST_USER?.trim()) ? "1" : ""
   },
   typescript: { ignoreBuildErrors: true },
   // ffmpeg-static resolves its binary path via __dirname, which breaks when

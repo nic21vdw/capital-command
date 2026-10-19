@@ -14,6 +14,7 @@ import {
   fetchCreatorPostingInfo,
   reconcileWithCreator
 } from "@/lib/publisher/tiktokPost";
+import { BUFFER_GRAPHQL_URL, isBufferHandle, publishViaBuffer, validateBufferTiktok } from "@/lib/publisher/tiktokBuffer";
 import { isRelayHandle, publishViaRelay, relayPrivacy, RELAY_API_BASE, validateRelayAuth } from "@/lib/publisher/tiktokRelay";
 import { BANNED_CODE, throttleFor } from "@/lib/publisher/tiktokThrottle";
 import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
@@ -43,8 +44,8 @@ import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/l
  * direct posts to private viewing, so an unaudited direct post may only ask
  * for SELF_ONLY; after approval every audience creator_info offers is open.
  *
- * With Upload-Post configured (see tiktokRelay.ts) every post goes through its
- * audited client instead, straight to the profile at the slot, and none of the
+ * With Buffer (tiktokBuffer.ts) or Upload-Post (tiktokRelay.ts) configured,
+ * every post goes through that service's audited client instead, straight to the profile at the slot, and none of the
  * inbox or unaudited limits above apply.
  *
  * Primary source is FILE_UPLOAD (direct binary upload — no hosting needed);
@@ -339,18 +340,29 @@ export const tiktokAdapter: PlatformAdapter = {
 
   configured(): boolean {
     const { tiktok } = publisherConfig();
-    return Boolean(tiktok.relay || (tiktok.clientKey && tiktok.clientSecret && tiktok.refreshToken));
+    return Boolean(tiktok.buffer || tiktok.relay || (tiktok.clientKey && tiktok.clientSecret && tiktok.refreshToken));
   },
 
   async validateAuth(): Promise<void> {
-    const { relay } = publisherConfig().tiktok;
-    if (relay) await validateRelayAuth(relay);
+    const { buffer, relay } = publisherConfig().tiktok;
+    if (buffer) await validateBufferTiktok(buffer);
+    else if (relay) await validateRelayAuth(relay);
     else await accessToken();
   },
 
   buildPlan(input: PublishInput): PublishPlan {
     const config = publisherConfig();
     const publishAt = new Date(input.item.publishAt);
+    if (config.tiktok.buffer) {
+      return {
+        platform: "tiktok",
+        endpoint: BUFFER_GRAPHQL_URL,
+        payload: { mutation: "createPost", mode: "shareNow", schedulingType: "automatic", channelId: config.tiktok.buffer.channelId ?? "first TikTok channel" },
+        publishAtUtc: toRfc3339Utc(publishAt),
+        publishAtLocal: formatInTimezone(publishAt, config.timezone),
+        notes: ["Handed to Buffer at the slot, which publishes it to TikTok automatically — no inbox tap."]
+      };
+    }
     if (config.tiktok.relay) {
       return {
         platform: "tiktok",
@@ -381,7 +393,11 @@ export const tiktokAdapter: PlatformAdapter = {
   async publish(input: PublishInput): Promise<PostResult> {
     if (isImagePost(input.item)) throw new PermanentError(IMAGE_REFUSALS.tiktok!);
     const pending = input.item.platforms.tiktok?.containerId;
-    const { relay } = publisherConfig().tiktok;
+    const { buffer, relay } = publisherConfig().tiktok;
+    if (isBufferHandle(pending) && !buffer) {
+      throw new PermanentError("This post was handed to Buffer, which is no longer configured — set BUFFER_API_KEY to follow it up.");
+    }
+    if (buffer && (!pending || isBufferHandle(pending))) return publishViaBuffer(input, buffer);
     if (isRelayHandle(pending) && !relay) {
       throw new PermanentError("This post was sent through Upload-Post, which is no longer configured — set UPLOAD_POST_API_KEY and UPLOAD_POST_USER to follow it up.");
     }
