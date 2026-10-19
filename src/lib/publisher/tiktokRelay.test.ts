@@ -52,6 +52,13 @@ describe("tiktok through Upload-Post", () => {
     expect(usesTiktokInbox({})).toBe(false);
   });
 
+  it("labels a TikTok slot as posting, not as an inbox draft, where only the build flag is visible", async () => {
+    vi.stubEnv("UPLOAD_POST_API_KEY", "");
+    vi.stubEnv("TIKTOK_RELAY", "1");
+    const { pendingLabel } = await import("@/lib/publisher/nativeScheduling");
+    expect(pendingLabel("tiktok", input().item, new Date(Date.parse(input().item.publishAt) - 3_600_000))).toBe("Posts at slot");
+  });
+
   it("direct posts the clip publicly and follows the request until TikTok has it", async () => {
     const requests = mockFetchRoutes([
       {
