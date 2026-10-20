@@ -142,6 +142,7 @@ async function readQueue(): Promise<QueueItem[]> {
 export async function planRunOutputs(runId: string): Promise<QueuePlan | null> {
   const run = await getRun(runId);
   if (!run) return null;
+  if (run.status === "draft" || run.marketingSource) throw new Error("This source has no publication authorization.");
 
   const config = publisherConfig();
   const existing = await readQueue();

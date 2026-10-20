@@ -10,6 +10,7 @@ export type RunTone = "attention" | "working" | "done";
 export type RunListStatus = { tone: RunTone; label: string };
 
 export function runListStatus(entry: Pick<PipelineRunOverview, "run" | "retryable" | "settled">): RunListStatus {
+  if (entry.run.status === "draft") return { tone: "attention", label: "Awaiting preparation" };
   if (entry.run.status === "error") return { tone: "attention", label: "Needs attention" };
   // An output the app promised to book and could not is a real, unfixed
   // problem — it must never read as green "Finished", which is the whole point
