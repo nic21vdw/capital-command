@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { itemAccountId } from "@/lib/publisher/accounts";
 import type { PublishQueue } from "@/lib/publisher/queue";
 import type { MarketingCommandResult, PlatformId, QueueItem } from "@/lib/publisher/types";
 import { hasBufferDeliveryEvidence, hasDeliveryEvidence } from "./projection";
@@ -56,7 +57,11 @@ export class MarketingLedgerError extends Error {
   constructor(readonly code: "forbidden" | "not_found" | "conflict" | "invalid" | "unavailable", message: string) { super(message); }
 }
 export type LedgerBinding = { ownerId: string; allowedAccounts: Partial<Record<PlatformId, readonly string[]>> };
-export type ArtifactEvidence = { sha256: string; finalCaption: string; payloadSha256: string };
+export type ArtifactEvidence = {
+  sha256: string; finalCaption: string; payloadSha256: string;
+  /** Trusted, synchronous identity/stat check immediately before the locked transition. */
+  assertCurrent?: () => void;
+};
 export type OutcomeArgs = Command & { attemptId: string; outcome: "prepared" | "failed_before_send" | "uncertain" | "accepted" | "published"; postId?: string };
 export type LedgerPorts = {
   /** Trusted local bytes + final publisher payload verifier. Never operation-body evidence. */
@@ -65,6 +70,8 @@ export type LedgerPorts = {
   readback?(target: Target, attemptId: string, postId?: string): Promise<PlatformReadback | null>;
   /** Trusted processing worker attests it failed before any external send. A report alone is insufficient. */
   verifyPreSendFailure?(item: Readonly<QueueItem>, attemptId: string): Promise<boolean>;
+  /** Independent processing receipt proves preparation completed without an external send. */
+  verifyPreparation?(item: Readonly<QueueItem>, attemptId: string): Promise<boolean>;
   now?: () => Date;
 };
 export type ManagedJob = {
@@ -74,7 +81,6 @@ export type ManagedJob = {
   publishedUrl?: string; publishedUrlVerified: boolean; error?: { message: string; outcome: "failed" | "uncertain"; retryable: boolean };
 };
 const fail = (code: MarketingLedgerError["code"], message: string): never => { throw new MarketingLedgerError(code, message); };
-const accountOf = (item: QueueItem): string => item.accountId ?? "primary";
 const receiptLimit = 256;
 
 /** Durable operations over existing queue rows. There is deliberately no publish/enqueue/send operation. */
@@ -88,7 +94,7 @@ export class MarketingLedger {
   }
   private scoped(item: QueueItem, ownerId: string, allowUnmanaged = false): boolean {
     return (allowUnmanaged ? !item.marketing || item.marketing.ownerId === ownerId : item.marketing?.ownerId === ownerId) &&
-      Object.keys(item.platforms).length > 0 && (Object.keys(item.platforms) as PlatformId[]).every((platform) => this.binding.allowedAccounts[platform]?.includes(accountOf(item)));
+      Object.keys(item.platforms).length > 0 && (Object.keys(item.platforms) as PlatformId[]).every((platform) => this.binding.allowedAccounts[platform]?.includes(itemAccountId(item, platform)));
   }
   private require(rows: ReadonlyMap<string, QueueItem>, principal: Principal, id: string, allowUnmanaged = false): QueueItem {
     const item = rows.get(id);
@@ -104,7 +110,7 @@ export class MarketingLedger {
     if (!item.platforms[platform]) return fail("not_found", "Platform leg not found.");
     return { ownerId: this.binding.ownerId, jobId: item.id, revision: item.marketing!.revision,
       artifactSha256: evidence.sha256, payloadSha256: evidence.payloadSha256, caption: evidence.finalCaption,
-      platform, accountId: accountOf(item), visibility: item.visibility,
+      platform, accountId: itemAccountId(item, platform), visibility: item.visibility,
       audience: platform === "tiktok" ? item.tiktok?.privacyLevel ?? "inbox" : item.visibility,
       scheduledAt: new Date(item.publishAt).toISOString() };
   }
@@ -202,6 +208,7 @@ export class MarketingLedger {
       const current = this.target(item, args.target.platform, snapshot.evidence);
       const expected = options.allowChangedArtifact && item.marketing?.worker?.target ? item.marketing.worker.target : current;
       if (!sameTarget(args.target, expected)) return fail("conflict", "The exact artifact, final payload, account, time or revision changed.");
+      snapshot.evidence.assertCurrent?.();
       apply(item, current, rows);
       const value = this.finish(item, operation, args.commandId, requestHash);
       if (operation === "review") item.marketing!.review!.target.revision = value.revision;
@@ -239,7 +246,7 @@ export class MarketingLedger {
       for (const other of rows.values()) {
         if (other.id === item.id || other.marketing?.ownerId !== principal.ownerId) continue;
         const previous = other.marketing.worker;
-        if (previous && previous.target?.artifactSha256 === current.artifactSha256 && previous.target.platform === current.platform && previous.target.accountId === current.accountId && !["prepared", "failed_before_send"].includes(previous.state)) return fail("conflict", "This output/platform/account already has an active or uncertain attempt.");
+        if (previous && previous.target?.artifactSha256 === current.artifactSha256 && previous.target.platform === current.platform && !["prepared", "failed_before_send"].includes(previous.state)) return fail("conflict", "This output/platform already has an active or uncertain attempt, including on another account.");
       }
       item.marketing!.review = undefined;
       item.marketing!.worker = { attemptId: randomUUID(), fence: item.marketing!.revision + 1, state: "claimed", claimedAt: this.now().toISOString(), target: current };
@@ -248,19 +255,23 @@ export class MarketingLedger {
   async recordOutcome(principal: Principal, args: OutcomeArgs): Promise<MarketingCommandResult> {
     let proof: PlatformReadback | null = null;
     let failedBeforeSend = false;
+    let preparedWithoutSend = false;
     return this.command(principal, args, "record_outcome", "worker", { attemptId: args.attemptId, outcome: args.outcome, postId: args.postId }, (item, current) => {
       const worker = item.marketing!.worker;
       if (!worker || worker.attemptId !== args.attemptId || worker.target?.revision !== args.target.revision) return fail("conflict", "The worker attempt was fenced or superseded.");
       if (["prepared", "failed_before_send", "published"].includes(worker.state)) return fail("conflict", "This worker attempt is already terminal.");
+      if (worker.postId && args.postId && worker.postId !== args.postId) return fail("conflict", "The accepted provider receipt cannot be replaced by a worker report.");
+      if ((args.outcome === "prepared" || args.outcome === "failed_before_send") && worker.state !== "claimed") return fail("conflict", "An accepted or uncertain attempt requires independent reconciliation before any pre-send outcome.");
       item.marketing!.review = undefined;
       if (args.outcome === "prepared") {
+        if (!preparedWithoutSend) return fail("conflict", "Preparation requires a verified processing receipt with no external send.");
         worker.state = "prepared";
       } else if (args.outcome === "failed_before_send" && failedBeforeSend) worker.state = "failed_before_send";
       else {
-        const verdict = reconcileWorkerReport(principal, { ...args, outcome: args.outcome === "failed_before_send" ? "failed" : args.outcome }, args.target, proof, this.now(), worker.attemptId);
+        const verdict = reconcileWorkerReport(principal, { ...args, postId: args.postId ?? worker.postId, outcome: args.outcome === "failed_before_send" ? "failed" : args.outcome }, args.target, proof, this.now(), worker.attemptId);
         if (!verdict.ok) return fail("conflict", verdict.reason);
         worker.state = verdict.proposal.outcome;
-        worker.postId = verdict.proposal.postId;
+        worker.postId = verdict.proposal.postId ?? worker.postId;
         worker.publishedUrl = verdict.proposal.publishedUrl;
         worker.publishedUrlVerified = verdict.proposal.publishedUrlVerified;
       }
@@ -268,8 +279,11 @@ export class MarketingLedger {
       void current;
     }, { allowChangedArtifact: args.outcome === "prepared", before: async (item) => {
       if (!item.marketing?.worker || item.marketing.worker.attemptId !== args.attemptId || item.marketing.worker.target?.revision !== args.target.revision) return fail("conflict", "The worker attempt was fenced or superseded.");
+      if ((args.outcome === "prepared" || args.outcome === "failed_before_send") && item.marketing.worker.state !== "claimed") return fail("conflict", "An accepted or uncertain attempt requires independent reconciliation before any pre-send outcome.");
+      if (args.outcome === "prepared") preparedWithoutSend = await this.ports.verifyPreparation?.(item, args.attemptId) === true;
       if (args.outcome === "failed_before_send") failedBeforeSend = await this.ports.verifyPreSendFailure?.(item, args.attemptId) === true;
-      if (args.outcome === "accepted" || args.outcome === "published" || args.outcome === "uncertain") proof = await this.ports.readback?.(args.target, args.attemptId, args.postId) ?? null;
+      if (item.marketing.worker.postId && args.postId && item.marketing.worker.postId !== args.postId) return fail("conflict", "The accepted provider receipt cannot be replaced by a worker report.");
+      if (args.outcome === "accepted" || args.outcome === "published" || args.outcome === "uncertain") proof = await this.ports.readback?.(args.target, args.attemptId, args.postId ?? item.marketing.worker.postId) ?? null;
     } });
   }
 }

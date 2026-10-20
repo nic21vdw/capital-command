@@ -87,8 +87,8 @@ async function readLock(lockPath: string): Promise<LockReading | null> {
   }
 }
 
-function isStale(reading: LockReading, staleMs: number): boolean {
-  if (reading.record?.reclaimOnlyWhenDead) return !processAlive(reading.record.pid);
+function isStale(reading: LockReading, staleMs: number, reclaimLiveHolder = true): boolean {
+  if (reading.record && (reading.record.reclaimOnlyWhenDead || !reclaimLiveHolder)) return !processAlive(reading.record.pid);
   if (reading.ageMs > staleMs) return true;
   return reading.record !== null && !processAlive(reading.record.pid);
 }
@@ -102,7 +102,7 @@ export async function isLockHeld(target: string, staleMs = DEFAULT_LOCK_STALE_MS
   }
 }
 
-async function breakStale(lockPath: string, seen: LockReading, staleMs: number): Promise<void> {
+async function breakStale(lockPath: string, seen: LockReading, staleMs: number, reclaimLiveHolder = true): Promise<void> {
   const gatePath = `${lockPath}.break`;
   let gate;
   try {
@@ -117,7 +117,7 @@ async function breakStale(lockPath: string, seen: LockReading, staleMs: number):
   }
   try {
     const current = await readLock(lockPath).catch(() => null);
-    if (current && current.record?.token === seen.record?.token && isStale(current, staleMs)) {
+    if (current && current.record?.token === seen.record?.token && isStale(current, staleMs, reclaimLiveHolder)) {
       await unlink(lockPath).catch(() => undefined);
     }
   } finally {
@@ -162,8 +162,8 @@ async function acquire(target: string, options: FileLockOptions): Promise<HeldLo
     const reading = await readLock(lockPath).catch(() => null);
     const waitedMs = Date.now() - startedAt;
     if (waitedMs >= timeoutMs) throw new FileLockTimeoutError(target, reading?.record?.pid ?? null, waitedMs);
-    if (reading && isStale(reading, staleMs)) {
-      await breakStale(lockPath, reading, staleMs);
+    if (reading && isStale(reading, staleMs, options.reclaimLiveHolder)) {
+      await breakStale(lockPath, reading, staleMs, options.reclaimLiveHolder);
       await wait(Math.floor(Math.random() * retryMs));
       continue;
     }

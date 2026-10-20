@@ -40,6 +40,22 @@ async function fixture() {
 }
 
 describe("durable existing-queue marketing commands", () => {
+  it("resolves legacy primary accounts through the publisher's existing per-platform identity", async () => {
+    const f = await fixture();
+    const primary = testItem({ id: "primary-job", clipPath: f.artifact, platformIds: ["youtube", "tiktok"], accountId: undefined });
+    await f.queue.add(primary);
+    const ledger = new MarketingLedger(f.queue, {
+      ownerId: user.ownerId, allowedAccounts: { youtube: ["youtube-primary"], tiktok: ["tiktok-primary"] }
+    }, f.ports);
+    await ledger.adopt(user, { commandId: commandId(), jobId: primary.id, expectedFingerprint: fingerprintQueueItem(primary) });
+    expect((await ledger.read(user, primary.id, "youtube")).target.accountId).toBe("youtube-primary");
+    expect((await ledger.read(user, primary.id, "tiktok")).target.accountId).toBe("tiktok-primary");
+    const inventedPrimary = new MarketingLedger(f.queue, {
+      ownerId: user.ownerId, allowedAccounts: { youtube: ["primary"], tiktok: ["primary"] }
+    }, f.ports);
+    expect(await inventedPrimary.list(user)).toEqual([]);
+  });
+
   it("enrolls only an unchanged unsent scoped existing row and persists review without legacy release", async () => {
     const f = await fixture();
     expect(await f.enroll()).toMatchObject({ persisted: true, revision: 1, operation: "adopt" });
@@ -157,6 +173,19 @@ describe("durable existing-queue marketing commands", () => {
     expect(await f.ledger.review(user, { commandId: commandId(), target: current })).toMatchObject({ persisted: true, reviewed: true });
   });
 
+  it("rechecks trusted artifact identity inside the transaction before persisting review", async () => {
+    const f = await fixture(); await f.enroll();
+    const target = await f.target();
+    const original = f.ports.readArtifact;
+    const assertCurrent = vi.fn(() => { throw new Error("synthetic artifact replaced after hashing"); });
+    f.ports.readArtifact = async (row, platform) => ({ ...(await original(row, platform)), assertCurrent });
+    const before = await readFile(f.file, "utf8");
+    await expect(f.ledger.review(user, { commandId: commandId(), target })).rejects.toThrow("artifact replaced after hashing");
+    expect(assertCurrent).toHaveBeenCalledExactlyOnceWith();
+    expect(await readFile(f.file, "utf8")).toBe(before);
+    expect(f.item.marketing?.review).toBeUndefined();
+  });
+
   it("isolates owner, account and distinct worker scope, including receipt replay", async () => {
     const f = await fixture(); await f.enroll();
     const args = { commandId: commandId(), target: await f.target() };
@@ -180,8 +209,91 @@ describe("durable existing-queue marketing commands", () => {
 });
 
 describe("fenced processing outcomes without publication permission", () => {
+  it("retains an accepted receipt through uncertain reports and reuses it for independent reconciliation", async () => {
+    const f = await fixture(); await f.enroll();
+    const claim = await f.ledger.claim(worker, { commandId: commandId(), target: await f.target() });
+    f.ports.readback = async (target, attemptId) => ({
+      target, attemptId, postId: "synthetic-accepted-id", state: "accepted", observedAt: now.toISOString(),
+      visibility: target.visibility, audience: target.audience
+    });
+    await f.ledger.recordOutcome(worker, {
+      commandId: commandId(), target: await f.target(), attemptId: claim.attemptId!, outcome: "accepted"
+    });
+    const noProof = vi.fn(async () => null);
+    f.ports.readback = noProof;
+    const uncertainTarget = await f.target();
+    await f.restart().recordOutcome(worker, {
+      commandId: commandId(), target: uncertainTarget, attemptId: claim.attemptId!, outcome: "uncertain"
+    });
+    expect(noProof).toHaveBeenCalledWith(uncertainTarget, claim.attemptId, "synthetic-accepted-id");
+    const stored = JSON.parse(await readFile(f.file, "utf8")) as QueueItem[];
+    expect(stored[0].marketing?.worker).toMatchObject({ state: "uncertain", postId: "synthetic-accepted-id" });
+    await expect(f.restart().recordOutcome(worker, {
+      commandId: commandId(), target: await f.target(), attemptId: claim.attemptId!, outcome: "uncertain", postId: "different-id"
+    })).rejects.toMatchObject({ code: "conflict" });
+    f.ports.readback = async (target, attemptId, postId): Promise<PlatformReadback> => ({
+      target, attemptId, postId: postId!, state: "published", visibility: target.visibility, audience: target.audience,
+      observedAt: now.toISOString(), publishedUrl: `https://youtube.com/watch?v=${postId}`, publishedUrlPostId: postId!
+    });
+    await f.restart().recordOutcome(worker, {
+      commandId: commandId(), target: await f.target(), attemptId: claim.attemptId!, outcome: "uncertain"
+    });
+    expect(await f.restart().read(user, f.item.id, "youtube")).toMatchObject({ status: "published", publishedUrlVerified: true });
+  });
+
+  it.each([false, true])("blocks the same artifact/platform on another account, including tombstones (%s)", async (tombstone) => {
+    const f = await fixture(); await f.enroll();
+    const other = testItem({
+      id: "job-b", clipPath: f.artifact, accountId: "account-b", platformIds: ["youtube"],
+      publishAt: "2026-10-24T12:00:00.000Z", caption: "Exact final caption"
+    });
+    await f.queue.add(other);
+    const bothAccounts = new MarketingLedger(f.queue, {
+      ...binding, allowedAccounts: { youtube: ["account-a", "account-b"] }
+    }, f.ports);
+    await bothAccounts.adopt(user, { commandId: commandId(), jobId: other.id, expectedFingerprint: fingerprintQueueItem(other) });
+    const claim = await f.ledger.claim(worker, { commandId: commandId(), target: await f.target() });
+    await f.ledger.recordOutcome(worker, {
+      commandId: commandId(), target: await f.target(), attemptId: claim.attemptId!, outcome: "uncertain"
+    });
+    if (tombstone) await f.queue.remove(f.item.id);
+    const target = (await bothAccounts.read(user, other.id, "youtube")).target;
+    await expect(bothAccounts.claim(worker, { commandId: commandId(), target })).rejects.toMatchObject({ code: "conflict" });
+  });
+
+  it.each(["uncertain", "accepted"] as const)("never downgrades %s to prepared or a pre-send failure", async (state) => {
+    const f = await fixture(); await f.enroll();
+    f.ports.verifyPreSendFailure = async () => true;
+    f.ports.verifyPreparation = async () => true;
+    const claim = await f.ledger.claim(worker, { commandId: commandId(), target: await f.target() });
+    if (state === "accepted") f.ports.readback = async (target, attemptId) => ({
+      target, attemptId, postId: "synthetic-accepted-id", state: "accepted", observedAt: now.toISOString(),
+      visibility: target.visibility, audience: target.audience
+    });
+    await f.ledger.recordOutcome(worker, {
+      commandId: commandId(), target: await f.target(), attemptId: claim.attemptId!, outcome: "published"
+    });
+    expect((await f.ledger.read(user, f.item.id, "youtube")).status).toBe(state);
+    for (const outcome of ["prepared", "failed_before_send"] as const) {
+      await expect(f.ledger.recordOutcome(worker, {
+        commandId: commandId(), target: await f.target(), attemptId: claim.attemptId!, outcome
+      })).rejects.toMatchObject({ code: "conflict" });
+    }
+    await expect(f.ledger.claim(worker, { commandId: commandId(), target: await f.target() })).rejects.toMatchObject({ code: "conflict" });
+  });
+
+  it("requires independent preparation evidence before declaring a claimed attempt prepared", async () => {
+    const f = await fixture(); await f.enroll();
+    const claim = await f.ledger.claim(worker, { commandId: commandId(), target: await f.target() });
+    await expect(f.ledger.recordOutcome(worker, {
+      commandId: commandId(), target: await f.target(), attemptId: claim.attemptId!, outcome: "prepared"
+    })).rejects.toMatchObject({ code: "conflict" });
+    expect((await f.ledger.read(user, f.item.id, "youtube")).status).toBe("claimed");
+  });
+
   it("claims processing, verifies newly prepared bytes, persists outcome, then allows exact review", async () => {
     const f = await fixture(); await f.enroll();
+    f.ports.verifyPreparation = async () => true;
     await f.ledger.requestEdits(user, { commandId: commandId(), target: await f.target(), instructions: "Make a synthetic alternate ending" });
     expect((await f.ledger.read(user, f.item.id, "youtube")).status).toBe("edits_requested");
     const claim = await f.ledger.claim(worker, { commandId: commandId(), target: await f.target() });

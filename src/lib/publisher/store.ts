@@ -66,7 +66,7 @@ export class FileQueueStore implements QueueStore {
   }
 
   withLock<T>(work: () => Promise<T>): Promise<T> {
-    return withFileLock(this.filePath, work, { timeoutMs: QUEUE_LOCK_TIMEOUT_MS });
+    return withFileLock(this.filePath, work, { timeoutMs: QUEUE_LOCK_TIMEOUT_MS, reclaimLiveHolder: false });
   }
 
   withStrictLock<T>(work: () => Promise<T>): Promise<T> {
