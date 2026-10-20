@@ -24,6 +24,8 @@ export interface QueueStore {
   version?(): Promise<string | null>;
   /** Runs `work` while no other process can save, when the backend can lock. */
   withLock?<T>(work: () => Promise<T>): Promise<T>;
+  /** Same file lock, but its live holder cannot be evicted on an elapsed-time heuristic. */
+  withStrictLock?<T>(work: () => Promise<T>): Promise<T>;
 }
 
 export const QUEUE_LOCK_TIMEOUT_MS = DEFAULT_LOCK_STALE_MS + 15_000;
@@ -65,6 +67,10 @@ export class FileQueueStore implements QueueStore {
 
   withLock<T>(work: () => Promise<T>): Promise<T> {
     return withFileLock(this.filePath, work, { timeoutMs: QUEUE_LOCK_TIMEOUT_MS });
+  }
+
+  withStrictLock<T>(work: () => Promise<T>): Promise<T> {
+    return withFileLock(this.filePath, work, { timeoutMs: QUEUE_LOCK_TIMEOUT_MS, reclaimLiveHolder: false });
   }
 }
 

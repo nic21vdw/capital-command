@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { QueueItem } from "@/lib/publisher/types";
 import { deliveryBarrier, proposeEdit, proposeRetry, proposeReview, reconcileWorkerReport, type Command, type PlatformReadback, type Principal, type Target, type WorkerReport } from "./safety";
 
-const principal: Principal = { ownerId: "owner-a", scopes: ["read", "write", "review"] };
+const principal: Principal = { ownerId: "owner-a", scopes: ["read", "write", "review", "worker"] };
 const target: Target = {
   ownerId: "owner-a", jobId: "queue-a", revision: 7, artifactSha256: "a".repeat(64),
   payloadSha256: "c".repeat(64), caption: "Exact final caption #tag", platform: "youtube", accountId: "account-a",
@@ -89,6 +89,9 @@ describe("edit and retry safety", () => {
 });
 
 describe("worker outcome reconciliation", () => {
+  it("requires a worker scope distinct from user read/write/review permissions", () => {
+    expect(reconcileWorkerReport({ ...principal, scopes: ["read", "write", "review"] }, report, target, proof, now, report.attemptId).ok).toBe(false);
+  });
   it.each(["failed", "uncertain", "accepted", "published"] as const)("worker %s alone cannot prove publication", (outcome) => {
     expect(reconcileWorkerReport(principal, { ...report, outcome }, target, null, now, report.attemptId)).toMatchObject({
       ok: true, persisted: false, proposal: { outcome: "uncertain", publishedUrlVerified: false }

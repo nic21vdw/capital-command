@@ -7,12 +7,15 @@ export interface FileLockOptions {
   staleMs?: number;
   timeoutMs?: number;
   retryMs?: number;
+  /** Durable compare-and-set transactions must not lose a lock while their process is alive. */
+  reclaimLiveHolder?: boolean;
 }
 
 interface LockRecord {
   pid: number;
   token: string;
   acquiredAt: string;
+  reclaimOnlyWhenDead?: true;
 }
 
 interface LockReading {
@@ -70,7 +73,7 @@ async function readLock(lockPath: string): Promise<LockReading | null> {
       if (typeof parsed.pid === "number" && typeof parsed.token === "string") {
         const acquired = Date.parse(parsed.acquiredAt ?? "");
         return {
-          record: { pid: parsed.pid, token: parsed.token, acquiredAt: parsed.acquiredAt ?? "" },
+          record: { pid: parsed.pid, token: parsed.token, acquiredAt: parsed.acquiredAt ?? "", ...(parsed.reclaimOnlyWhenDead === true ? { reclaimOnlyWhenDead: true as const } : {}) },
           ageMs: Number.isFinite(acquired) ? Math.max(0, Date.now() - acquired) : fileAge
         };
       }
@@ -85,6 +88,7 @@ async function readLock(lockPath: string): Promise<LockReading | null> {
 }
 
 function isStale(reading: LockReading, staleMs: number): boolean {
+  if (reading.record?.reclaimOnlyWhenDead) return !processAlive(reading.record.pid);
   if (reading.ageMs > staleMs) return true;
   return reading.record !== null && !processAlive(reading.record.pid);
 }
@@ -122,7 +126,7 @@ async function breakStale(lockPath: string, seen: LockReading, staleMs: number):
   }
 }
 
-async function tryCreate(lockPath: string, token: string): Promise<boolean> {
+async function tryCreate(lockPath: string, token: string, reclaimLiveHolder = true): Promise<boolean> {
   let handle;
   try {
     handle = await open(lockPath, "wx");
@@ -132,7 +136,7 @@ async function tryCreate(lockPath: string, token: string): Promise<boolean> {
     throw error;
   }
   try {
-    const record: LockRecord = { pid: process.pid, token, acquiredAt: new Date().toISOString() };
+    const record: LockRecord = { pid: process.pid, token, acquiredAt: new Date().toISOString(), ...(!reclaimLiveHolder ? { reclaimOnlyWhenDead: true as const } : {}) };
     await handle.writeFile(JSON.stringify(record), "utf8");
   } catch (error) {
     await handle.close().catch(() => undefined);
@@ -153,7 +157,7 @@ async function acquire(target: string, options: FileLockOptions): Promise<HeldLo
 
   await mkdir(path.dirname(lockPath), { recursive: true });
   for (;;) {
-    if (await tryCreate(lockPath, token)) return { lockPath, token };
+    if (await tryCreate(lockPath, token, options.reclaimLiveHolder)) return { lockPath, token };
 
     const reading = await readLock(lockPath).catch(() => null);
     const waitedMs = Date.now() - startedAt;

@@ -1,7 +1,7 @@
 import type { PlatformId, QueueItem, Visibility } from "@/lib/publisher/types";
 import { hasBufferDeliveryEvidence, hasDeliveryEvidence } from "./projection";
 
-export type Principal = { ownerId: string; scopes: readonly ("read" | "write" | "review")[] };
+export type Principal = { ownerId: string; scopes: readonly ("read" | "write" | "review" | "worker")[] };
 export type Target = {
   ownerId: string;
   /** Existing authoritative queue/job id, not a new queue row. */
@@ -42,7 +42,7 @@ export function sameTarget(a: Target, b: Target): boolean {
     a.accountId === b.accountId && a.visibility === b.visibility && a.audience === b.audience && a.scheduledAt === b.scheduledAt;
 }
 
-function guard(principal: Principal, command: Command, current: Target, scope: "write" | "review"): string | undefined {
+function guard(principal: Principal, command: Command, current: Target, scope: "write" | "review" | "worker"): string | undefined {
   if (!principal.ownerId || principal.ownerId !== current.ownerId || command.target.ownerId !== principal.ownerId) return "Owner mismatch.";
   if (!principal.scopes.includes(scope)) return `Missing ${scope} scope.`;
   if (!/^[a-zA-Z0-9_-]{16,128}$/.test(command.commandId)) return "A durable command id is required.";
@@ -131,7 +131,7 @@ export function reconcileWorkerReport(
   /** Loaded atomically from the authoritative ledger, never taken from the report. */
   activeAttemptId: string
 ): Decision<{ kind: "worker_outcome"; commandId: string; target: Target; attemptId: string; outcome: "uncertain" | "accepted" | "published"; postId?: string; publishedUrl?: string; publishedUrlVerified: boolean }> {
-  const error = guard(principal, report, current, "write");
+  const error = guard(principal, report, current, "worker");
   if (error) return refused(error);
   if (!/^[a-zA-Z0-9_-]{16,128}$/.test(report.attemptId) || report.attemptId !== activeAttemptId) return refused("The current fenced attempt id is required.");
   const base = { kind: "worker_outcome" as const, commandId: report.commandId, target: { ...current }, attemptId: report.attemptId };
