@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { prepareClipExport, preparationSpecDigest, verifyPreparedClipExport, type ExportSpec, type PreparationExportBinding,
-  type PreparationExportCurrent, type PreparationExportProof } from "@/lib/clipping/export";
+  type PreparationArtifactRead, type PreparationExportCurrent, type PreparationExportProof } from "@/lib/clipping/export";
 import { renderSignature } from "@/lib/clipping/export-signature";
 import { clipProjectSchema } from "@/lib/storage/schemas";
 import type { ClipJob } from "@/lib/clipping/types";
@@ -56,6 +56,7 @@ export function createEditorPreparationWorker(options: {
   }
   const proofs = new Map<string, PreparationExportProof>();
   const inFlight = new Set<string>();
+  const streamReads = new Map<string, { key: string; artifact: PreparationArtifactRead }>();
   async function current(projectId: string, requestId: string, attemptId: string, phase: "claimed" | "prepared" = "claimed"):
     Promise<PreparationExportCurrent & { evidence?: { exportId: string; artifactSha256: string } }> {
     const record = binding.records.find((candidate) => candidate.projectId === projectId);
@@ -123,15 +124,37 @@ export function createEditorPreparationWorker(options: {
     },
     /** Protected media adapter only: resolves a persisted prepared attempt, even after restart. */
     readArtifact,
-    async readCurrentArtifact(projectId: string, requestId: string): Promise<PreparationExportProof> {
-      if (!binding.records.some((record) => record.projectId === projectId)) throw new Error("The editor project is outside the trusted render allowlist.");
-      const projects = (await options.store.read())?.clipProjects.filter((project) => project.id === projectId) ?? [];
-      const state = (projects.length === 1 ? projects[0] as ManagedProject : undefined)?.marketingEditor;
-      const intents = state?.exports.filter((intent) => intent.requestId === requestId) ?? [];
-      if (state?.ownerId !== binding.ownerId || intents.length !== 1 || intents[0].state !== "prepared" || !intents[0].attemptId) {
-        throw new Error("The current original editor artifact is not prepared for this owner and request.");
+    async readCurrentArtifact(projectId: string, requestId: string): Promise<PreparationArtifactRead> {
+      const cacheId = `${projectId}:${requestId}`;
+      try {
+        if (!binding.records.some((record) => record.projectId === projectId)) throw new Error("The editor project is outside the trusted render allowlist.");
+        const projects = (await options.store.read())?.clipProjects.filter((project) => project.id === projectId) ?? [];
+        const state = (projects.length === 1 ? projects[0] as ManagedProject : undefined)?.marketingEditor;
+        const intents = state?.exports.filter((intent) => intent.requestId === requestId) ?? [];
+        if (state?.ownerId !== binding.ownerId || intents.length !== 1 || intents[0].state !== "prepared" || !intents[0].attemptId) {
+          throw new Error("The current original editor artifact is not prepared for this owner and request.");
+        }
+        // Every hit re-reads original project/job/claim identity. Only streaming
+        // avoids repeated whole-media hashes, never render/approval verification.
+        const snapshot = await current(projectId, requestId, intents[0].attemptId, "prepared");
+        const key = canonical({ binding: snapshot.binding, evidence: snapshot.evidence });
+        const cached = streamReads.get(cacheId);
+        if (cached?.key === key) {
+          try {
+            cached.artifact.assertCurrent();
+            streamReads.delete(cacheId); streamReads.set(cacheId, cached);
+            return cached.artifact;
+          } catch { streamReads.delete(cacheId); }
+        }
+        const proof = await readArtifact(projectId, requestId, intents[0].attemptId);
+        const artifact = proof.streamingRead();
+        streamReads.delete(cacheId); streamReads.set(cacheId, { key, artifact });
+        if (streamReads.size > 128) streamReads.delete(streamReads.keys().next().value!);
+        return artifact;
+      } catch (error) {
+        streamReads.delete(cacheId);
+        throw error;
       }
-      return readArtifact(projectId, requestId, intents[0].attemptId);
     },
     async readPreparation(project: Readonly<ClipProject>, intent: Readonly<Intent>) {
       if (!intent.attemptId) return null;

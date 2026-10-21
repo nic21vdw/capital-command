@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { copyFile, lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { readSync } from "node:fs";
+import { copyFile, lstat, mkdir, readFile, readdir, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dataPath } from "@/lib/paths";
@@ -21,6 +22,10 @@ vi.mock("@/lib/publisher/enqueue", () => ({ maybeAutoEnqueueExport: spies.enqueu
 vi.mock("@/lib/clipping/ffmpeg", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/clipping/ffmpeg")>();
   return { ...actual, runFfmpeg: vi.fn(actual.runFfmpeg) };
+});
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, readSync: vi.fn(actual.readSync) };
 });
 
 const sha = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
@@ -260,7 +265,9 @@ it("bridges independent proof to EditorWorkerPorts and rejects a stale original 
   const evidence = await worker.readPreparation(managed, intent);
   expect(evidence).toMatchObject({ requestId: intent.requestId, attemptId: binding.attemptId, digest,
     artifactSha256: artifact.artifactSha256, renderSignature: binding.renderSignature });
+  vi.mocked(readSync).mockClear();
   evidence!.assertCurrent();
+  expect(vi.mocked(readSync).mock.calls.length).toBeGreaterThan(0); // Commit proof remains a full byte hash.
   await expect(worker.readArtifact(project.id, intent.requestId, intent.attemptId)).rejects.toThrow("claimed attempt changed");
   intent.state = "prepared"; intent.exportId = artifact.exportId; intent.artifactSha256 = artifact.artifactSha256;
   const restartedWorker = createEditorPreparationWorker(options);
@@ -269,12 +276,48 @@ it("bridges independent proof to EditorWorkerPorts and rejects a stale original 
   expect(media.attemptId).toBe(intent.attemptId);
   expect(media.artifactSha256).toBe(artifact.artifactSha256);
   media.assertCurrent();
+  vi.mocked(readSync).mockClear();
+  vi.mocked(runFfmpeg).mockClear();
+  const cached = await restartedWorker.readCurrentArtifact(project.id, intent.requestId);
+  cached.assertCurrent(); // The media adapter repeats this after descriptor open.
+  expect(cached).toBe(media);
+  expect(vi.mocked(readSync)).not.toHaveBeenCalled();
+  expect(vi.mocked(runFfmpeg)).not.toHaveBeenCalled();
+  expect(cached).not.toHaveProperty("verifyCurrent");
+  expect(cached).not.toHaveProperty("streamingRead");
   await expect(restartedWorker.readCurrentArtifact("foreign-project", intent.requestId)).rejects.toThrow("trusted render allowlist");
   const foreignOwner = createEditorPreparationWorker({ ...options, binding: { ...options.binding, ownerId: "foreign-owner" } });
   await expect(foreignOwner.readCurrentArtifact(project.id, intent.requestId)).rejects.toThrow("not prepared for this owner");
   intent.artifactSha256 = "0".repeat(64);
   await expect(restartedWorker.readArtifact(project.id, intent.requestId, intent.attemptId)).rejects.toThrow("artifact bytes changed");
   intent.artifactSha256 = artifact.artifactSha256;
+  await restartedWorker.readCurrentArtifact(project.id, intent.requestId);
+  const outputBytes = await readFile(artifact.file);
+  const outputStat = await stat(artifact.file);
+  const changedOutput = Buffer.from(outputBytes); changedOutput[Math.floor(changedOutput.length / 2)] ^= 1;
+  await writeFile(artifact.file, changedOutput);
+  await utimes(artifact.file, outputStat.atimeMs / 1000, outputStat.mtimeMs / 1000);
+  vi.mocked(readSync).mockClear();
+  await expect(restartedWorker.readCurrentArtifact(project.id, intent.requestId)).rejects.toThrow(/artifact bytes changed|media changed/);
+  expect(vi.mocked(readSync).mock.calls.length).toBeGreaterThan(0); // Changed stats force independent hashing.
+  await writeFile(artifact.file, outputBytes);
+  await restartedWorker.readCurrentArtifact(project.id, intent.requestId);
+  const sourceBytes = await readFile(source);
+  const sourceStat = await stat(source);
+  const changedSource = Buffer.from(sourceBytes); changedSource[Math.floor(changedSource.length / 2)] ^= 1;
+  await writeFile(source, changedSource);
+  await utimes(source, sourceStat.atimeMs / 1000, sourceStat.mtimeMs / 1000);
+  await expect(restartedWorker.readCurrentArtifact(project.id, intent.requestId)).rejects.toThrow("source bytes changed");
+  await writeFile(source, sourceBytes);
+  await restartedWorker.readCurrentArtifact(project.id, intent.requestId);
+  await rm(artifact.file);
+  await expect(restartedWorker.readCurrentArtifact(project.id, intent.requestId)).rejects.toMatchObject({ code: "ENOENT" });
+  await writeFile(artifact.file, outputBytes);
+  await restartedWorker.readCurrentArtifact(project.id, intent.requestId);
+  managed.marketingEditor.ownerId = "revoked-owner";
+  await expect(restartedWorker.readCurrentArtifact(project.id, intent.requestId)).rejects.toThrow("not prepared for this owner");
+  managed.marketingEditor.ownerId = binding.ownerId;
+  await restartedWorker.readCurrentArtifact(project.id, intent.requestId);
   managed.trimEnd = 1;
   await expect(restartedWorker.readCurrentArtifact(project.id, intent.requestId)).rejects.toThrow("revision or claimed attempt changed");
   await expect(worker.readPreparation(managed, intent)).rejects.toThrow("revision or claimed attempt changed");

@@ -417,11 +417,16 @@ export type PreparationExportBinding = {
   requestId: string; attemptId: string;
 };
 export type PreparationExportCurrent = { binding: PreparationExportBinding; spec: ExportSpec };
-export type PreparationExportProof = PreparationExportBinding & {
+/** Streaming-only identity guard; never accepted as an export-outcome proof. */
+export type PreparationArtifactRead = PreparationExportBinding & {
   exportId: string; file: string; durationSec: number; bytes: number; artifactSha256: string;
+  assertCurrent(): void;
+};
+export type PreparationExportProof = PreparationArtifactRead & {
   /** Rechecks current filesystem identity and bytes without yielding inside a store lock. */
   assertCurrent(): void;
   verifyCurrent(): Promise<void>;
+  streamingRead(): PreparationArtifactRead;
 };
 
 function canonicalPreparationJson(value: unknown): string {
@@ -462,11 +467,14 @@ function assertPreparationPath(target: string, allowMissing = false): void {
     }
   }
 }
-function preparationFileHash(file: string): { sha256: string; bytes: number; identity: string } {
+function preparationFileIdentity(file: string): { bytes: number; identity: string } {
   assertPreparationPath(file);
-  const before = lstatSync(file, { bigint: true });
-  if (!before.isFile() || before.nlink !== 1n) throw new Error("Preparation requires an independent regular media file.");
-  const identity = (s: typeof before) => `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`;
+  const info = lstatSync(file, { bigint: true });
+  if (!info.isFile() || info.nlink !== 1n) throw new Error("Preparation requires an independent regular media file.");
+  return { bytes: Number(info.size), identity: `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}` };
+}
+function preparationFileHash(file: string): { sha256: string; bytes: number; identity: string } {
+  const before = preparationFileIdentity(file);
   const fd = openSync(file, "r");
   const hash = createHash("sha256");
   try {
@@ -474,9 +482,8 @@ function preparationFileHash(file: string): { sha256: string; bytes: number; ide
     let count: number;
     while ((count = readSync(fd, chunk, 0, chunk.length, null)) > 0) hash.update(chunk.subarray(0, count));
   } finally { closeSync(fd); }
-  assertPreparationPath(file);
-  if (identity(before) !== identity(lstatSync(file, { bigint: true }))) throw new Error("Preparation media changed while being verified.");
-  return { sha256: hash.digest("hex"), bytes: Number(before.size), identity: identity(before) };
+  if (before.identity !== preparationFileIdentity(file).identity) throw new Error("Preparation media changed while being verified.");
+  return { sha256: hash.digest("hex"), ...before };
 }
 
 async function probePreparationMedia(file: string) {
@@ -561,8 +568,18 @@ async function readPreparationProof(context: Awaited<ReturnType<typeof preparati
   };
   const verifyCurrent = async () => { await checkCurrent(); assertCurrent(); };
   await verifyCurrent();
-  return Object.freeze({ ...binding, exportId: `preparation-${binding.attemptId}`, file, durationSec,
-    bytes: output.bytes, artifactSha256: output.sha256, assertCurrent, verifyCurrent });
+  const artifact = { ...binding, exportId: `preparation-${binding.attemptId}`, file, durationSec,
+    bytes: output.bytes, artifactSha256: output.sha256 };
+  const streamingRead = (): PreparationArtifactRead => {
+    const assertStreamingCurrent = () => {
+      assertRoot();
+      if (preparationFileIdentity(sourcePath).identity !== source.identity
+        || preparationFileIdentity(file).identity !== output.identity) throw new Error("The streaming preparation media identity changed.");
+    };
+    assertStreamingCurrent();
+    return Object.freeze({ ...artifact, assertCurrent: assertStreamingCurrent });
+  };
+  return Object.freeze({ ...artifact, assertCurrent, verifyCurrent, streamingRead });
 }
 
 /** Read-only proof recovery, bound to the hash committed by the trusted worker. */
