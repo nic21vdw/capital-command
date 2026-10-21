@@ -7,7 +7,8 @@ import { readExistingAppData, mutateExistingClipProject } from "@/lib/storage/st
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { AppData, ClipProject } from "@/types/domain";
 import type { Principal } from "./safety";
-import { ManagedEditorDeletedError, canonicalEditorJson, currentEditorState, editorDigest, editorProjectDigest, editorRenderSignature } from "./editor-state";
+import { ManagedEditorDeletedError, canonicalEditorJson, currentEditorState, editorDigest, editorProjectDigest, editorRenderSignature,
+  invalidateEditorExportIntent } from "./editor-state";
 import { editorTargetSchema, type EditorBinding, type EditorCommandResult, type EditorExportIntent,
   type EditorRecordBinding, type EditorReceipt, type EditorSnapshot, type EditorTarget,
   type MarketingEditorState, type RequestEditorExportCommand, type SaveEditorCommand, type DeleteEditorCommand,
@@ -121,6 +122,13 @@ function publicProject(project: ClipProject): ClipProject {
 }
 const equal = (a: unknown, b: unknown): boolean => canonicalEditorJson(a) === canonicalEditorJson(b);
 const sameTarget = (a: EditorTarget, b: EditorTarget): boolean => equal(a, b);
+const receiptOnly = (operation: AnyCommand["operation"]): boolean => ["cancel_editor_export", "reconcile_editor_export", "settle_editor_export_cancellation"].includes(operation);
+const workerOperation = (operation: AnyCommand["operation"]): boolean => ["claim_editor_export", "record_editor_export_outcome", "settle_editor_export_cancellation"].includes(operation);
+function exactIntent(state: MarketingEditorState, requestId: string, attemptId?: string): EditorExportIntent {
+  const intents = state.exports.filter((intent) => intent.requestId === requestId);
+  if (intents.length !== 1 || intents[0].attemptId !== attemptId) return fail("conflict", "The original export request or attempt changed.");
+  return intents[0];
+}
 function stateTarget(project: ClipProject, binding: EditorRecordBinding, state: MarketingEditorState): EditorTarget {
   return { projectId: project.id, jobId: binding.jobId, clipId: binding.clipId,
     revision: state.revision, digest: state.digest, renderSignature: state.renderSignature };
@@ -224,7 +232,8 @@ export class MarketingEditor {
         ...(isEditorMediaFileName(project.posterFile) ? { poster: { jobId: record.jobId, fileName: project.posterFile } } : {}),
         ...(isEditorMediaFileName(clip.editedFile) ? { edited: { jobId: record.jobId, fileName: clip.editedFile,
           renderSignature: typeof clip.editedSignature === "string" && /^[a-z0-9]{1,64}$/.test(clip.editedSignature) ? clip.editedSignature : undefined, current } } : {}) },
-      export: latest ? { state: latest.state, requestId: latest.requestId } : { state: "not_requested" },
+      export: latest ? { state: latest.state, requestId: latest.requestId,
+        ...(latest.attemptId ? { attemptId: latest.attemptId } : {}) } : { state: "not_requested" },
       requiresAssetConnection: project.overlays.some((overlay) => overlay.kind === "text" ? Boolean(overlay.src) : !storedImageRef(overlay.src))
         || Boolean(project.audio.musicSrc),
       capabilities: { save: principal.scopes.includes("write"), deleteProject: principal.scopes.includes("write"), requestExport: principal.scopes.includes("write"), dispatchExport: false },
@@ -268,10 +277,13 @@ export class MarketingEditor {
       : input?.operation === "delete_editor_project" ? deleteEditorCommandSchema
       : input?.operation === "request_editor_export" ? requestEditorExportCommandSchema
       : input?.operation === "claim_editor_export" ? claimEditorExportCommandSchema
+      : input?.operation === "cancel_editor_export" ? cancelEditorExportCommandSchema
+      : input?.operation === "reconcile_editor_export" ? reconcileEditorExportCommandSchema
+      : input?.operation === "settle_editor_export_cancellation" ? settleEditorExportCancellationCommandSchema
       : input?.operation === "record_editor_export_outcome" ? recordEditorExportOutcomeSchema : null;
     if (!schema) return fail("invalid", "The editor command is invalid or incomplete.");
     const command = this.parsed(schema as z.ZodType<AnyEditorCommand>, input);
-    const scope = command.operation === "claim_editor_export" || command.operation === "record_editor_export_outcome" ? "worker" : "write";
+    const scope = workerOperation(command.operation) ? "worker" : "write";
     const record = this.authorize(principal, command.target.projectId, scope);
     const matches = (await this.store.read())?.clipProjects.filter((project) => project.id === record.projectId) ?? [];
     if (matches.length > 1) return fail("conflict", "The original editor receipt record is not unique.");
@@ -284,6 +296,7 @@ export class MarketingEditor {
     const prior = state.receipts.find((entry) => entry.result.commandId === command.commandId);
     if (!prior) return null;
     if (prior.payloadSha256 !== editorDigest(command)) return fail("conflict", "The command UUID was already used for a different editor action.");
+    if (receiptOnly(command.operation)) return { receipt: prior.result, replayed: true, snapshot: null, reconciliation: { state: "refresh_required" } };
     if (state.deletedAt) return { receipt: prior.result, replayed: true, snapshot: null, reconciliation: { state: "deleted" } };
     try {
       const { job, clip } = await this.original(record);
@@ -320,7 +333,8 @@ export class MarketingEditor {
       receipt = { commandId: command.commandId, operation: command.operation,
         revision: next.state.revision, digest: next.state.digest, renderSignature: next.state.renderSignature,
         ...(next.intent ? { requestId: next.intent.requestId, state: next.intent.state,
-          ...(next.intent.attemptId ? { attemptId: next.intent.attemptId } : {}) } : {}),
+          ...(next.intent.attemptId ? { attemptId: next.intent.attemptId } : {}),
+          ...(next.intent.cancellation ? { cancelCommandId: next.intent.cancellation.commandId } : {}) } : {}),
         reviewInvalidated: true, publicationAuthorized: false };
       next.state.receipts.push({ payloadSha256, result: receipt });
       return { ...next.project, marketingEditor: next.state, renderSignature: next.state.renderSignature, captionCount: next.project.captions.length };
@@ -332,6 +346,7 @@ export class MarketingEditor {
       if (replay) return replay;
       return fail("not_found", "The original editor project was deleted.");
     }
+    if (receiptOnly(command.operation)) return { receipt, replayed, snapshot: null, reconciliation: { state: "refresh_required" } };
     if (saved.marketingEditor?.deletedAt) return { receipt, replayed, snapshot: null, reconciliation: { state: "deleted" } };
     // The response uses the same original source cache read before mutation;
     // publication readiness still requires independent current-byte proof.
@@ -348,7 +363,7 @@ export class MarketingEditor {
       if (next.revision === state.revision) {
         if (next.revision >= Number.MAX_SAFE_INTEGER) return fail("unavailable", "The editor revision requires reconciliation.");
         next.revision += 1;
-        next.exports = next.exports.map((intent) => ({ ...intent, state: "stale" }));
+        next.exports = next.exports.map(invalidateEditorExportIntent);
       }
       return { project: edited, state: next };
     });
@@ -358,14 +373,31 @@ export class MarketingEditor {
     this.authorize(principal, command.target.projectId, "write");
     const replay = await this.replay(principal, command);
     if (replay) return replay;
+    const superseded = command.supersedesRequestId ? await this.readIntent(principal, command.target, command.supersedesRequestId, "write") : null;
+    if (superseded && (superseded.intent.state !== "uncertain" || !superseded.intent.reconciliation || superseded.intent.supersededByRequestId)) {
+      return fail("conflict", "Only one explicitly reconciled uncertain request can be superseded.");
+    }
+    const inspection = superseded ? await this.inspect(superseded.project, superseded.intent) : null;
+    if (superseded && !inspection) return fail("unavailable", "A trusted current worker inspection is required before an explicit restart request.");
+    if (inspection?.status === "active") return fail("conflict", "The previous attempt is still owned by an active worker.");
     const assets = await this.exportAssets(command.target);
     return this.transact(principal, command, (project, state) => {
-      if (state.exports.some((intent) => ["pending_dispatch", "claimed", "uncertain"].includes(intent.state))) fail("conflict", "An export is pending, claimed, or uncertain and must be reconciled before another request.");
+      if (superseded) {
+        const previous = exactIntent(state, superseded.intent.requestId, superseded.intent.attemptId);
+        if (!equal(previous, superseded.intent) || previous.state !== "uncertain" || !previous.reconciliation || previous.supersededByRequestId) {
+          return fail("conflict", "The previous reconciled export request changed.");
+        }
+        inspection!.assertCurrent();
+      }
+      if (state.exports.some((intent) => ["pending_dispatch", "claimed", "cancel_requested", "uncertain"].includes(intent.state)
+        && !intent.supersededByRequestId && intent.requestId !== command.supersedesRequestId)) fail("conflict", "An export is pending, claimed, or uncertain and must be reconciled before another request.");
       if (state.exports.length >= 256) fail("unavailable", "The editor export history is full and requires reconciliation.");
       const intent: EditorExportIntent = { requestId: command.commandId, revision: state.revision,
         digest: state.digest, renderSignature: state.renderSignature, state: "pending_dispatch",
+        ...(command.supersedesRequestId ? { supersedesRequestId: command.supersedesRequestId } : {}),
         ...(assets.length ? { overlayAssets: this.assetIdentities(assets) } : {}) };
       assets.forEach((asset) => asset.assertCurrentFile());
+      if (superseded) exactIntent(state, superseded.intent.requestId, superseded.intent.attemptId).supersededByRequestId = intent.requestId;
       state.exports.push(intent);
       return { project, state, intent };
     });
@@ -388,19 +420,87 @@ export class MarketingEditor {
       return { project, state };
     }, "write", false);
   }
+  /** Persist the fence only. The owner may invoke its exact abort port AFTER this returns. */
+  async cancelExport(principal: Principal, input: CancelEditorExportCommand): Promise<EditorCommandResult> {
+    const command = this.parsed(cancelEditorExportCommandSchema, input);
+    const replay = await this.replay(principal, command);
+    if (replay) return replay;
+    const { intent } = await this.readIntent(principal, command.target, command.requestId, "write");
+    if (intent.attemptId !== command.attemptId) return fail("conflict", "The original export attempt changed.");
+    return this.transact(principal, command, (project, state) => {
+      const active = exactIntent(state, command.requestId, command.attemptId);
+      if (["prepared", "failed_before_dispatch", "canceled"].includes(active.state)) return { project, state, intent: active };
+      if (!["pending_dispatch", "claimed", "cancel_requested"].includes(active.state)) return fail("conflict", "This export requires explicit reconciliation before cancellation.");
+      if (active.state === "pending_dispatch" && active.attemptId) return fail("conflict", "The pending export already has an attempt.");
+      if (active.state !== "pending_dispatch" && !active.attemptId) return fail("conflict", "The claimed export attempt is incomplete.");
+      active.cancellation ??= { commandId: command.commandId, requestedAt: new Date().toISOString() };
+      active.state = active.state === "pending_dispatch" ? "canceled" : "cancel_requested";
+      return { project, state, intent: active };
+    }, "write", false);
+  }
+  /** Explicit observation only: never starts, resumes, requeues or reuses an attempt. */
+  async reconcileExport(principal: Principal, input: ReconcileEditorExportCommand): Promise<EditorCommandResult> {
+    const command = this.parsed(reconcileEditorExportCommandSchema, input);
+    const replay = await this.replay(principal, command);
+    if (replay) return replay;
+    const before = await this.readIntent(principal, command.target, command.requestId, "write");
+    if (before.intent.attemptId !== command.attemptId) return fail("conflict", "The original export attempt changed.");
+    const needsInspection = ["claimed", "cancel_requested", "uncertain"].includes(before.intent.state);
+    const evidence = ["cancel_requested", "uncertain"].includes(before.intent.state) && before.intent.cancellation && !before.intent.supersededByRequestId
+      ? await this.cancellationEvidence(before.project, before.intent) : null;
+    const inspection = needsInspection && !evidence ? await this.inspect(before.project, before.intent) : null;
+    return this.transact(principal, command, (project, state) => {
+      const active = exactIntent(state, command.requestId, command.attemptId);
+      if (!equal(active, before.intent)) return fail("conflict", "The export changed during explicit reconciliation.");
+      if (needsInspection) {
+        if (evidence) { evidence.assertCurrent(); active.state = "canceled"; }
+        else if (inspection?.status !== "active") {
+          inspection?.assertCurrent();
+          active.state = "uncertain";
+          active.reconciliation = { commandId: command.commandId, reconciledAt: new Date().toISOString(), reason: "unconfirmed_attempt" };
+        } else inspection.assertCurrent();
+      }
+      return { project, state, intent: active };
+    }, "write", false);
+  }
+  /** Worker-only: a client cannot supply a successful stop or an epoch. */
+  async settleExportCancellation(principal: Principal, input: SettleEditorExportCancellationCommand): Promise<EditorCommandResult> {
+    const command = this.parsed(settleEditorExportCancellationCommandSchema, input);
+    const replay = await this.replay(principal, command);
+    if (replay) return replay;
+    const before = await this.readIntent(principal, command.target, command.requestId, "worker");
+    if (before.intent.attemptId !== command.attemptId || before.intent.cancellation?.commandId !== command.cancelCommandId) {
+      return fail("conflict", "The persisted cancellation fence does not match this attempt.");
+    }
+    const maySettle = ["cancel_requested", "uncertain"].includes(before.intent.state) && !before.intent.supersededByRequestId;
+    const evidence = maySettle ? await this.cancellationEvidence(before.project, before.intent) : null;
+    const inspection = maySettle && !evidence ? await this.inspect(before.project, before.intent) : null;
+    return this.transact(principal, command, (project, state) => {
+      const active = exactIntent(state, command.requestId, command.attemptId);
+      if (!equal(active, before.intent)) return fail("conflict", "The export cancellation changed before settlement.");
+      if (maySettle) {
+        if (evidence) { evidence.assertCurrent(); active.state = "canceled"; }
+        else { inspection?.assertCurrent(); if (inspection?.status !== "active") active.state = "uncertain"; }
+      }
+      return { project, state, intent: active };
+    }, "worker", false);
+  }
   async claimExport(principal: Principal, input: ClaimEditorExportCommand): Promise<EditorCommandResult & { attemptId: string }> {
     const command = this.parsed(claimEditorExportCommandSchema, input);
     this.authorize(principal, command.target.projectId, "worker");
     const replay = await this.replay(principal, command);
     if (!replay && !this.worker) return fail("unavailable", "No preparation-only renderer is bound. The explicit export intent remains pending.");
     if (!replay) this.worker!.assertPreparationOnly();
+    const workerEpoch = replay ? undefined : this.worker?.getWorkerEpoch?.();
+    if (!replay && !z.string().uuid().safeParse(workerEpoch).success) return fail("unavailable", "A trusted owning-process epoch is required to claim this export.");
     const assets = replay ? [] : await this.exportAssets(command.target);
     const result = replay ?? await this.transact(principal, command, (project, state) => {
       const intent = state.exports.find((candidate) => candidate.requestId === command.requestId);
       if (!intent || intent.state !== "pending_dispatch" || intent.digest !== state.digest || intent.revision !== state.revision) return fail("conflict", "The export request is not pending for this exact editor revision.");
       if (!equal(intent.overlayAssets ?? [], this.assetIdentities(assets))) return fail("conflict", "The requested image bytes changed before this export was claimed.");
+      if (this.worker!.getWorkerEpoch?.() !== workerEpoch) return fail("conflict", "The trusted worker epoch changed before its claim committed.");
       assets.forEach((asset) => asset.assertCurrentFile());
-      intent.state = "claimed"; intent.attemptId = randomUUID();
+      intent.state = "claimed"; intent.attemptId = randomUUID(); intent.workerEpoch = workerEpoch;
       return { project, state, intent };
     }, "worker");
     const attemptId = result.receipt.attemptId ?? (await this.store.read())?.clipProjects
@@ -436,6 +536,40 @@ export class MarketingEditor {
       if (evidence) { active.artifactSha256 = evidence.artifactSha256; active.exportId = evidence.exportId; }
       return { project: current, state, intent: active };
     }, "worker");
+  }
+  private async readIntent(principal: Principal, target: EditorTarget, requestId: string, scope: "write" | "worker") {
+    const record = this.authorize(principal, target.projectId, scope);
+    const matches = (await this.store.read())?.clipProjects.filter((project) => project.id === record.projectId) ?? [];
+    if (!matches.length) return fail("not_found", "The original editor project was not found.");
+    if (matches.length !== 1) return fail("conflict", "The original editor project is not unique.");
+    const project = structuredClone(matches[0]);
+    const state = this.state(project, record);
+    if (!sameTarget(target, stateTarget(project, record, state))) return fail("conflict", "The editor revision or content changed.");
+    const intents = state.exports.filter((intent) => intent.requestId === requestId);
+    if (intents.length !== 1) return fail("conflict", "The original export request is missing or ambiguous.");
+    return { project: { ...project, marketingEditor: state }, intent: intents[0] };
+  }
+  private async inspect(project: ClipProject, intent: EditorExportIntent): Promise<EditorAttemptInspection | null> {
+    if (!this.worker?.inspectAttempt) return null;
+    this.worker.assertPreparationOnly();
+    const inspection = await this.worker.inspectAttempt(project, intent);
+    if (!inspection || !z.string().uuid().safeParse(inspection.workerEpoch).success
+      || inspection.workerEpoch !== this.worker.getWorkerEpoch?.() || typeof inspection.assertCurrent !== "function"
+      || !["active", "settled", "missing", "prior_epoch"].includes(inspection.status)
+      || (["active", "settled"].includes(inspection.status) && (!intent.attemptId || inspection.workerEpoch !== intent.workerEpoch))
+      || (inspection.status === "prior_epoch" && inspection.workerEpoch === intent.workerEpoch)) {
+      return fail("conflict", "Trusted worker inspection does not match this attempt.");
+    }
+    return inspection;
+  }
+  private async cancellationEvidence(project: ClipProject, intent: EditorExportIntent): Promise<EditorCancellationSettlement | null> {
+    this.worker?.assertPreparationOnly();
+    const evidence = await this.worker?.readCancellationSettlement?.(project, intent) ?? null;
+    if (evidence && (!intent.workerEpoch || evidence.workerEpoch !== intent.workerEpoch
+      || evidence.workerEpoch !== this.worker?.getWorkerEpoch?.() || evidence.requestId !== intent.requestId
+      || evidence.attemptId !== intent.attemptId || evidence.cancelCommandId !== intent.cancellation?.commandId
+      || evidence.settled !== true || typeof evidence.assertCurrent !== "function")) return fail("conflict", "Trusted cancellation settlement does not match the exact persisted fence.");
+    return evidence;
   }
   private assetIdentities(assets: readonly StoredEditorOverlayAsset[]): EditorOverlayAssetIdentity[] {
     return assets.map(({ overlayId, src, sha256, format, byteLength, width, height }) => ({ overlayId, src, sha256, format, byteLength, width, height }));

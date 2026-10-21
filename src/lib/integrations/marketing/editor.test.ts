@@ -14,6 +14,7 @@ let api: typeof import("./editor");
 let store: typeof import("@/lib/storage/store");
 const owner: Principal = { ownerId: "fixture-owner", scopes: ["read", "write", "review"] };
 const worker: Principal = { ownerId: "fixture-owner", scopes: ["worker"] };
+const workerEpoch = "11111111-1111-4111-8111-111111111111";
 const binding = { ownerId: "fixture-owner", records: [{ projectId: "project-1", jobId: "job-1", clipId: "clip-1", sourceFile: "master.mp4" }] };
 const documentFile = () => path.join(root, "capital-command.json");
 const jobsFile = () => path.join(root, "clips", "jobs.json");
@@ -159,7 +160,7 @@ describe("scoped editor project deletion", () => {
   it("keeps original jobs/files unchanged, stales a claimed intent, and refuses late worker proof", async () => {
     await fixture();
     const assertCurrent = vi.fn();
-    const ports = { assertPreparationOnly: vi.fn(), readPreparation: vi.fn(async () => null as import("./editor").EditorPreparationEvidence | null) };
+    const ports = { getWorkerEpoch: () => workerEpoch, assertPreparationOnly: vi.fn(), readPreparation: vi.fn(async () => null as import("./editor").EditorPreparationEvidence | null) };
     const editor = new api.MarketingEditor({ binding, worker: ports });
     const snapshot = await editor.load(owner, "project-1");
     const pending = await editor.requestExport(owner, request(snapshot));
@@ -409,7 +410,7 @@ describe("original editor project integration", () => {
 describe("explicit export preparation contract", () => {
   it("replays a durable worker claim after deletion without rebinding a renderer or reading the source", async () => {
     const { editor: original } = await fixture();
-    const ports = { assertPreparationOnly: vi.fn(), readPreparation: vi.fn(async () => null) };
+    const ports = { getWorkerEpoch: () => workerEpoch, assertPreparationOnly: vi.fn(), readPreparation: vi.fn(async () => null) };
     const editor = new api.MarketingEditor({ binding, worker: ports });
     const pending = await editor.requestExport(owner, request(await original.load(owner, "project-1")));
     const command = { operation: "claim_editor_export" as const, commandId: randomUUID(),
@@ -442,7 +443,7 @@ describe("explicit export preparation contract", () => {
   it("requires separately bound worker authority and independent exact-attempt preparation proof", async () => {
     await fixture();
     const assertCurrent = vi.fn();
-    const ports = { assertPreparationOnly: vi.fn(), readPreparation: vi.fn(async () => null as import("./editor").EditorPreparationEvidence | null) };
+    const ports = { getWorkerEpoch: () => workerEpoch, assertPreparationOnly: vi.fn(), readPreparation: vi.fn(async () => null as import("./editor").EditorPreparationEvidence | null) };
     const editor = new api.MarketingEditor({ binding, worker: ports });
     const pending = await editor.requestExport(owner, request(await editor.load(owner, "project-1")));
     const claim = { operation: "claim_editor_export" as const, commandId: randomUUID(), target: pending.snapshot!.target, requestId: pending.receipt.requestId! };
@@ -466,7 +467,7 @@ describe("explicit export preparation contract", () => {
 
   it("refuses stale worker outcomes after a caption edit and never treats a client report as proof", async () => {
     await fixture();
-    const ports = { assertPreparationOnly: vi.fn(), readPreparation: vi.fn(async () => null) };
+    const ports = { getWorkerEpoch: () => workerEpoch, assertPreparationOnly: vi.fn(), readPreparation: vi.fn(async () => null) };
     const editor = new api.MarketingEditor({ binding, worker: ports });
     const pending = await editor.requestExport(owner, request(await editor.load(owner, "project-1")));
     const claimed = await editor.claimExport(worker, { operation: "claim_editor_export", commandId: randomUUID(),

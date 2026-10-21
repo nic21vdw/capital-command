@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { renderSignature } from "@/lib/clipping/export-signature";
 import type { AppData, ClipProject } from "@/types/domain";
-import type { MarketingEditorState } from "./editor-types";
+import type { EditorExportIntent, MarketingEditorState } from "./editor-types";
 
 export function canonicalEditorJson(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
@@ -26,6 +26,10 @@ export class ManagedEditorWriteConflictError extends Error {
 export class ManagedEditorDeletedError extends Error {
   constructor() { super("This clip project was deleted. Its command receipts are retained, and it cannot be saved again."); this.name = "ManagedEditorDeletedError"; }
 }
+/** Editing cannot turn an unconfirmed stop into permission to start new work. */
+export function invalidateEditorExportIntent(intent: EditorExportIntent): EditorExportIntent {
+  return { ...intent, state: ["cancel_requested", "canceled", "uncertain"].includes(intent.state) ? intent.state : "stale" };
+}
 /** Pure: reads may report legacy edits without writing a repair. */
 export function currentEditorState(project: ClipProject, previous: MarketingEditorState): MarketingEditorState {
   const digest = editorProjectDigest(project);
@@ -33,7 +37,7 @@ export function currentEditorState(project: ClipProject, previous: MarketingEdit
   if (digest === previous.digest && signature === previous.renderSignature) return structuredClone(previous);
   if (previous.revision >= Number.MAX_SAFE_INTEGER) throw new Error("Editor revision exhausted.");
   return { ...structuredClone(previous), revision: previous.revision + 1, digest, renderSignature: signature,
-    exports: previous.exports.map((intent) => ({ ...intent, state: "stale" })) };
+    exports: previous.exports.map(invalidateEditorExportIntent) };
 }
 
 /**
