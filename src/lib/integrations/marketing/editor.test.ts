@@ -351,16 +351,19 @@ describe("original editor project integration", () => {
     expect(result.snapshot!.cachedCaptions.captions).toHaveLength(1);
   });
 
-  it("redacts legacy internal asset references and preserves them while saving audio-level edits", async () => {
+  it("redacts unsupported legacy audio references and refuses edits without changing the original record", async () => {
     const { editor, data } = await fixture();
     data.clipProjects[0].audio.musicSrc = "C:\\fixture-private\\original.wav";
     data.clipProjects[0].audio.musicName = "C:\\fixture-private\\original.wav";
     await writeFile(documentFile(), JSON.stringify(data));
     const initial = await editor.load(owner, "project-1");
     expect(JSON.stringify(initial)).not.toContain("fixture-private");
-    await editor.save(owner, save(initial, { audio: { ...initial.project.audio, clipVolume: 1.2 } }));
+    expect(initial.requiresAssetConnection).toBe(true);
+    const before = await readFile(documentFile(), "utf8");
+    await expect(editor.save(owner, save(initial, { audio: { ...initial.project.audio, clipVolume: 1.2 } }))).rejects.toMatchObject({ code: "unavailable" });
+    expect(await readFile(documentFile(), "utf8")).toBe(before);
     const saved = (await disk()).clipProjects[0];
-    expect(saved.audio.clipVolume).toBe(1.2);
+    expect(saved.audio.clipVolume).toBe(data.clipProjects[0].audio.clipVolume);
     expect(saved.audio.musicSrc).toBe(data.clipProjects[0].audio.musicSrc);
     expect(saved.audio.musicName).toBe(data.clipProjects[0].audio.musicName);
   });

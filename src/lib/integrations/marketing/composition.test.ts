@@ -18,7 +18,7 @@ afterEach(() => { dispose?.(); dispose = undefined; vi.unstubAllEnvs(); vi.unstu
 
 async function fixture(realRender = false, imageFormat?: "png" | "jpeg" | "webp", controls?: {
   worker: import("./editor").EditorWorkerPorts; cancellation: import("./composition").EditorCancellationControl;
-}) {
+}, music?: { enabled: boolean; omitResolver?: boolean; unsupported?: boolean }) {
   const { clipProjectSchema, appDataSchema } = await import("@/lib/storage/schemas");
   const { emptyData } = await import("@/lib/mockData/seed");
   const project = clipProjectSchema.parse({ id: "project-a", name: "Synthetic corrected clip", jobId: "job-a", sourceFile: "master.mp4",
@@ -30,6 +30,17 @@ async function fixture(realRender = false, imageFormat?: "png" | "jpeg" | "webp"
     project.baseWidth = 160; project.baseHeight = 90; project.compositionMode = "fit";
     project.captions = [{ id: "caption-a", start: 0.2, end: 1.2, text: "SYNTHETIC EDITOR", words: [], enabled: true }];
     project.exportSettings = { ...project.exportSettings, width: 160, height: 160, fps: 10, filename: "synthetic-proof" };
+  }
+  let musicBytes: Buffer | undefined;
+  if (music?.enabled) {
+    musicBytes = Buffer.alloc(44 + 8000 * 2 * 2);
+    musicBytes.write("RIFF"); musicBytes.writeUInt32LE(musicBytes.length - 8, 4); musicBytes.write("WAVEfmt ", 8);
+    musicBytes.writeUInt32LE(16, 16); musicBytes.writeUInt16LE(1, 20); musicBytes.writeUInt16LE(1, 22);
+    musicBytes.writeUInt32LE(8000, 24); musicBytes.writeUInt32LE(16000, 28); musicBytes.writeUInt16LE(2, 32);
+    musicBytes.writeUInt16LE(16, 34); musicBytes.write("data", 36); musicBytes.writeUInt32LE(musicBytes.length - 44, 40);
+    for (let frame = 0; frame < 16000; frame++) musicBytes.writeInt16LE(Math.round(Math.sin(frame * Math.PI / 4) * 8192), 44 + frame * 2);
+    project.audio.musicSrc = music.unsupported ? "data:audio/mpeg;base64,SUQz" : `data:audio/wav;base64,${musicBytes.toString("base64")}`;
+    project.audio.musicName = "Synthetic PCM music";
   }
   let image: { bytes: Buffer; file: string } | undefined;
   if (imageFormat) {
@@ -59,6 +70,8 @@ async function fixture(realRender = false, imageFormat?: "png" | "jpeg" | "webp"
   const { readExistingAppData } = await import("@/lib/storage/store");
   const overlayAssets = imageFormat ? (await import("./editor-overlay-assets")).createStoredEditorOverlayResolver({
     binding: editorBinding, store: { read: readExistingAppData } }) : undefined;
+  const musicAssets = music?.enabled && !music.omitResolver ? (await import("./editor-audio-assets")).createStoredEditorMusicResolver({
+    binding: editorBinding, store: { read: readExistingAppData } }) : undefined;
   let worker: ReturnType<typeof import("./editor-renderer").createEditorPreparationWorker> | undefined;
   if (realRender) {
     const { runFfmpeg } = await import("@/lib/clipping/ffmpeg");
@@ -68,7 +81,7 @@ async function fixture(realRender = false, imageFormat?: "png" | "jpeg" | "webp"
     worker = createEditorPreparationWorker({ binding: { ownerId: owner.ownerId, records: [{ projectId: project.id,
       jobId: project.jobId, clipId: "clip-a", sourceFile: project.sourceFile,
       sourceSha256: createHash("sha256").update(await readFile(path.join(output, "master.mp4"))).digest("hex") }] },
-      store: { read: readExistingAppData, readJob: readOriginalEditorJob }, overlayAssets });
+      store: { read: readExistingAppData, readJob: readOriginalEditorJob }, overlayAssets, musicAssets });
   }
   const { createExistingRecordReader } = await import("./records");
   const { composeMarketingParity } = await import("./composition");
@@ -78,13 +91,13 @@ async function fixture(realRender = false, imageFormat?: "png" | "jpeg" | "webp"
   const records = createExistingRecordReader({ resolveScope: (id) => id === owner.ownerId ? {
     ownerId: id, sourceIds: [], runIds: [], clipJobIds: ["job-a"], queueIds: [], accountIds: {},
   } : null });
-  const editor = new MarketingEditor({ worker: controls?.worker ?? worker, binding: editorBinding, overlayAssets });
+  const editor = new MarketingEditor({ worker: controls?.worker ?? worker, binding: editorBinding, overlayAssets, musicAssets });
   const composed = composeMarketingParity({ ownerId: owner.ownerId, base, records, editor, preparedEditorMedia: worker,
-    editorCancellation: controls?.cancellation ?? worker, overlayAssets });
+    editorCancellation: controls?.cancellation ?? worker, overlayAssets, musicAssets });
   dispose = installMarketingRuntime({ ...composed, originAllowed: isSameOriginLoopbackMutation,
     authenticate: (req) => req.headers.get("x-fixture-user") === "owner" ? owner
       : req.headers.get("x-fixture-user") === "other" ? { ...owner, ownerId: "other-owner" } : null });
-  return { project, document, jobs, base, records, editor, worker, image, overlayAssets, handlers: marketingRuntime()! };
+  return { project, document, jobs, base, records, editor, worker, image, overlayAssets, musicBytes, musicAssets, handlers: marketingRuntime()! };
 }
 const request = (pathName = "workspace", user = "owner") => new Request(`http://127.0.0.1:3100/api/integrations/marketing/${pathName}`, { headers: { "x-fixture-user": user } });
 const command = (body: unknown, user = "owner") => new Request("http://127.0.0.1:3100/api/integrations/marketing/operations", {
@@ -92,6 +105,102 @@ const command = (body: unknown, user = "owner") => new Request("http://127.0.0.1
 });
 
 describe("composed original records/editor/media HTTP boundary", () => {
+  it("streams bound original music privately, preserves it through redacted saves, and revokes the old revision", async () => {
+    const f = await fixture(false, "png", undefined, { enabled: true });
+    const before = await readFile(f.document, "utf8");
+    const initialResponse = await f.handlers.editor(request("editor/project-a"), "project-a");
+    expect(initialResponse.status).toBe(200);
+    const initial = await initialResponse.json();
+    expect(initial.requiresAssetConnection).toBe(false);
+    expect(initial.project.audio.musicSrc).toBeUndefined(); expect(initial.media.overlays).toHaveLength(1);
+    expect(Object.keys(initial.media.music).sort()).toEqual(["mediaId", "url"]);
+    expect(JSON.stringify(initial)).not.toMatch(/data:audio|sourceRefSha256|sampleFrames/);
+    const musicId = initial.media.music.mediaId;
+    const audio = await f.handlers.media(request("media/opaque"), musicId);
+    expect(audio.status).toBe(200); expect(audio.headers.get("content-type")).toBe("audio/wav");
+    expect(audio.headers.get("cache-control")).toContain("no-store");
+    expect(Buffer.from(await audio.arrayBuffer())).toEqual(f.musicBytes);
+    const ranged = request("media/opaque"); ranged.headers.set("range", "bytes=44-99");
+    const head = await f.handlers.media(new Request(ranged, { method: "HEAD" }), musicId);
+    expect(head.status).toBe(206); expect(head.headers.get("content-length")).toBe("56"); expect(await head.text()).toBe("");
+    const range = await f.handlers.media(ranged, musicId);
+    expect(range.status).toBe(206); expect(Buffer.from(await range.arrayBuffer())).toEqual(f.musicBytes!.subarray(44, 100));
+    expect((await f.handlers.media(request("media/opaque", "other"), musicId)).status).toBe(403);
+    const invalidRange = request("media/opaque"); invalidRange.headers.set("range", "bytes=999999-");
+    expect((await f.handlers.media(invalidRange, musicId)).status).toBe(416);
+    expect(await readFile(f.document, "utf8")).toBe(before);
+    const save = { operation: "save_editor_project", commandId: randomUUID(), target: initial.target,
+      project: { ...initial.project, audio: { ...initial.project.audio, musicVolume: 0.2 } } };
+    const saveResponse = await f.handlers.operations(command(save)); expect(saveResponse.status).toBe(200);
+    const saved = await saveResponse.json();
+    const stored = JSON.parse(await readFile(f.document, "utf8")).clipProjects[0];
+    expect(stored.audio.musicSrc).toBe(f.project.audio.musicSrc); expect(stored.audio.musicName).toBe(f.project.audio.musicName);
+    expect(stored.audio.musicVolume).toBe(0.2); expect(stored.overlays[0].src).toBe(f.project.overlays[0].src);
+    const afterSave = await readFile(f.document, "utf8");
+    expect(await (await f.handlers.operations(command(save))).json()).toMatchObject({ replayed: true });
+    expect(await readFile(f.document, "utf8")).toBe(afterSave);
+    expect((await f.handlers.media(new Request(ranged, { method: "HEAD" }), musicId)).status).toBe(404);
+    expect((await f.handlers.media(invalidRange, musicId)).status).toBe(404);
+    expect((await f.handlers.media(request("media/opaque"), saved.snapshot.media.music.mediaId)).status).toBe(200);
+    const changed = JSON.parse(afterSave); changed.clipProjects[0].audio.musicSrc = f.project.audio.musicSrc!.replace("audio/wav", "audio/x-wav");
+    await writeFile(f.document, JSON.stringify(changed));
+    expect((await f.handlers.media(request("media/opaque"), saved.snapshot.media.music.mediaId)).status).toBe(404);
+    expect(await readdir(root)).not.toContain("publish-queue.json"); expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([{ enabled: true, omitResolver: true }, { enabled: true, unsupported: true }])("keeps incomplete or unsupported mixed music/image capability closed: %j", async (music) => {
+    const f = await fixture(false, "png", undefined, music);
+    const before = await readFile(f.document, "utf8");
+    const snapshot = await f.editor.load(owner, f.project.id);
+    expect(snapshot.requiresAssetConnection).toBe(true);
+    expect((await f.handlers.editor(request("editor/project-a"), "project-a")).status).toBe(503);
+    expect((await f.handlers.operations(command({ operation: "save_editor_project", commandId: randomUUID(), target: snapshot.target,
+      project: { ...snapshot.project, name: "Must not write" } }))).status).toBe(503);
+    expect((await f.handlers.operations(command({ operation: "request_editor_export", commandId: randomUUID(), target: snapshot.target }))).status).toBe(503);
+    expect(await readFile(f.document, "utf8")).toBe(before); expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("prepares original mixed music/image edits through the real worker without changing the job or publication queue", async () => {
+    vi.stubEnv("PUBLISH_ENABLED", "true"); vi.stubEnv("PUBLISH_AUTO_ENQUEUE", "true");
+    const f = await fixture(true, "png", undefined, { enabled: true });
+    const jobsBefore = await readFile(f.jobs, "utf8");
+    const initial = await (await f.handlers.editor(request("editor/project-a"), "project-a")).json();
+    const exportedResponse = await f.handlers.operations(command({ operation: "request_editor_export", commandId: randomUUID(), target: initial.target }));
+    expect(exportedResponse.status).toBe(200); const exported = await exportedResponse.json();
+    const workerPrincipal: Principal = { ownerId: owner.ownerId, scopes: ["worker"] };
+    const claimed = await f.editor.claimExport(workerPrincipal, { operation: "claim_editor_export", commandId: randomUUID(), target: initial.target, requestId: exported.receipt.requestId });
+    const proof = await f.worker!.prepare(f.project.id, exported.receipt.requestId, claimed.attemptId);
+    expect(createHash("sha256").update(await readFile(proof.file)).digest("hex")).toBe(proof.artifactSha256);
+    await f.editor.recordExportOutcome(workerPrincipal, { operation: "record_editor_export_outcome", commandId: randomUUID(), target: initial.target,
+      requestId: exported.receipt.requestId, attemptId: claimed.attemptId, outcome: "prepared" });
+    const current = await (await f.handlers.editor(request("editor/project-a"), "project-a")).json();
+    expect(current.export.state).toBe("prepared"); expect(current.media.music).toBeDefined(); expect(current.media.overlays).toHaveLength(1);
+    const output = await f.handlers.media(request("media/prepared"), current.media.edited.mediaId);
+    expect(output.status).toBe(200); expect(createHash("sha256").update(Buffer.from(await output.arrayBuffer())).digest("hex")).toBe(proof.artifactSha256);
+    const musicResolve = vi.spyOn(f.musicAssets!, "resolve");
+    const preparedRange = request("media/prepared"); preparedRange.headers.set("range", "bytes=0-31");
+    const preparedHead = await f.handlers.media(new Request(preparedRange, { method: "HEAD" }), current.media.edited.mediaId);
+    expect(preparedHead.status).toBe(206); expect(await preparedHead.text()).toBe("");
+    const preparedPart = await f.handlers.media(preparedRange, current.media.edited.mediaId);
+    expect(preparedPart.status).toBe(206); expect(Buffer.from(await preparedPart.arrayBuffer())).toEqual((await readFile(proof.file)).subarray(0, 32));
+    expect(musicResolve).not.toHaveBeenCalled();
+    expect(JSON.parse(await readFile(f.document, "utf8")).clipProjects[0].audio.musicSrc).toBe(f.project.audio.musicSrc);
+    const preparedDocument = await readFile(f.document, "utf8");
+    const changed = JSON.parse(preparedDocument); changed.clipProjects[0].audio.musicVolume = 0.8;
+    await writeFile(f.document, JSON.stringify(changed));
+    expect((await f.handlers.media(new Request(preparedRange, { method: "HEAD" }), current.media.edited.mediaId)).status).toBe(404);
+    expect(musicResolve).not.toHaveBeenCalled();
+    // Restore only this isolated fixture to exercise same-revision supersession.
+    await writeFile(f.document, preparedDocument);
+    const fresh = await f.handlers.operations(command({ operation: "request_editor_export", commandId: randomUUID(), target: initial.target }));
+    expect(fresh.status).toBe(200); expect((await fresh.json()).receipt.requestId).not.toBe(exported.receipt.requestId);
+    musicResolve.mockClear();
+    expect((await f.handlers.media(new Request(preparedRange, { method: "HEAD" }), current.media.edited.mediaId)).status).toBe(404);
+    expect((await f.handlers.media(preparedRange, current.media.edited.mediaId)).status).toBe(404);
+    expect(musicResolve).not.toHaveBeenCalled(); musicResolve.mockRestore();
+    expect(await readFile(f.jobs, "utf8")).toBe(jobsBefore); expect(await readdir(root)).not.toContain("publish-queue.json"); expect(fetch).not.toHaveBeenCalled();
+  }, 60_000);
+
   it("routes a public stop through the actual preparation worker before an uncommitted render can become ready", async () => {
     vi.stubEnv("PUBLISH_ENABLED", "true"); vi.stubEnv("PUBLISH_AUTO_ENQUEUE", "true");
     const f = await fixture(true);

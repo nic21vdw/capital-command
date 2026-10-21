@@ -10,6 +10,16 @@ import { dataRoot } from "@/lib/paths";
 import type { createMarketingAnalyticsReader } from "./analytics";
 import { createHash } from "node:crypto";
 import type { createStoredEditorOverlayResolver, StoredEditorOverlayStreamingRead } from "./editor-overlay-assets";
+import type { createStoredEditorMusicResolver, StoredEditorMusicAsset } from "./editor-audio-assets";
+import { createStoredMusicMediaReader } from "./editor-music-media";
+import { canonicalEditorJson } from "./editor-state";
+
+function musicMetadata(asset: StoredEditorMusicAsset) {
+  const { slot, format, mimeType, demuxer, codec, bitsPerSample, sampleRate, channels,
+    sampleFrames, durationSec, byteLength, sha256, sourceRefSha256 } = asset;
+  return { slot, format, mimeType, demuxer, codec, bitsPerSample, sampleRate, channels,
+    sampleFrames, durationSec, byteLength, sha256, sourceRefSha256 };
+}
 
 type RecordReader = ReturnType<typeof createExistingRecordReader>;
 export type PreparedEditorMedia = {
@@ -45,6 +55,7 @@ export function composeMarketingParity(options: {
   preparedEditorMedia?: PreparedEditorMedia;
   editorCancellation?: EditorCancellationControl;
   overlayAssets?: Pick<ReturnType<typeof createStoredEditorOverlayResolver>, "resolve" | "resolveMany">;
+  musicAssets?: Pick<ReturnType<typeof createStoredEditorMusicResolver>, "resolve">;
   analytics?: ReturnType<typeof createMarketingAnalyticsReader>;
 }): { service: MarketingHttpService; resources: MarketingResourceService } {
   const imageReads = new Map<string, { dataRoot: string; relativePath: string; guard: StoredEditorOverlayStreamingRead }>();
@@ -57,6 +68,7 @@ export function composeMarketingParity(options: {
     return { dataRoot: entry.dataRoot, relativePath: entry.relativePath, sourceType: "clip_export" as const, assertCurrent };
   };
   const imageKey = (snapshot: EditorSnapshot, overlayId: string, sha256: string) => `overlay:${snapshot.target.projectId}:${snapshot.target.revision}:${snapshot.target.digest}:${sha256}:${createHash("sha256").update(overlayId).digest("hex")}`;
+  const musicKey = (snapshot: EditorSnapshot, sha256: string) => `music:${snapshot.target.projectId}:${snapshot.target.revision}:${snapshot.target.digest}:${sha256}`;
   function authorize(principal: Principal, scope: "read" | "write") {
     if (principal.ownerId !== options.ownerId || !principal.scopes.includes(scope)) {
       throw new MarketingHttpError(403, "forbidden", "This operation is outside the verified owner scope.");
@@ -80,9 +92,9 @@ export function composeMarketingParity(options: {
       if (!mediaId) throw new MarketingHttpError(503, "unavailable", "The original editor media is not in this owner's approved media scope.");
       return { mediaId, url: `/api/marketing/media/${encodeURIComponent(mediaId)}` };
     }
-    // Unsupported refs (including music mixed with supported images) stay closed.
+    // Every stored asset needs the matching verified owner connection.
     const imageRows = snapshot.media.overlays ?? [];
-    if (snapshot.requiresAssetConnection || (imageRows.length && !options.overlayAssets)) {
+    if (snapshot.requiresAssetConnection || (imageRows.length && !options.overlayAssets) || (snapshot.media.music && !options.musicAssets)) {
       throw new MarketingHttpError(503, "unavailable", "This project requires the original image or audio asset connection before it can be edited here.");
     }
     let overlayMedia: { overlayId: string; mediaId: string; url: string }[];
@@ -94,6 +106,16 @@ export function composeMarketingParity(options: {
         return { overlayId: asset.overlayId, mediaId, url: `/api/marketing/media/${encodeURIComponent(mediaId)}` };
       });
     } catch { throw new MarketingHttpError(503, "unavailable", "The existing stored images could not be verified for this editor revision."); }
+    let musicMedia: { mediaId: string; url: string } | undefined;
+    if (snapshot.media.music) {
+      try {
+        const asset = await options.musicAssets!.resolve(snapshot.target);
+        if (!asset || canonicalEditorJson(musicMetadata(asset)) !== canonicalEditorJson(snapshot.media.music)) throw new Error("Music identity changed.");
+        await asset.verifyCurrent();
+        const mediaId = musicKey(snapshot, asset.sha256);
+        musicMedia = { mediaId, url: `/api/marketing/media/${encodeURIComponent(mediaId)}` };
+      } catch { throw new MarketingHttpError(503, "unavailable", "The existing stored music could not be verified for this editor revision."); }
+    }
     let prepared;
     if (snapshot.export.state === "prepared" && snapshot.export.requestId && options.preparedEditorMedia) {
       const proof = await options.preparedEditorMedia.readCurrentArtifact(snapshot.target.projectId, snapshot.export.requestId);
@@ -106,7 +128,9 @@ export function composeMarketingParity(options: {
     }
     return { ...snapshot, media: {
       source: await reference(snapshot.media.source),
+      musicRequired: Boolean(snapshot.media.music),
       ...(overlayMedia.length ? { overlays: overlayMedia } : {}),
+      ...(musicMedia ? { music: musicMedia } : {}),
       ...(snapshot.media.poster ? { poster: await reference(snapshot.media.poster) } : {}),
       ...(prepared ? { edited: prepared } : snapshot.media.edited ? { edited: { ...await reference(snapshot.media.edited),
         current: snapshot.media.edited.current, renderSignature: snapshot.media.edited.renderSignature } } : {}),
@@ -147,11 +171,24 @@ export function composeMarketingParity(options: {
     if (ownerId !== options.ownerId || !options.preparedEditorMedia) return null;
     const match = /^prepared:([A-Za-z0-9_-]{1,128}):([0-9a-f-]{36})$/i.exec(mediaId);
     if (!match) return null;
-    const snapshot = await options.editor.load({ ownerId, scopes: ["read"] }, match[1]);
-    if (snapshot.export.state !== "prepared" || snapshot.export.requestId !== match[2]) return null;
+    // The trusted worker rechecks the exact prepared intent and original job.
+    // This separate owner/target check must not decode unrelated preview assets.
+    const target = await options.editor.readPreparedTarget({ ownerId, scopes: ["read"] }, match[1], match[2]);
     const proof = await options.preparedEditorMedia.readCurrentArtifact(match[1], match[2]);
-    if (proof.projectDigest !== snapshot.target.digest || proof.renderSignature !== snapshot.target.renderSignature) return null;
+    if (proof.projectDigest !== target.digest || proof.renderSignature !== target.renderSignature) return null;
     return { dataRoot: dataRoot(), relativePath: path.relative(dataRoot(), proof.file), sourceType: "clip_export", assertCurrent: proof.assertCurrent };
+  } });
+  const readMusic = createStoredMusicMediaReader({ resolveMusic: async (ownerId, mediaId) => {
+    if (ownerId !== options.ownerId || !options.musicAssets) return null;
+    const match = /^music:([A-Za-z0-9_-]{1,128}):(\d{1,16}):([a-f0-9]{64}):([a-f0-9]{64})$/.exec(mediaId);
+    if (!match) return null;
+    const snapshot = await options.editor.load({ ownerId, scopes: ["read"] }, match[1]);
+    if (snapshot.requiresAssetConnection || !snapshot.media.music || String(snapshot.target.revision) !== match[2]
+      || snapshot.target.digest !== match[3] || snapshot.media.music.sha256 !== match[4]) return null;
+    const asset = await options.musicAssets.resolve(snapshot.target);
+    if (!asset || musicKey(snapshot, asset.sha256) !== mediaId
+      || canonicalEditorJson(musicMetadata(asset)) !== canonicalEditorJson(snapshot.media.music)) return null;
+    return asset;
   } });
   const resources: MarketingResourceService = {
     async analytics(principal) {
@@ -170,7 +207,7 @@ export function composeMarketingParity(options: {
     },
     async media(principal, mediaId, request) {
       authorize(principal, "read");
-      return readMedia(principal.ownerId, mediaId, request);
+      return mediaId.startsWith("music:") ? readMusic(principal.ownerId, mediaId, request) : readMedia(principal.ownerId, mediaId, request);
     },
   };
   const service: MarketingHttpService = {

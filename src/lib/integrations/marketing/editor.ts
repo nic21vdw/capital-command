@@ -270,6 +270,17 @@ export class MarketingEditor {
         deleteTarget: stateTarget(project, record, state), canDelete: principal.scopes.includes("write") }];
     });
   }
+  /** Exact owner/revision preflight for already verified prepared media; no asset decode. */
+  async readPreparedTarget(principal: Principal, projectId: string, requestId: string): Promise<EditorTarget> {
+    const record = this.authorize(principal, projectId, "read");
+    const data = await this.store.read();
+    const matches = data?.clipProjects.filter((project) => project.id === projectId) ?? [];
+    if (matches.length !== 1) return fail("not_found", "The original editor project was not found.");
+    const state = this.state(matches[0], record);
+    const latest = state.exports.at(-1);
+    if (latest?.state !== "prepared" || latest.requestId !== requestId) return fail("not_found", "This is not the current prepared editor export.");
+    return stateTarget(matches[0], record, state);
+  }
   async load(principal: Principal, projectId: string): Promise<EditorSnapshot> {
     const record = this.authorize(principal, projectId, "read");
     const data = await this.store.read();
