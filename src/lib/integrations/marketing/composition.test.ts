@@ -16,7 +16,9 @@ beforeEach(async () => {
 });
 afterEach(() => { dispose?.(); dispose = undefined; vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
-async function fixture(realRender = false, imageFormat?: "png" | "jpeg" | "webp") {
+async function fixture(realRender = false, imageFormat?: "png" | "jpeg" | "webp", controls?: {
+  worker: import("./editor").EditorWorkerPorts; cancellation: import("./composition").EditorCancellationControl;
+}) {
   const { clipProjectSchema, appDataSchema } = await import("@/lib/storage/schemas");
   const { emptyData } = await import("@/lib/mockData/seed");
   const project = clipProjectSchema.parse({ id: "project-a", name: "Synthetic corrected clip", jobId: "job-a", sourceFile: "master.mp4",
@@ -76,8 +78,9 @@ async function fixture(realRender = false, imageFormat?: "png" | "jpeg" | "webp"
   const records = createExistingRecordReader({ resolveScope: (id) => id === owner.ownerId ? {
     ownerId: id, sourceIds: [], runIds: [], clipJobIds: ["job-a"], queueIds: [], accountIds: {},
   } : null });
-  const editor = new MarketingEditor({ worker, binding: editorBinding, overlayAssets });
-  const composed = composeMarketingParity({ ownerId: owner.ownerId, base, records, editor, preparedEditorMedia: worker, overlayAssets });
+  const editor = new MarketingEditor({ worker: controls?.worker ?? worker, binding: editorBinding, overlayAssets });
+  const composed = composeMarketingParity({ ownerId: owner.ownerId, base, records, editor, preparedEditorMedia: worker,
+    editorCancellation: controls?.cancellation ?? worker, overlayAssets });
   dispose = installMarketingRuntime({ ...composed, originAllowed: isSameOriginLoopbackMutation,
     authenticate: (req) => req.headers.get("x-fixture-user") === "owner" ? owner
       : req.headers.get("x-fixture-user") === "other" ? { ...owner, ownerId: "other-owner" } : null });
@@ -89,6 +92,107 @@ const command = (body: unknown, user = "owner") => new Request("http://127.0.0.1
 });
 
 describe("composed original records/editor/media HTTP boundary", () => {
+  it("routes a public stop through the actual preparation worker before an uncommitted render can become ready", async () => {
+    vi.stubEnv("PUBLISH_ENABLED", "true"); vi.stubEnv("PUBLISH_AUTO_ENQUEUE", "true");
+    const f = await fixture(true);
+    const jobsBefore = await readFile(f.jobs, "utf8");
+    const target = (await f.editor.load(owner, f.project.id)).target;
+    const requested = await (await f.handlers.operations(command({ operation: "request_editor_export", commandId: randomUUID(), target }))).json();
+    const requestId = requested.receipt.requestId;
+    const workerPrincipal: Principal = { ownerId: owner.ownerId, scopes: ["worker"] };
+    const claimed = await f.editor.claimExport(workerPrincipal, { operation: "claim_editor_export", commandId: randomUUID(), target, requestId });
+    const proof = await f.worker!.prepare(f.project.id, requestId, claimed.attemptId);
+    expect(createHash("sha256").update(await readFile(proof.file)).digest("hex")).toBe(proof.artifactSha256);
+    const stop = { operation: "cancel_editor_export", commandId: randomUUID(), target, requestId, attemptId: claimed.attemptId };
+    const response = await f.handlers.operations(command(stop));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ receipt: { commandId: stop.commandId, state: "cancel_requested" },
+      snapshot: null, reconciliation: { state: "refresh_required" } });
+    const persisted = JSON.parse(await readFile(f.document, "utf8")).clipProjects[0].marketingEditor;
+    expect(persisted.exports[0].state).toBe("canceled");
+    expect(persisted.exports[0].cancellation.commandId).toBe(stop.commandId);
+    await expect(f.editor.recordExportOutcome(workerPrincipal, { operation: "record_editor_export_outcome", commandId: randomUUID(),
+      target, requestId, attemptId: claimed.attemptId, outcome: "prepared" })).rejects.toThrow();
+    const current = await (await f.handlers.editor(request("editor/project-a"), "project-a")).json();
+    expect(current.export.state).toBe("canceled"); expect(current.media.edited).toBeUndefined();
+    expect((await f.handlers.media(request("media/opaque"), `prepared:project-a:${requestId}`)).status).toBe(404);
+    expect(await (await f.handlers.operations(command(stop))).json()).toMatchObject({ replayed: true, receipt: { state: "cancel_requested" } });
+    expect(JSON.parse(await readFile(f.document, "utf8")).clipProjects[0].marketingEditor.receipts).toHaveLength(persisted.receipts.length);
+    expect(await readFile(f.jobs, "utf8")).toBe(jobsBefore); expect(await readdir(root)).not.toContain("publish-queue.json");
+    expect(fetch).not.toHaveBeenCalled();
+  }, 60_000);
+  it("cancels an undispatched original intent without needing its source preview or creating a worker attempt", async () => {
+    const f = await fixture();
+    const initial = await f.editor.load(owner, f.project.id);
+    const requested = await f.editor.requestExport(owner, { operation: "request_editor_export", commandId: randomUUID(), target: initial.target });
+    await writeFile(f.jobs, "[]");
+    const body = { operation: "cancel_editor_export", commandId: randomUUID(), target: initial.target, requestId: requested.receipt.requestId };
+    const response = await f.handlers.operations(command(body));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ receipt: { operation: body.operation, state: "canceled", commandId: body.commandId },
+      snapshot: null, reconciliation: { state: "refresh_required" } });
+    const beforeReplay = await readFile(f.document, "utf8");
+    expect(await (await f.handlers.operations(command(body))).json()).toMatchObject({ replayed: true, receipt: { state: "canceled" } });
+    expect(await readFile(f.document, "utf8")).toBe(beforeReplay);
+    expect(await readFile(f.jobs, "utf8")).toBe("[]");
+    expect(f.base.execute).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["settled", "active", "abort_failure"] as const)("keeps the durable cancellation truthful with a %s trusted controller", async (mode) => {
+    const workerEpoch = randomUUID(); let closed = false;
+    const controls = {
+      worker: { assertPreparationOnly() {}, getWorkerEpoch: () => workerEpoch,
+        readPreparation: async () => null,
+        inspectAttempt: async () => ({ workerEpoch, status: closed ? "settled" as const : "active" as const, assertCurrent() {} }),
+        readCancellationSettlement: async (_project: unknown, intent: import("./editor").EditorExportIntent) => closed
+          ? { workerEpoch, requestId: intent.requestId, attemptId: intent.attemptId!, cancelCommandId: intent.cancellation!.commandId,
+            settled: true as const, assertCurrent() { expect(closed).toBe(true); } } : null },
+      cancellation: { abortExact: vi.fn(async (_projectId: string, _requestId: string, _attemptId: string, _cancelCommandId: string) => {}) },
+    };
+    const f = await fixture(false, undefined, controls);
+    const target = (await f.editor.load(owner, f.project.id)).target;
+    const requested = await f.editor.requestExport(owner, { operation: "request_editor_export", commandId: randomUUID(), target });
+    const workerPrincipal: Principal = { ownerId: owner.ownerId, scopes: ["worker"] };
+    const requestId = requested.receipt.requestId!;
+    const claimed = await f.editor.claimExport(workerPrincipal, { operation: "claim_editor_export", commandId: randomUUID(), target, requestId });
+    const body = { operation: "cancel_editor_export", commandId: randomUUID(), target, requestId, attemptId: claimed.attemptId };
+    controls.cancellation.abortExact.mockImplementation(async (projectId, requestedId, attemptId, cancelCommandId) => {
+      const stored = JSON.parse(await readFile(f.document, "utf8")).clipProjects[0].marketingEditor;
+      expect([projectId, requestedId, attemptId, cancelCommandId]).toEqual([f.project.id, requestId, claimed.attemptId, body.commandId]);
+      expect(stored.exports[0].cancellation.commandId).toBe(body.commandId);
+      expect(["cancel_requested", "canceled"]).toContain(stored.exports[0].state);
+      if (mode === "abort_failure") throw new Error("synthetic-controller-detail-must-not-leak");
+      if (mode === "settled") closed = true;
+    });
+    const beforeDenied = await readFile(f.document, "utf8");
+    expect((await f.handlers.operations(command(body, "other"))).status).toBe(403);
+    expect(controls.cancellation.abortExact).not.toHaveBeenCalled();
+    expect(await readFile(f.document, "utf8")).toBe(beforeDenied);
+    // Cancellation never waits for source/media projection after its commit.
+    await writeFile(f.jobs, "[]");
+    const first = await f.handlers.operations(command(body));
+    expect(first.status).toBe(200);
+    const result = await first.json();
+    expect(result).toMatchObject({ receipt: { state: "cancel_requested", commandId: body.commandId, cancelCommandId: body.commandId },
+      snapshot: null, reconciliation: { state: "refresh_required" } });
+    expect(JSON.stringify(result)).not.toContain("synthetic-controller-detail");
+    const persisted = JSON.parse(await readFile(f.document, "utf8")).clipProjects[0].marketingEditor;
+    expect(persisted.exports[0].state).toBe(mode === "settled" ? "canceled" : "cancel_requested");
+    const receiptCount = persisted.receipts.length;
+    expect(await (await f.handlers.operations(command(body))).json()).toMatchObject({ replayed: true, receipt: result.receipt });
+    expect(JSON.parse(await readFile(f.document, "utf8")).clipProjects[0].marketingEditor.receipts).toHaveLength(receiptCount);
+    if (mode === "active") {
+      closed = true;
+      const reconciled = await f.handlers.operations(command({ operation: "reconcile_editor_export", commandId: randomUUID(),
+        target, requestId, attemptId: claimed.attemptId }));
+      expect(reconciled.status).toBe(200);
+      expect(await reconciled.json()).toMatchObject({ receipt: { state: "canceled" }, snapshot: null });
+      expect(JSON.parse(await readFile(f.document, "utf8")).clipProjects[0].marketingEditor.exports[0].state).toBe("canceled");
+    }
+    expect(await readFile(f.jobs, "utf8")).toBe("[]");
+    expect(await readdir(root)).not.toContain("publish-queue.json");
+    expect(f.base.execute).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
+  });
   it.each(["png", "jpeg", "webp"] as const)("previews, saves and prepares an original-store %s through scoped opaque media without replacing asset refs", async (format) => {
     vi.stubEnv("PUBLISH_ENABLED", "true"); vi.stubEnv("PUBLISH_AUTO_ENQUEUE", "true");
     const f = await fixture(true, format);

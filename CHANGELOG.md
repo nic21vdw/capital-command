@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Prepared editor exports retain a cancellation and restart record.** Stop requests are saved before the worker is signaled, and only verified process settlement confirms a stop. Interrupted attempts remain uncertain until explicit reconciliation; a fresh export keeps a link to the original attempt instead of silently retrying it. Hosted controls remain unconnected.
+
 - **Saved PNG, JPEG and WebP overlays stay visible in prepared exports.** Existing project images are verified, previewed through private media references and rendered across kept cuts without duplicating inputs. Changed or unsupported assets stop preparation clearly; no source files or schedules are changed.
 
 - **Text overlays export with their chosen width, font and background.** Narrow text wraps, scaled boxes stay centered, and standard Inter weights use bundled licensed fonts. Existing files remain unchanged until an explicit rerender.

@@ -17,6 +17,19 @@ export type PreparedEditorMedia = {
     file: string; renderSignature: string; projectDigest: string; assertCurrent(): void;
   }>;
 };
+export type EditorCancellationControl = {
+  /** Rechecks the saved fence; returning does not assert that a child stopped. */
+  abortExact(projectId: string, requestId: string, attemptId: string, cancelCommandId: string): Promise<void>;
+};
+
+function cancellationSettlementCommandId(commandId: string): string {
+  // One internal receipt per explicit user command, including lost-response replay.
+  const bytes = createHash("sha256").update(`marketing-editor-cancellation-settlement:${commandId}`).digest().subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const value = bytes.toString("hex");
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+}
 
 /**
  * Compose ONLY inside the existing owning Node service. Explicit bindings are
@@ -30,6 +43,7 @@ export function composeMarketingParity(options: {
   editor: MarketingEditor;
   preparationAccess?: PreparationSourceAccess;
   preparedEditorMedia?: PreparedEditorMedia;
+  editorCancellation?: EditorCancellationControl;
   overlayAssets?: Pick<ReturnType<typeof createStoredEditorOverlayResolver>, "resolve" | "resolveMany">;
   analytics?: ReturnType<typeof createMarketingAnalyticsReader>;
 }): { service: MarketingHttpService; resources: MarketingResourceService } {
@@ -172,7 +186,8 @@ export function composeMarketingParity(options: {
       } catch (error) { return failure(error); }
     },
     async execute(principal, command) {
-      if (command.operation !== "save_editor_project" && command.operation !== "request_editor_export" && command.operation !== "delete_editor_project" && command.operation !== "prepare_source") {
+      if (command.operation !== "save_editor_project" && command.operation !== "request_editor_export" && command.operation !== "delete_editor_project"
+        && command.operation !== "cancel_editor_export" && command.operation !== "reconcile_editor_export" && command.operation !== "prepare_source") {
         return options.base.execute(principal, command);
       }
       authorize(principal, "write");
@@ -194,6 +209,26 @@ export function composeMarketingParity(options: {
           }
           return { ok: true, result, message: "Preparation intent recorded in the original pipeline. A trusted worker must dispatch it; no publication was requested." };
         }
+        // A stop/reconciliation must never depend on a slow or revoked preview.
+        // The durable user receipt remains immutable; a later read shows settlement.
+        if (command.operation === "cancel_editor_export") {
+          const result = await options.editor.cancelExport(principal, command);
+          const { receipt } = result;
+          if (receipt.state === "cancel_requested" && receipt.requestId && receipt.attemptId && receipt.cancelCommandId && options.editorCancellation) {
+            try {
+              await options.editorCancellation.abortExact(command.target.projectId, receipt.requestId, receipt.attemptId, receipt.cancelCommandId);
+              await options.editor.settleExportCancellation({ ownerId: principal.ownerId, scopes: ["worker"] }, {
+                operation: "settle_editor_export_cancellation", commandId: cancellationSettlementCommandId(command.commandId),
+                target: command.target, requestId: receipt.requestId, attemptId: receipt.attemptId, cancelCommandId: receipt.cancelCommandId,
+              });
+            } catch {
+              // The cancellation fence was committed. A failed/late controller or
+              // changed target cannot undo it or become a fabricated stopped result.
+            }
+          }
+          return result;
+        }
+        if (command.operation === "reconcile_editor_export") return options.editor.reconcileExport(principal, command);
         const replay = await options.editor.replay(principal, command);
         if (replay) {
           if (!replay.snapshot) return replay;

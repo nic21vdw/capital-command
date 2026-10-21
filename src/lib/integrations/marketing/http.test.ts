@@ -29,6 +29,40 @@ function setup(overrides: Partial<MarketingHttpDependencies> = {}) {
 async function errorBody(response: Response) { return (await response.json()).error; }
 
 describe("marketing HTTP request boundary", () => {
+  it.each(["cancel_editor_export", "reconcile_editor_export"])("forwards exact %s identities without accepting worker authority", async (operation) => {
+    const handler = setup();
+    const command = { ...deletion, operation, requestId: "20000000-0000-4000-8000-000000000001",
+      attemptId: "30000000-0000-4000-8000-000000000001" };
+    const response = await handler.operations(post(command));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(handler.service.execute).toHaveBeenCalledExactlyOnceWith({ ownerId: "owner-a", scopes: ["read", "write", "review"] }, command);
+    for (const extra of [{ workerEpoch: "40000000-0000-4000-8000-000000000001" }, { outcome: "canceled" },
+      { ownerId: "owner-b" }, { settled: true }, { attemptId: "unverified" }]) {
+      const denied = setup();
+      expect((await denied.operations(post({ ...command, ...extra }))).status).toBe(400);
+      expect(denied.service.execute).not.toHaveBeenCalled();
+    }
+  });
+  it.each(["cancel_editor_export", "reconcile_editor_export"])("requires authenticated user write scope for %s", async (operation) => {
+    const command = { ...deletion, operation, requestId: "20000000-0000-4000-8000-000000000001" };
+    for (const scopes of [["read"], ["review"], ["worker"]]) {
+      const handler = setup({ authenticate: () => ({ ownerId: "owner-a", scopes }) });
+      expect((await handler.operations(post(command))).status).toBe(403);
+      expect(handler.service.execute).not.toHaveBeenCalled();
+    }
+    const unauthenticated = setup({ authenticate: () => null });
+    expect((await unauthenticated.operations(post(command))).status).toBe(401);
+    expect(unauthenticated.service.execute).not.toHaveBeenCalled();
+  });
+  it("never accepts cancellation settlement or restart evidence as a public command", async () => {
+    const handler = setup();
+    const command = { ...deletion, operation: "settle_editor_export_cancellation",
+      requestId: "20000000-0000-4000-8000-000000000001", attemptId: "30000000-0000-4000-8000-000000000001",
+      cancelCommandId: "40000000-0000-4000-8000-000000000001" };
+    expect((await handler.operations(post(command))).status).toBe(400);
+    expect(handler.service.execute).not.toHaveBeenCalled();
+  });
   it("forwards only the strict scoped deletion command with an authenticated write identity", async () => {
     const handler = setup();
     expect((await handler.operations(post(deletion))).status).toBe(200);
