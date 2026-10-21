@@ -25,6 +25,20 @@ export const editorReceiptSchema = z.object({
   reviewInvalidated: z.literal(true), publicationAuthorized: z.literal(false)
 }).strict();
 export type EditorReceipt = z.infer<typeof editorReceiptSchema>;
+const creationFields = { policyId: id, policyVersion: id, creationRevision: revision,
+  sourceDigest: sha256, captionDigest: sha256, captionState: z.enum(["absent", "present"]), sourceSha256: sha256, grantDigest: sha256 };
+/** Creation does not invalidate the root's edits, approval or prepared output. */
+export const editorCreationReceiptSchema = z.object({
+  operation: z.literal("create_editor_project_from_source"), commandId: z.string().uuid(),
+  rootProjectId: id, createdProjectId: id, revision, digest: sha256, renderSignature: z.string(), ...creationFields,
+  reviewInvalidated: z.literal(false), rootReviewPreserved: z.literal(true), publicationAuthorized: z.literal(false),
+  requestId: z.never().optional(), state: z.never().optional(), attemptId: z.never().optional(), cancelCommandId: z.never().optional()
+}).strict();
+export type EditorCreationReceipt = z.infer<typeof editorCreationReceiptSchema>;
+export const editorProjectCreationProvenanceSchema = z.object({
+  rootProjectId: id, commandId: z.string().uuid(), payloadSha256: sha256, ...creationFields
+}).strict();
+export type EditorProjectCreationProvenance = z.infer<typeof editorProjectCreationProvenanceSchema>;
 export const editorOverlayAssetIdentitySchema = z.object({
   overlayId: z.string().min(1).max(128), src: z.string().max(128),
   sha256, format: z.enum(["png", "jpeg", "webp"]), byteLength: z.number().int().positive().max(8 * 1024 * 1024),
@@ -63,12 +77,33 @@ export const marketingEditorStateSchema = z.object({
   ownerId: z.string().min(1).max(128), jobId: id, clipId: id,
   revision, digest: sha256, renderSignature: z.string(),
   deletedAt: z.string().optional(),
-  receipts: z.array(z.object({ payloadSha256: sha256, result: editorReceiptSchema }).strict()).max(1024),
+  creationRevision: revision.optional(),
+  creation: editorProjectCreationProvenanceSchema.optional(),
+  receipts: z.array(z.object({ payloadSha256: sha256, result: z.union([editorReceiptSchema, editorCreationReceiptSchema]) }).strict()).max(1024),
   exports: z.array(editorExportIntentSchema).max(256)
 }).strict();
 export type MarketingEditorState = z.infer<typeof marketingEditorStateSchema>;
 export type EditorRecordBinding = { projectId: string; jobId: string; clipId: string; sourceFile: string };
 export type EditorBinding = { ownerId: string; records: readonly EditorRecordBinding[] };
+/** Trusted code-only capability. No runtime policy is installed by these types. */
+export const editorCreationPolicySchema = z.object({
+  id, version: id, ownerId: z.string().min(1).max(128),
+  roots: z.array(z.object({ projectId: id, jobId: id, clipId: id,
+    sourceFile: z.string().min(1).max(255).refine((value) => !value.startsWith(".") && !/[\\/:\u0000-\u001f\u007f]/.test(value)),
+    sourceSha256: sha256, maxCreatedProjects: z.number().int().min(1).max(32)
+  }).strict()).min(1).max(32)
+}).strict();
+export type EditorCreationPolicy = z.infer<typeof editorCreationPolicySchema>;
+export type EditorCreationPolicyReader = () => EditorCreationPolicy | null;
+export const editorCreationContextSchema = z.object({
+  target: editorTargetSchema, policyId: id, policyVersion: id, creationRevision: revision,
+  sourceDigest: sha256, captionDigest: sha256, captionState: z.enum(["absent", "present"])
+}).strict();
+export type EditorCreationContext = z.infer<typeof editorCreationContextSchema>;
+export const createEditorProjectFromSourceCommandSchema = editorCreationContextSchema.extend({
+  operation: z.literal("create_editor_project_from_source"), commandId: z.string().uuid()
+}).strict();
+export type CreateEditorProjectFromSourceCommand = z.infer<typeof createEditorProjectFromSourceCommandSchema>;
 export type EditorMediaDescriptor = { jobId: string; fileName: string };
 export type EditorProjectSummary = {
   id: string; name: string; updatedAt: string; jobId: string; durationSec: number;
@@ -104,3 +139,6 @@ export type SettleEditorExportCancellationCommand = { operation: "settle_editor_
   target: EditorTarget; requestId: string; attemptId: string; cancelCommandId: string };
 export type EditorCommandResult = { receipt: EditorReceipt; replayed: boolean; snapshot: EditorSnapshot | null;
   reconciliation?: { state: "deleted" | "record_unavailable" | "refresh_required" } };
+export type EditorProjectCreationResult = { receipt: EditorCreationReceipt; replayed: boolean; createdProjectId: string;
+  childTarget: EditorTarget | null; snapshot: EditorSnapshot | null;
+  reconciliation?: { state: "policy_unavailable" | "record_unavailable" | "deleted" } };
