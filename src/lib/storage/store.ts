@@ -5,7 +5,8 @@ import { emptyData, seedData } from "@/lib/mockData/seed";
 import { atomicWriteFile } from "@/lib/storage/atomic-json";
 import { withFileLock } from "@/lib/storage/file-lock";
 import { appDataSchema } from "@/lib/storage/schemas";
-import type { AppData } from "@/types/domain";
+import { preserveManagedEditorProjects } from "@/lib/integrations/marketing/editor-state";
+import type { AppData, ClipProject } from "@/types/domain";
 
 const dataFilePath = dataPath("capital-command.json");
 let writeQueue = Promise.resolve();
@@ -80,6 +81,15 @@ export async function readAppData(): Promise<AppData> {
   // Initialization is queued too: another save may create the document after
   // the missing-file read, and must not then be replaced with an empty one.
   return mutateAppData((current) => current);
+}
+
+/** Passive integration read: no initialization, repair, snapshots or corrupt copies. */
+export async function readExistingAppData(): Promise<AppData | null> {
+  try { return appDataSchema.parse(JSON.parse(await readFile(dataFilePath, "utf8"))); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw new AppDataUnreadableError("The existing app data could not be read. Nothing has been changed.", null);
+  }
 }
 
 /**
@@ -206,8 +216,9 @@ async function keepSnapshot(serialized: string) {
   await Promise.all(stale.map((snapshot) => rm(snapshot.path, { force: true })));
 }
 
-async function commit(data: AppData): Promise<string> {
-  const serialized = JSON.stringify(appDataSchema.parse(data), null, 2);
+async function commit(data: AppData, previous?: AppData | null, trustedProjectId?: string): Promise<string> {
+  const stored = previous === undefined ? await readExistingAppData() : previous;
+  const serialized = JSON.stringify(appDataSchema.parse(preserveManagedEditorProjects(data, stored, trustedProjectId)), null, 2);
   await atomicWriteFile(dataFilePath, serialized);
   return serialized;
 }
@@ -221,7 +232,7 @@ async function enqueueWrite(commitWrite: () => Promise<string>) {
   queuedWrites += 1;
   const write = async () => {
     try {
-      return await withFileLock(dataFilePath, commitWrite);
+      return await withFileLock(dataFilePath, commitWrite, { reclaimLiveHolder: false });
     } finally {
       queuedWrites -= 1;
     }
@@ -259,10 +270,38 @@ export async function mutateAppData(update: (current: AppData) => AppData): Prom
     // another write behind this one and wait on itself. Clone the empty schema
     // defaults so an updater can never change the shared first-run template.
     const current = (await readStoredAppData()) ?? appDataSchema.parse(emptyData);
-    updated = appDataSchema.parse(update(current));
-    return commit(updated);
+    // Existing callers may mutate the document in place. Keep the managed
+    // project baseline separate so those edits cannot alter their own CAS
+    // comparison or forge enrollment/receipts in the previous document.
+    const previous = { ...current, clipProjects: current.clipProjects.map((project) =>
+      project.marketingEditor ? structuredClone(project) : { ...project }) };
+    const serialized = await commit(update(current), previous);
+    updated = appDataSchema.parse(JSON.parse(serialized));
+    return serialized;
   });
   return updated;
+}
+
+/**
+ * Existing project only, inside the same document queue and OS lock as legacy
+ * writes. The callback is an owner-process integration port, never an HTTP body.
+ * Metadata enrollment/receipts are accepted only from this explicit transition.
+ */
+export async function mutateExistingClipProject(
+  id: string, update: (project: ClipProject) => ClipProject
+): Promise<ClipProject> {
+  let result!: ClipProject;
+  await enqueueWrite(async () => {
+    const current = await readExistingAppData();
+    const matches = current?.clipProjects.filter((project) => project.id === id) ?? [];
+    const stored = matches[0];
+    if (!current || !stored || matches.length !== 1) throw new Error("The existing editor project could not be uniquely identified.");
+    result = update(structuredClone(stored));
+    if (result.id !== id) throw new Error("An editor transaction cannot change project identity.");
+    const updated = { ...current, clipProjects: current.clipProjects.map((project) => project.id === id ? result : project) };
+    return commit(updated, current, id);
+  });
+  return result;
 }
 
 /**
@@ -281,7 +320,12 @@ export async function restoreLastGoodSnapshot(): Promise<{ snapshot: AppDataSnap
   // readable file copied to `.unreadable-…` would be evidence of nothing.
   if (!(await currentDocumentParses())) await keepCorruptCopy();
 
-  const restore = () => withFileLock(dataFilePath, () => commit(data));
+  const restore = () => withFileLock(dataFilePath, async () => {
+    // This explicit recovery path also works when the current document cannot
+    // parse. A readable document still protects current managed receipts.
+    const previous = await readExistingAppData().catch(() => null);
+    return commit(data, previous);
+  }, { reclaimLiveHolder: false });
   const done = writeQueue.then(restore, restore);
   writeQueue = done.then(
     () => undefined,

@@ -690,6 +690,8 @@ export interface ClipEditSegment {
 }
 
 export interface ClipProject {
+  /** Durable integration commands live with the original editor record. */
+  marketingEditor?: import("@/lib/integrations/marketing/editor-types").MarketingEditorState;
   id: string;
   name: string;
   /** The clip job this project was created from. */
