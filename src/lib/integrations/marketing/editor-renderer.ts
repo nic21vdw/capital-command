@@ -7,11 +7,14 @@ import { clipProjectSchema } from "@/lib/storage/schemas";
 import type { ClipJob } from "@/lib/clipping/types";
 import type { ClipProject } from "@/types/domain";
 import type { createStoredEditorOverlayResolver } from "./editor-overlay-assets";
+import { abortEditorAttempt, getEditorWorkerEpoch, inspectEditorAttempt, readEditorCancellationSettlement,
+  runEditorAttempt, type EditorAttemptIdentity, type EditorAttemptTarget } from "./editor-active-attempts";
 
 // Structural types keep this internal adapter independent of HTTP composition.
 // They intentionally satisfy MarketingEditor's EditorWorkerPorts contract.
 type Intent = { requestId: string; attemptId?: string; revision: number; digest: string;
-  renderSignature: string; state: string; exportId?: string; artifactSha256?: string; overlayAssets?: PreparationOverlayAssetIdentity[] };
+  renderSignature: string; state: string; exportId?: string; artifactSha256?: string; overlayAssets?: PreparationOverlayAssetIdentity[];
+  workerEpoch?: string; cancellation?: { commandId: string; requestedAt: string } };
 type ManagedProject = ClipProject & { marketingEditor?: { ownerId: string; jobId: string; clipId: string;
   revision: number; digest: string; renderSignature: string; deletedAt?: string; exports: Intent[] } };
 type RecordBinding = { projectId: string; jobId: string; clipId: string; sourceFile: string; sourceSha256: string };
@@ -53,31 +56,60 @@ export function createEditorPreparationWorker(options: {
   if (!binding.ownerId?.trim() || binding.ownerId.length > 128 || !Array.isArray(binding.records)
     || binding.records.some((record) => ![record.projectId, record.jobId, record.clipId].every(id)
       || !/^[a-f0-9]{64}$/.test(record.sourceSha256)
-      || !/^[A-Za-z0-9][A-Za-z0-9_. -]*\.(?:mp4|webm|mov|mkv)$/i.test(record.sourceFile))
+      || !record.sourceFile || record.sourceFile.length > 255 || record.sourceFile.startsWith(".")
+      || /[\\/:\u0000-\u001f\u007f]/.test(record.sourceFile) || !/\.(?:mp4|webm|mov|mkv)$/i.test(record.sourceFile))
     || new Set(binding.records.map((record) => record.projectId)).size !== binding.records.length) {
     throw new Error("Explicit trusted original editor source identities are required.");
   }
   const proofs = new Map<string, PreparationExportProof>();
-  const inFlight = new Set<string>();
   const streamReads = new Map<string, { key: string; artifact: PreparationArtifactRead }>();
-  async function current(projectId: string, requestId: string, attemptId: string, phase: "claimed" | "prepared" = "claimed", verifyAssets = true):
-    Promise<PreparationExportCurrent & { evidence?: { exportId: string; artifactSha256: string } }> {
+  function attemptIdentity(projectId: string, requestId: string, attemptId: string, workerEpoch: string): EditorAttemptIdentity {
+    const record = binding.records.find((candidate) => candidate.projectId === projectId);
+    if (!record) throw new Error("The editor project is outside the trusted render allowlist.");
+    return { ownerId: binding.ownerId, ...record, requestId, attemptId, workerEpoch };
+  }
+  function attemptTarget(intent: Readonly<Intent>): EditorAttemptTarget {
+    return { revision: intent.revision, digest: intent.digest, renderSignature: intent.renderSignature,
+      overlayAssetsSha256: createHash("sha256").update(canonical(intent.overlayAssets ?? [])).digest("hex") };
+  }
+  // Cancellation/reconciliation reads only durable owner and attempt identity.
+  // Old retained fences remain usable after edits/deletion or media failure.
+  async function control(projectId: string, requestId: string, attemptId?: string) {
     const record = binding.records.find((candidate) => candidate.projectId === projectId);
     if (!record) throw new Error("The editor project is outside the trusted render allowlist.");
     const projects = (await options.store.read())?.clipProjects.filter((project) => project.id === projectId) ?? [];
     if (projects.length !== 1) throw new Error("The original editor project is missing or ambiguous.");
     const project = structuredClone(projects[0]) as ManagedProject;
     const state = project.marketingEditor;
+    const intents = state?.exports.filter((candidate) => candidate.requestId === requestId) ?? [];
+    const intent = intents.length === 1 ? intents[0] : undefined;
+    if (!state || project.jobId !== record.jobId || project.sourceFile !== record.sourceFile
+      || state.ownerId !== binding.ownerId || state.jobId !== record.jobId || state.clipId !== record.clipId
+      || !intent || intent.attemptId !== attemptId) throw new Error("The original editor attempt ownership changed.");
+    return { record, project, state, intent };
+  }
+  async function exactControl(project: Readonly<ClipProject>, intent: Readonly<Intent>) {
+    const loaded = await control(project.id, intent.requestId, intent.attemptId);
+    const suppliedState = (project as ManagedProject).marketingEditor;
+    if (project.jobId !== loaded.project.jobId || project.sourceFile !== loaded.project.sourceFile
+      || suppliedState?.ownerId !== binding.ownerId || suppliedState.jobId !== loaded.state.jobId
+      || suppliedState.clipId !== loaded.state.clipId || canonical(intent) !== canonical(loaded.intent)) {
+      throw new Error("The requested editor attempt evidence changed.");
+    }
+    return loaded;
+  }
+  async function current(projectId: string, requestId: string, attemptId: string, phase: "claimed" | "prepared" = "claimed", verifyAssets = true):
+    Promise<PreparationExportCurrent & { evidence?: { exportId: string; artifactSha256: string } }> {
+    const { record, project, state, intent } = await control(projectId, requestId, attemptId);
     const digest = projectDigest(project);
     const spec = editorPreparationSpec(project);
     const signature = renderSignature(spec);
-    const intents = state?.exports.filter((candidate) => candidate.requestId === requestId) ?? [];
-    const intent = intents.length === 1 ? intents[0] : undefined;
     if (project.jobId !== record.jobId || project.sourceFile !== record.sourceFile
       || !state || state.deletedAt || state.ownerId !== binding.ownerId || state.jobId !== record.jobId
       || state.clipId !== record.clipId || state.digest !== digest || state.renderSignature !== signature
       || !intent || intent.state !== phase || intent.attemptId !== attemptId || intent.digest !== digest
-      || intent.revision !== state.revision || intent.renderSignature !== signature) {
+      || intent.revision !== state.revision || intent.renderSignature !== signature
+      || (phase === "claimed" && intent.workerEpoch !== getEditorWorkerEpoch())) {
       throw new Error("The original editor render source, revision or claimed attempt changed.");
     }
     // Parse for validation without replacing the persisted project's identity.
@@ -105,6 +137,7 @@ export function createEditorPreparationWorker(options: {
     const identity: PreparationExportBinding = { ownerId: binding.ownerId, projectId, jobId: record.jobId,
       clipId: record.clipId, sourceFile: record.sourceFile, sourceSha256: record.sourceSha256,
       projectDigest: digest, specSha256: preparationSpecDigest(spec), renderSignature: signature, requestId, attemptId,
+      ...(intent.workerEpoch ? { workerEpoch: intent.workerEpoch } : {}),
       ...(manifest.length ? { overlayAssets: structuredClone(manifest) } : {}) };
     let evidence: { exportId: string; artifactSha256: string } | undefined;
     if (phase === "prepared") {
@@ -126,17 +159,44 @@ export function createEditorPreparationWorker(options: {
   }
   return {
     assertPreparationOnly(): void { /* This adapter has no publication or attachment port. */ },
-    async prepare(projectId: string, requestId: string, attemptId: string,
+    getWorkerEpoch: getEditorWorkerEpoch,
+    async inspectAttempt(project: Readonly<ClipProject>, intent: Readonly<Intent>) {
+      const loaded = await exactControl(project, intent);
+      if (!loaded.intent.workerEpoch || !loaded.intent.attemptId) {
+        return Object.freeze({ workerEpoch: getEditorWorkerEpoch(), status: "prior_epoch" as const, assertCurrent() {} });
+      }
+      return inspectEditorAttempt(attemptIdentity(project.id, intent.requestId, loaded.intent.attemptId, loaded.intent.workerEpoch), attemptTarget(loaded.intent));
+    },
+    async readCancellationSettlement(project: Readonly<ClipProject>, intent: Readonly<Intent>) {
+      const loaded = await exactControl(project, intent);
+      if (!loaded.intent.workerEpoch || !loaded.intent.attemptId || !loaded.intent.cancellation) return null;
+      return readEditorCancellationSettlement(attemptIdentity(project.id, intent.requestId, loaded.intent.attemptId, loaded.intent.workerEpoch),
+        attemptTarget(loaded.intent), loaded.intent.cancellation.commandId);
+    },
+    /** Durable fence must already exist. Returning does not assert successful stop. */
+    async abortExact(projectId: string, requestId: string, attemptId: string, cancelCommandId: string): Promise<void> {
+      const { intent } = await control(projectId, requestId, attemptId);
+      if (!intent.workerEpoch || intent.cancellation?.commandId !== cancelCommandId) {
+        throw new Error("The exact persisted editor cancellation fence is required before abort.");
+      }
+      await abortEditorAttempt(attemptIdentity(projectId, requestId, attemptId, intent.workerEpoch), attemptTarget(intent), cancelCommandId);
+    },
+    prepare(projectId: string, requestId: string, attemptId: string,
       renderOptions: { signal?: AbortSignal; onProgress?: (percent: number) => void } = {}): Promise<PreparationExportProof> {
-      const initial = await current(projectId, requestId, attemptId);
-      const key = `${projectId}:${requestId}:${attemptId}`;
-      if (inFlight.has(key) || proofs.has(key)) throw new Error("This preparation attempt already ran or is in flight.");
-      inFlight.add(key);
-      try {
-        const proof = await prepareClipExport(initial.binding, () => current(projectId, requestId, attemptId), renderOptions);
-        proofs.set(key, proof);
+      // The global reservation is synchronous, including before the first store read.
+      return runEditorAttempt(attemptIdentity(projectId, requestId, attemptId, getEditorWorkerEpoch()), async (lease) => {
+        const { intent } = await control(projectId, requestId, attemptId);
+        if (intent.workerEpoch !== getEditorWorkerEpoch()) throw new Error("The editor claim belongs to a different owning process epoch.");
+        lease.bindTarget(attemptTarget(intent));
+        lease.assertActive();
+        const initial = await current(projectId, requestId, attemptId);
+        lease.assertActive();
+        const proof = await prepareClipExport(initial.binding, () => current(projectId, requestId, attemptId), { ...renderOptions, signal: lease.signal });
+        await current(projectId, requestId, attemptId);
+        lease.assertActive();
+        proofs.set(`${projectId}:${requestId}:${attemptId}`, proof);
         return proof;
-      } finally { inFlight.delete(key); }
+      }, { signal: renderOptions.signal });
     },
     /** Protected media adapter only: resolves a persisted prepared attempt, even after restart. */
     readArtifact,

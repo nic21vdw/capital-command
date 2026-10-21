@@ -8,7 +8,7 @@ import { brandKit } from "@/lib/brand/kit";
 import { shortsAudioArgs, shortsAudioFilter } from "@/lib/clipping/audio";
 import { containScale, masterVideoArgs, scaleFilter } from "@/lib/clipping/encode";
 import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue, textOverlayFont } from "@/lib/clipping/captions";
-import { hasAudioStream, isRenderCanceled, parseVideoStreamInfo, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { hasAudioStream, isRenderCanceled, parseVideoStreamInfo, probeDuration, runFfmpeg, RenderCanceledError } from "@/lib/clipping/ffmpeg";
 import { attachEditedClipRender, outputDir, workDir } from "@/lib/clipping/jobs";
 import { renderSignature } from "@/lib/clipping/export-signature";
 import { removeQuietly } from "@/lib/disk/cleanup";
@@ -303,7 +303,7 @@ function sourceCompositionChain(spec: ExportSpec, w: number, h: number): string 
 }
 
 async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePath: string; outFile: string;
-  images?: ReadonlyMap<string, { bytes: Buffer; format: "png" | "jpeg" | "webp" }> }): Promise<{ args: string[]; outFile: string }> {
+  images?: ReadonlyMap<string, { bytes: Buffer; format: "png" | "jpeg" | "webp" }>; signal?: AbortSignal }): Promise<{ args: string[]; outFile: string }> {
   const { settings } = spec;
   const w = settings.width;
   const h = settings.height;
@@ -311,7 +311,7 @@ async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePa
   const dur = trimDuration(spec);
   if (dur < 0.05) throw new Error("Nothing to export — every timeline segment is cut.");
   const selectExpr = selectExpression(spec);
-  const hasAudio = preparation ? (await probePreparationMedia(basePath)).hasAudio
+  const hasAudio = preparation ? (await probePreparationMedia(basePath, preparation.signal)).hasAudio
     : await hasAudioStream(basePath).catch(() => false);
 
   const images = await writeOverlayImages(spec, dir, preparation?.images);
@@ -467,6 +467,7 @@ export type PreparationExportBinding = {
   ownerId: string; projectId: string; jobId: string; clipId: string; sourceFile: string;
   sourceSha256: string; projectDigest: string; specSha256: string; renderSignature: string;
   requestId: string; attemptId: string;
+  workerEpoch?: string;
   overlayAssets?: PreparationOverlayAssetIdentity[];
 };
 export type PreparationOverlayAssetIdentity = {
@@ -511,7 +512,7 @@ const preparationSpecSchema = clipProjectSchema.pick({ jobId: true, sourceFile: 
 const preparationId = (value: string): boolean => /^[A-Za-z0-9_-]{1,128}$/.test(value);
 const preparationUuid = (value: string): boolean => /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
 const preparationFile = (value: string): boolean => typeof value === "string" && value.length <= 255
-  && /^[A-Za-z0-9][A-Za-z0-9_. -]*\.(?:mp4|webm|mov|mkv)$/i.test(value) && !value.endsWith(".");
+  && !value.startsWith(".") && !/[\\/:\u0000-\u001f\u007f]/.test(value) && /\.(?:mp4|webm|mov|mkv)$/i.test(value);
 
 function assetIdentity(asset: PreparationOverlayAssetIdentity): PreparationOverlayAssetIdentity {
   const { overlayId, src, sha256, format, byteLength, width, height } = asset;
@@ -564,7 +565,11 @@ function preparationFileHash(file: string): { sha256: string; bytes: number; ide
   return { sha256: hash.digest("hex"), ...before };
 }
 
-async function probePreparationMedia(file: string) {
+function assertNotAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new RenderCanceledError();
+}
+async function probePreparationMedia(file: string, signal?: AbortSignal) {
+  assertNotAborted(signal);
   assertPreparationPath(file);
   const header = Buffer.alloc(12);
   const fd = openSync(file, "r");
@@ -574,7 +579,8 @@ async function probePreparationMedia(file: string) {
   }
   // Constrain probes too: demuxer sniffing must never turn a disguised playlist
   // into a network request before the render's own protocol whitelist applies.
-  const { stderr } = await runFfmpeg(["-protocol_whitelist", "file", "-hide_banner", "-i", file], { allowFailure: true });
+  const { stderr } = await runFfmpeg(["-protocol_whitelist", "file", "-hide_banner", "-i", file], { allowFailure: true, signal });
+  assertNotAborted(signal);
   const video = parseVideoStreamInfo(stderr);
   if (!video || !video.durationSec || video.durationSec <= 0) throw new Error("Preparation media is not a probeable local video.");
   return { ...video, durationSec: video.durationSec, hasAudio: /Stream #\d+:\d+.*Audio/.test(stderr) };
@@ -582,14 +588,16 @@ async function probePreparationMedia(file: string) {
 
 async function preparationContext(
   trusted: PreparationExportBinding,
-  readCurrent: () => Promise<PreparationExportCurrent>
+  readCurrent: () => Promise<PreparationExportCurrent>, signal?: AbortSignal
 ) {
+  assertNotAborted(signal);
   const binding = structuredClone(trusted);
   if (!binding.ownerId?.trim() || binding.ownerId.length > 128
     || ![binding.projectId, binding.jobId, binding.clipId].every(preparationId)
     || !preparationFile(binding.sourceFile) || ![binding.requestId, binding.attemptId].every(preparationUuid)
     || ![binding.sourceSha256, binding.projectDigest, binding.specSha256].every((hash) => /^[a-f0-9]{64}$/.test(hash))
     || !/^[a-z0-9]{1,64}$/.test(binding.renderSignature)
+    || (binding.workerEpoch !== undefined && !preparationUuid(binding.workerEpoch))
     || !validAssetManifest(binding.overlayAssets ?? [])) throw new Error("An explicit trusted preparation binding is required.");
   if (binding.overlayAssets) {
     binding.overlayAssets.forEach((asset) => Object.freeze(asset));
@@ -609,7 +617,9 @@ async function preparationContext(
     assertPreparationPath(root);
   };
   const checkCurrent = async () => {
+    assertNotAborted(signal);
     const current = await readCurrent();
+    assertNotAborted(signal);
     if (canonicalPreparationJson(current.binding) !== canonicalPreparationJson(binding)) throw new Error("The preparation source, project or attempt changed.");
     const parsed = preparationSpecSchema.parse(current.spec) as ExportSpec;
     if (canonicalPreparationJson(parsed).length > 4_000_000 || preparationSpecDigest(parsed) !== binding.specSha256
@@ -644,17 +654,19 @@ async function preparationContext(
     file: path.join(dir, `prepared.${spec.settings.format}`) };
 }
 
-async function readPreparationProof(context: Awaited<ReturnType<typeof preparationContext>>): Promise<PreparationExportProof> {
+async function readPreparationProof(context: Awaited<ReturnType<typeof preparationContext>>, signal?: AbortSignal): Promise<PreparationExportProof> {
+  assertNotAborted(signal);
   const { binding, spec, assets, source, sourcePath, file, assertRoot, checkCurrent } = context;
   // Guard functions retain file identities, never decoded/copy buffers in proofs.
   const assetGuards = assets.map((asset) => ({ assertCurrentFile: asset.assertCurrentFile, streamingRead: asset.streamingRead }));
   const output = preparationFileHash(file);
   if (output.bytes < 1024) throw new Error("Preparation produced no usable video file.");
-  const media = await probePreparationMedia(file);
+  const media = await probePreparationMedia(file, signal);
   const durationSec = media.durationSec;
   if (Math.abs(durationSec - trimDuration(spec)) > Math.max(0.25, 2 / spec.settings.fps)) throw new Error("The preparation output duration does not match its render spec.");
   if (media.width !== spec.settings.width || media.height !== spec.settings.height) throw new Error("The preparation output dimensions do not match its render spec.");
   const assertCurrent = () => {
+    assertNotAborted(signal);
     assertRoot();
     assetGuards.forEach((asset) => asset.assertCurrentFile());
     const currentSource = preparationFileHash(sourcePath);
@@ -664,11 +676,13 @@ async function readPreparationProof(context: Awaited<ReturnType<typeof preparati
   };
   const verifyCurrent = async () => { await checkCurrent(); assertCurrent(); };
   await verifyCurrent();
+  assertNotAborted(signal);
   const artifact = { ...binding, exportId: `preparation-${binding.attemptId}`, file, durationSec,
     bytes: output.bytes, artifactSha256: output.sha256 };
   const streamingRead = (): PreparationArtifactRead => {
     const assetReads = assetGuards.map((asset) => asset.streamingRead());
     const assertStreamingCurrent = () => {
+      assertNotAborted(signal);
       assertRoot();
       assetReads.forEach((asset) => asset.assertCurrentFile());
       if (preparationFileIdentity(sourcePath).identity !== source.identity
@@ -703,7 +717,8 @@ export async function prepareClipExport(
   readCurrent: () => Promise<PreparationExportCurrent>,
   options: { signal?: AbortSignal; onProgress?: (percent: number) => void } = {}
 ): Promise<PreparationExportProof> {
-  const context = await preparationContext(trusted, readCurrent);
+  const context = await preparationContext(trusted, readCurrent, options.signal);
+  assertNotAborted(options.signal);
   const { spec, assets, sourcePath, dir, scratch, file, checkCurrent } = context;
   assertPreparationPath(dir, true);
   // Exclusive attempt directory: retries never overwrite an uncertain artifact.
@@ -713,36 +728,46 @@ export async function prepareClipExport(
   assertPreparationPath(dir);
   await mkdir(scratch);
   try {
-    assertPreparationPath(path.join(process.cwd(), "public", "fonts", "captions"), true);
-    const images = new Map(assets.map((asset) => {
-      const bytes = asset.copyBytes();
-      if (bytes.length !== asset.byteLength || createHash("sha256").update(bytes).digest("hex") !== asset.sha256) {
-        throw new Error("The verified image copy does not match its immutable manifest.");
-      }
-      return [asset.overlayId, { bytes, format: asset.format }] as const;
-    }));
-    const { args } = await buildArgs(spec, scratch, { sourcePath, outFile: file, images });
-    await checkCurrent();
-    assertPreparationPath(scratch);
-    assertPreparationPath(file, true);
-    let lastProgress = 0;
-    await runFfmpeg(["-protocol_whitelist", "file", ...args], { signal: options.signal, onLine: (line) => {
-      const match = line.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/);
-      if (!match || options.signal?.aborted) return;
-      const seconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
-      const progress = Math.max(lastProgress, Math.min(99, Math.floor(seconds / trimDuration(spec) * 100)));
-      if (progress > lastProgress) { lastProgress = progress; options.onProgress?.(progress); }
-    } });
-    const proof = await readPreparationProof(context);
+    let proof: PreparationExportProof;
+    try {
+      assertNotAborted(options.signal);
+      assertPreparationPath(path.join(process.cwd(), "public", "fonts", "captions"), true);
+      const images = new Map(assets.map((asset) => {
+        const bytes = asset.copyBytes();
+        if (bytes.length !== asset.byteLength || createHash("sha256").update(bytes).digest("hex") !== asset.sha256) {
+          throw new Error("The verified image copy does not match its immutable manifest.");
+        }
+        return [asset.overlayId, { bytes, format: asset.format }] as const;
+      }));
+      const { args } = await buildArgs(spec, scratch, { sourcePath, outFile: file, images, signal: options.signal });
+      assertNotAborted(options.signal);
+      await checkCurrent();
+      assertNotAborted(options.signal);
+      assertPreparationPath(scratch);
+      assertPreparationPath(file, true);
+      let lastProgress = 0;
+      await runFfmpeg(["-protocol_whitelist", "file", ...args], { signal: options.signal, onLine: (line) => {
+        const match = line.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/);
+        if (!match || options.signal?.aborted) return;
+        const seconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+        const progress = Math.max(lastProgress, Math.min(99, Math.floor(seconds / trimDuration(spec) * 100)));
+        if (progress > lastProgress) { lastProgress = progress; options.onProgress?.(progress); }
+      } });
+      assertNotAborted(options.signal);
+      proof = await readPreparationProof(context, options.signal);
+    } finally {
+      assertPreparationPath(scratch);
+      await rm(scratch, { recursive: true, force: true });
+    }
+    // Cleanup is the last await: a stop during it must still invalidate proof.
+    assertNotAborted(options.signal);
     options.onProgress?.(100);
+    assertNotAborted(options.signal);
     return proof;
   } catch (error) {
     assertPreparationPath(dir);
     await rm(file, { force: true });
     throw error;
-  } finally {
-    assertPreparationPath(scratch);
-    await rm(scratch, { recursive: true, force: true });
   }
 }
 
@@ -789,6 +814,7 @@ async function runExport(record: ExportRecord, spec: ExportSpec, signal: AbortSi
 
 async function renderToFile(record: ExportRecord, spec: ExportSpec, dir: string, signal: AbortSignal) {
   const { args, outFile } = await buildArgs(spec, dir);
+  assertNotAborted(signal);
   const total = Math.max(0.1, trimDuration(spec));
 
   try {
@@ -803,6 +829,7 @@ async function renderToFile(record: ExportRecord, spec: ExportSpec, dir: string,
         }
       }
     });
+    assertNotAborted(signal);
   } catch (error) {
     // A stop or a failure leaves a half-written output; remove it so nothing
     // downstream ever picks up a truncated, unplayable file.
@@ -811,11 +838,18 @@ async function renderToFile(record: ExportRecord, spec: ExportSpec, dir: string,
   }
 
   // Never mark complete unless a real, probeable, non-empty file exists.
-  const info = await stat(outFile).catch(() => null);
-  if (!info || info.size < 1024) {
-    throw new Error("Export finished but produced no usable video file.");
+  try {
+    const info = await stat(outFile).catch(() => null);
+    assertNotAborted(signal);
+    if (!info || info.size < 1024) {
+      throw new Error("Export finished but produced no usable video file.");
+    }
+    await probeDuration(outFile, { signal }); // throws if the output is not a valid video
+    assertNotAborted(signal);
+  } catch (error) {
+    if (signal.aborted) await rm(outFile, { force: true }).catch(() => undefined);
+    throw error;
   }
-  await probeDuration(outFile); // throws if the output is not a valid video
   record.file = path.basename(outFile);
 
   // Record the export on the clip it was cut from — with the signature of the

@@ -249,7 +249,7 @@ describe("original editor preparation-only export", () => {
 it("bridges independent proof to EditorWorkerPorts and rejects a stale original project", async () => {
   const digest = projectDigest(project);
   const intent: { requestId: string; attemptId: string; revision: number; digest: string; renderSignature: string;
-    state: "claimed" | "prepared"; exportId?: string; artifactSha256?: string } = {
+    workerEpoch?: string; state: "claimed" | "prepared"; exportId?: string; artifactSha256?: string } = {
     requestId: binding.requestId, attemptId: binding.attemptId, revision: 1, digest,
     renderSignature: binding.renderSignature, state: "claimed" };
   const managed = { ...project, marketingEditor: { ownerId: binding.ownerId, jobId: project.jobId, clipId: binding.clipId,
@@ -259,6 +259,7 @@ it("bridges independent proof to EditorWorkerPorts and rejects a stale original 
     jobId: project.jobId, clipId: binding.clipId, sourceFile: project.sourceFile, sourceSha256: binding.sourceSha256 }] },
     store: { read: async () => ({ clipProjects: [managed] }), readJob: async () => job } };
   const worker = createEditorPreparationWorker(options);
+  intent.workerEpoch = worker.getWorkerEpoch();
   worker.assertPreparationOnly();
   expect(await worker.readPreparation(managed, intent)).toBeNull();
   const artifact = await worker.prepare(project.id, intent.requestId, binding.attemptId);
