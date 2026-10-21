@@ -9,6 +9,10 @@ export type MarketingSourceState = {
   commandId: string;
   requestDigest: string;
   receipt: DraftSourceReceipt;
+  /** Advances only when accepting a new immutable preparation command. */
+  revision?: number;
+  /** Command receipts remain in this ledger, including failures and uncertainty. */
+  preparations?: import("./marketing-preparation").MarketingPreparationRecord[];
   archivedAt?: string;
 };
 
@@ -45,14 +49,25 @@ export function retainedRuns(runs: Iterable<PipelineRun>, limit: number): Pipeli
 
 /** Drafts are inert: even the legacy overview must not read media, run workers or enqueue. */
 export function draftOverview(run: PipelineRun): PipelineRunOverview {
+  const preparation = run.marketingSource?.preparations?.at(-1);
+  const detail = !preparation ? "Source saved. Preparation has not started."
+    : preparation.status === "prepared" ? "Local review proxy prepared. Full pipeline outputs have not been generated."
+    : preparation.status === "failed" ? `Preparation failed: ${preparation.error ?? "Review the source and request again."}`
+    : preparation.status === "uncertain" ? "Preparation outcome is uncertain. Review before requesting again."
+    : `Source preparation ${preparation.status}.`;
   const keys: PipelineStageKey[] = ["source", "longform", "segments", "clips", "audio", "podcast", "images", "visuals", "posts", "schedule"];
   const stages = Object.fromEntries(keys.map((key) => [key, {
     status: "waiting" as const,
-    detail: key === "source" ? "Source saved. Preparation has not started." : "Waiting for source preparation.",
+    detail: key === "source" ? detail : "Waiting for full pipeline preparation.",
     retryable: false
   }])) as PipelineRunOverview["stages"];
+  const preparing = preparation && ["requested", "claimed", "running"].includes(preparation.status);
+  if (preparation) {
+    stages.source.status = preparation.status === "prepared" ? "ready"
+      : preparing ? "running" : "error";
+  }
   return {
-    run, stages, retryable: [], delivery: emptyDelivery(), settled: true,
+    run, stages, retryable: [], delivery: emptyDelivery(), settled: !preparing,
     schedulable: { clipsReady: 0, longformReady: false, segments: 0, segmentsRendered: 0, audioReady: false,
       podcastPublished: false, carouselSlides: 0, visualAdReady: false, posts: 0, queued: 0 }
   };

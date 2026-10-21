@@ -170,6 +170,44 @@ export async function listMarketingDrafts(ownerId: string): Promise<PipelineRun[
 }
 
 /**
+ * Internal preparation ledger transaction in the ORIGINAL owning Node process.
+ * The callback only changes preparation state; run status, references and every
+ * scheduling flag stay outside its write surface. Save before replacing memory.
+ */
+export async function transactMarketingPreparation<T>(
+  ownerId: string,
+  runId: string,
+  transition: (source: import("./marketing-drafts").MarketingSourceState, owned: readonly PipelineRun[]) => Promise<{
+    result: T;
+    next?: Pick<import("./marketing-drafts").MarketingSourceState, "revision" | "preparations">;
+  }>
+): Promise<T> {
+  await loadRuns();
+  if (!g.__pipelineRunsLoaded) throw new Error("The source ledger could not be read safely.");
+  const execute = async () => {
+    const run = runs.get(runId);
+    if (!run?.marketingSource || run.marketingSource.ownerId !== ownerId || run.marketingSource.archivedAt) {
+      throw new Error("That source is not available to this owner.");
+    }
+    if (run.status !== "draft") throw new Error("Managed preparation requires an isolated draft.");
+    const owned = [...runs.values()].filter((row) => row.marketingSource?.ownerId === ownerId);
+    const { result, next } = await transition(structuredClone(run.marketingSource), structuredClone(owned));
+    if (!next) return result;
+    const replacement: PipelineRun = {
+      ...run, updatedAt: new Date().toISOString(),
+      marketingSource: { ...run.marketingSource, revision: next.revision, preparations: next.preparations }
+    };
+    const list = [...runs.values()].map((row) => row.id === runId ? replacement : row);
+    await atomicWriteJson(runsFile, retainedRuns(list, MAX_RUNS));
+    runs.set(runId, replacement);
+    return result;
+  };
+  const result = (g.__pipelinePersistQueue ?? Promise.resolve()).then(execute, execute);
+  g.__pipelinePersistQueue = result.then(() => undefined, () => undefined);
+  return result;
+}
+
+/**
  * Runs only in the owning Next process. It shares the existing persistence chain
  * with every legacy run write. Nothing enters the live map before the atomic save.
  */
@@ -393,6 +431,9 @@ function stuck(run: PipelineRun, key: string): boolean {
  * where the records left off. Every step is idempotent behind an id check.
  */
 export async function advanceRun(run: PipelineRun): Promise<void> {
+  // Managed preparation is dispatched only by its narrowly permitted worker.
+  // Even a malformed stored status must never enter legacy scheduling stages.
+  if (run.marketingSource) return;
   if (await isAutomationPaused("pipeline")) return;
   if (run.status !== "running" || !run.sourceId) return;
   const sourceId = run.sourceId;
@@ -945,7 +986,7 @@ export function overviewContext(): OverviewContext {
  * pipeline forward.
  */
 export async function runOverview(run: PipelineRun, context?: OverviewContext): Promise<PipelineRunOverview> {
-  if (run.status === "draft") return draftOverview(run);
+  if (run.marketingSource || run.status === "draft") return draftOverview(run);
   await advanceRun(run);
 
   const ctx = context ?? overviewContext();
