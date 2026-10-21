@@ -11,7 +11,8 @@ import { ManagedEditorDeletedError, canonicalEditorJson, currentEditorState, edi
 import { editorTargetSchema, type EditorBinding, type EditorCommandResult, type EditorExportIntent,
   type EditorRecordBinding, type EditorReceipt, type EditorSnapshot, type EditorTarget,
   type MarketingEditorState, type RequestEditorExportCommand, type SaveEditorCommand, type DeleteEditorCommand,
-  type EditorProjectSummary, type EditorOverlayAssetIdentity } from "./editor-types";
+  type EditorProjectSummary, type EditorOverlayAssetIdentity, type CancelEditorExportCommand,
+  type ReconcileEditorExportCommand, type SettleEditorExportCancellationCommand } from "./editor-types";
 import type { createStoredEditorOverlayResolver, StoredEditorOverlayAsset } from "./editor-overlay-assets";
 export * from "./editor-types";
 
@@ -24,8 +25,14 @@ export const saveEditorCommandSchema = z.object({
     captions: z.array(captionSegmentSchema).max(20_000)
   }).strict()
 }).strict();
-export const requestEditorExportCommandSchema = z.object({ operation: z.literal("request_editor_export"), ...commandFields }).strict();
+export const requestEditorExportCommandSchema = z.object({ operation: z.literal("request_editor_export"), ...commandFields,
+  supersedesRequestId: z.string().uuid().optional() }).strict();
 export const deleteEditorCommandSchema = z.object({ operation: z.literal("delete_editor_project"), ...commandFields }).strict();
+const exportAttemptFields = { ...commandFields, requestId: z.string().uuid(), attemptId: z.string().uuid().optional() };
+export const cancelEditorExportCommandSchema = z.object({ operation: z.literal("cancel_editor_export"), ...exportAttemptFields }).strict();
+export const reconcileEditorExportCommandSchema = z.object({ operation: z.literal("reconcile_editor_export"), ...exportAttemptFields }).strict();
+export const settleEditorExportCancellationCommandSchema = z.object({ operation: z.literal("settle_editor_export_cancellation"),
+  ...exportAttemptFields, attemptId: z.string().uuid(), cancelCommandId: z.string().uuid() }).strict();
 export const claimEditorExportCommandSchema = z.object({
   operation: z.literal("claim_editor_export"), ...commandFields, requestId: z.string().uuid()
 }).strict();
@@ -34,10 +41,12 @@ export const recordEditorExportOutcomeSchema = z.object({
   requestId: z.string().uuid(), attemptId: z.string().uuid(),
   outcome: z.enum(["prepared", "failed_before_dispatch", "uncertain"])
 }).strict();
-export const editorCommandSchema = z.discriminatedUnion("operation", [saveEditorCommandSchema, deleteEditorCommandSchema, requestEditorExportCommandSchema]);
+export const editorCommandSchema = z.discriminatedUnion("operation", [saveEditorCommandSchema, deleteEditorCommandSchema,
+  requestEditorExportCommandSchema, cancelEditorExportCommandSchema, reconcileEditorExportCommandSchema]);
 export type ClaimEditorExportCommand = z.infer<typeof claimEditorExportCommandSchema>;
 export type RecordEditorExportOutcomeCommand = z.infer<typeof recordEditorExportOutcomeSchema>;
-export type AnyEditorCommand = SaveEditorCommand | DeleteEditorCommand | RequestEditorExportCommand | ClaimEditorExportCommand | RecordEditorExportOutcomeCommand;
+export type AnyEditorCommand = SaveEditorCommand | DeleteEditorCommand | RequestEditorExportCommand | ClaimEditorExportCommand
+  | RecordEditorExportOutcomeCommand | CancelEditorExportCommand | ReconcileEditorExportCommand | SettleEditorExportCancellationCommand;
 type AnyCommand = AnyEditorCommand;
 
 export class MarketingEditorError extends Error {
@@ -58,11 +67,25 @@ export type EditorPreparationEvidence = {
   /** Recheck the trusted artifact identity immediately before locked commit. */
   assertCurrent(): void;
 };
+export type EditorAttemptInspection = {
+  workerEpoch: string;
+  status: "active" | "settled" | "missing" | "prior_epoch";
+  /** Recheck the exact registry identity/status, including absence, inside CAS. */
+  assertCurrent(): void;
+};
+export type EditorCancellationSettlement = {
+  requestId: string; attemptId: string; workerEpoch: string; cancelCommandId: string; settled: true;
+  /** Exact fence observed before abort and full matching preparation callback settled. */
+  assertCurrent(): void;
+};
 export type EditorWorkerPorts = {
   /** Trusted owner-process guard: renderer must have no enqueue/send side effect. */
   assertPreparationOnly(): void;
   readPreparation(project: Readonly<ClipProject>, intent: Readonly<EditorExportIntent>): Promise<EditorPreparationEvidence | null>;
   verifyFailureBeforeDispatch?(project: Readonly<ClipProject>, intent: Readonly<EditorExportIntent>): Promise<boolean>;
+  getWorkerEpoch?(): string;
+  inspectAttempt?(project: Readonly<ClipProject>, intent: Readonly<EditorExportIntent>): Promise<EditorAttemptInspection>;
+  readCancellationSettlement?(project: Readonly<ClipProject>, intent: Readonly<EditorExportIntent>): Promise<EditorCancellationSettlement | null>;
 };
 
 /** Reads cached source captions only. Importing jobs.ts would initialize a mutable worker cache. */

@@ -10,16 +10,18 @@ export const editorTargetSchema = z.object({
 }).strict();
 export type EditorTarget = z.infer<typeof editorTargetSchema>;
 export const editorOperationSchema = z.enum([
-  "save_editor_project", "delete_editor_project", "request_editor_export", "claim_editor_export", "record_editor_export_outcome"
+  "save_editor_project", "delete_editor_project", "request_editor_export", "claim_editor_export", "record_editor_export_outcome",
+  "cancel_editor_export", "reconcile_editor_export", "settle_editor_export_cancellation"
 ]);
 export const editorExportStateSchema = z.enum([
-  "pending_dispatch", "claimed", "prepared", "failed_before_dispatch", "uncertain", "stale"
+  "pending_dispatch", "claimed", "prepared", "failed_before_dispatch", "uncertain", "stale", "cancel_requested", "canceled"
 ]);
 export const editorReceiptSchema = z.object({
   commandId: z.string().uuid(), operation: editorOperationSchema,
   revision, digest: sha256, renderSignature: z.string(),
   requestId: z.string().uuid().optional(), state: editorExportStateSchema.optional(),
   attemptId: z.string().uuid().optional(),
+  cancelCommandId: z.string().uuid().optional(),
   reviewInvalidated: z.literal(true), publicationAuthorized: z.literal(false)
 }).strict();
 export type EditorReceipt = z.infer<typeof editorReceiptSchema>;
@@ -32,6 +34,13 @@ export type EditorOverlayAssetIdentity = z.infer<typeof editorOverlayAssetIdenti
 export const editorExportIntentSchema = z.object({
   requestId: z.string().uuid(), revision, digest: sha256, renderSignature: z.string(),
   state: editorExportStateSchema, attemptId: z.string().uuid().optional(),
+  /** Trusted owning-process identity; never supplied by public commands. */
+  workerEpoch: z.string().uuid().optional(),
+  cancellation: z.object({ commandId: z.string().uuid(), requestedAt: z.string().datetime() }).strict().optional(),
+  reconciliation: z.object({ commandId: z.string().uuid(), reconciledAt: z.string().datetime(),
+    reason: z.literal("unconfirmed_attempt") }).strict().optional(),
+  supersedesRequestId: z.string().uuid().optional(),
+  supersededByRequestId: z.string().uuid().optional(),
   // Internal proof only; media is independently resolved from the original job.
   artifactSha256: sha256.optional(), exportId: id.optional(),
   /** Exact existing image bytes approved by this explicit export request. */
@@ -67,13 +76,17 @@ export type EditorSnapshot = {
     /** Private projection resolves these IDs to opaque protected image references. */
     overlays?: { overlayId: string }[];
   };
-  export: { state: "not_requested" | EditorExportIntent["state"]; requestId?: string };
+  export: { state: "not_requested" | EditorExportIntent["state"]; requestId?: string; attemptId?: string };
   capabilities: { save: boolean; deleteProject: boolean; requestExport: boolean; dispatchExport: false };
   reviewRequired: true;
   publicationAuthorized: false;
 };
 export type SaveEditorCommand = { operation: "save_editor_project"; commandId: string; target: EditorTarget; project: ClipProject };
-export type RequestEditorExportCommand = { operation: "request_editor_export"; commandId: string; target: EditorTarget };
+export type RequestEditorExportCommand = { operation: "request_editor_export"; commandId: string; target: EditorTarget; supersedesRequestId?: string };
 export type DeleteEditorCommand = { operation: "delete_editor_project"; commandId: string; target: EditorTarget };
+export type CancelEditorExportCommand = { operation: "cancel_editor_export"; commandId: string; target: EditorTarget; requestId: string; attemptId?: string };
+export type ReconcileEditorExportCommand = { operation: "reconcile_editor_export"; commandId: string; target: EditorTarget; requestId: string; attemptId?: string };
+export type SettleEditorExportCancellationCommand = { operation: "settle_editor_export_cancellation"; commandId: string;
+  target: EditorTarget; requestId: string; attemptId: string; cancelCommandId: string };
 export type EditorCommandResult = { receipt: EditorReceipt; replayed: boolean; snapshot: EditorSnapshot | null;
-  reconciliation?: { state: "deleted" | "record_unavailable" } };
+  reconciliation?: { state: "deleted" | "record_unavailable" | "refresh_required" } };
