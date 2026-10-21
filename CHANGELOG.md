@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **An explicitly connected editor can prepare a fresh export in its owning process.** An optional dispatcher uses the original locked request and exact worker proof, preserving replay, cancellation and interrupted-attempt records. It is absent by default; hosted connection, installation and posting remain unconfigured.
+
 - **Source-based editor creation has a scoped, atomic adapter contract.** An explicitly configured policy can create a child and its replay receipt in the original store while preserving the root's edits, review and prepared output. The policy is absent by default; this does not enable hosted creation, child rendering or posting.
 
 - **Existing PCM WAV background music stays attached to prepared exports.** Owner-bound music uses protected previews and exact byte manifests, while redacted saves retain the original source. Preparation keeps the original mixer, volume, timing and no-loop behavior. Other audio formats and Site playback controls remain incomplete; the hosted backend stays unconnected.

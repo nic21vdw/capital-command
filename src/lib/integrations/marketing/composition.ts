@@ -14,6 +14,7 @@ import type { createStoredEditorMusicResolver, StoredEditorMusicAsset } from "./
 import { createStoredMusicMediaReader } from "./editor-music-media";
 import { canonicalEditorJson } from "./editor-state";
 import type { EditorCreationReceipt } from "./editor-types";
+import type { EditorExportDispatch } from "./editor-dispatch";
 
 /** Deliberate public projection: proof hashes and provenance remain in the ledger. */
 function publicCreationReceipt(receipt: EditorCreationReceipt) {
@@ -63,10 +64,12 @@ export function composeMarketingParity(options: {
   preparationAccess?: PreparationSourceAccess;
   preparedEditorMedia?: PreparedEditorMedia;
   editorCancellation?: EditorCancellationControl;
+  editorDispatch?: EditorExportDispatch;
   overlayAssets?: Pick<ReturnType<typeof createStoredEditorOverlayResolver>, "resolve" | "resolveMany">;
   musicAssets?: Pick<ReturnType<typeof createStoredEditorMusicResolver>, "resolve">;
   analytics?: ReturnType<typeof createMarketingAnalyticsReader>;
 }): { service: MarketingHttpService; resources: MarketingResourceService } {
+  options.editorDispatch?.assertComposition(options);
   const imageReads = new Map<string, { dataRoot: string; relativePath: string; guard: StoredEditorOverlayStreamingRead }>();
   const imageGrant = (entry: { dataRoot: string; relativePath: string; guard: StoredEditorOverlayStreamingRead }) => {
     const assertCurrent = () => {
@@ -311,6 +314,16 @@ export function composeMarketingParity(options: {
         await publicSnapshot(principal.ownerId, await options.editor.load(principal, command.target.projectId));
         const result = command.operation === "save_editor_project"
           ? await options.editor.save(principal, command) : await options.editor.requestExport(principal, command);
+        if (command.operation === "request_editor_export" && result.replayed === false && options.editorDispatch) {
+          try {
+            await options.editorDispatch.dispatchOnce({ command, receipt: result.receipt });
+            // The request receipt remains pending_dispatch forever. Only a new
+            // authoritative observation can describe progress after dispatch.
+            result.snapshot = await options.editor.load(principal, command.target.projectId);
+          } catch {
+            throw new MarketingHttpError(503, "unavailable", "The command was recorded, but its export outcome could not be confirmed. Retain this command identity and reconcile it.", "uncertain");
+          }
+        }
         if (!result.snapshot) return result;
         try { return { ...result, snapshot: await publicSnapshot(principal.ownerId, result.snapshot) }; }
         catch {

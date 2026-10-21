@@ -266,6 +266,12 @@ export class MarketingEditor {
       fail("invalid", "An explicit original-record allowlist is required.");
     }
   }
+  /** Code-only composition guard. Creation grants never enlarge this static scope. */
+  assertDispatcherBinding(binding: EditorBinding, worker: EditorWorkerPorts): void {
+    if (this.worker !== worker || !equal(this.binding, binding)) {
+      fail("invalid", "The dispatcher requires the exact original editor binding and worker instance.");
+    }
+  }
   private async authorize(principal: Principal, projectId: string, scope: "read" | "write" | "worker", receiptLookup = false): Promise<AuthorizedRecord> {
     if (principal.ownerId !== this.binding.ownerId || !principal.scopes.includes(scope)) fail("forbidden", "This editor operation is outside the verified owner scope.");
     const record = this.binding.records.find((row) => row.projectId === projectId);

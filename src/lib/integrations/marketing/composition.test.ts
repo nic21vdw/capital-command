@@ -14,11 +14,11 @@ beforeEach(async () => {
   vi.resetModules();
   vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Synthetic composition forbids external network"); }));
 });
-afterEach(() => { dispose?.(); dispose = undefined; vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+afterEach(() => { dispose?.(); dispose = undefined; vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 async function fixture(realRender = false, imageFormat?: "png" | "jpeg" | "webp", controls?: {
   worker: import("./editor").EditorWorkerPorts; cancellation: import("./composition").EditorCancellationControl;
-}, music?: { enabled: boolean; omitResolver?: boolean; unsupported?: boolean }, creation = false) {
+}, music?: { enabled: boolean; omitResolver?: boolean; unsupported?: boolean }, creation = false, dispatch = false, duration = 1.6) {
   const { clipProjectSchema, appDataSchema } = await import("@/lib/storage/schemas");
   const { emptyData } = await import("@/lib/mockData/seed");
   const project = clipProjectSchema.parse({ id: "project-a", name: "Synthetic corrected clip", jobId: "job-a", sourceFile: "master.mp4",
@@ -26,7 +26,7 @@ async function fixture(realRender = false, imageFormat?: "png" | "jpeg" | "webp"
     trimStart: 0, trimEnd: 10, captions: [{ id: "caption-a", start: 1, end: 3, text: "Corrected caption", words: [], enabled: true }],
     createdAt: "2026-10-20T00:00:00.000Z", updatedAt: "2026-10-20T00:00:00.000Z" });
   if (realRender) {
-    project.baseDurationSec = 1.6; project.clipEnd = 21.6; project.trimStart = 0.2; project.trimEnd = 1.2;
+    project.baseDurationSec = duration; project.clipEnd = 20 + duration; project.trimStart = 0.2; project.trimEnd = duration === 1.6 ? 1.2 : duration - 0.4;
     project.baseWidth = 160; project.baseHeight = 90; project.compositionMode = "fit";
     project.captions = [{ id: "caption-a", start: 0.2, end: 1.2, text: "SYNTHETIC EDITOR", words: [], enabled: true }];
     project.exportSettings = { ...project.exportSettings, width: 160, height: 160, fps: 10, filename: "synthetic-proof" };
@@ -75,8 +75,8 @@ async function fixture(realRender = false, imageFormat?: "png" | "jpeg" | "webp"
   let worker: ReturnType<typeof import("./editor-renderer").createEditorPreparationWorker> | undefined;
   if (realRender) {
     const { runFfmpeg } = await import("@/lib/clipping/ffmpeg");
-    await runFfmpeg(["-y", "-f", "lavfi", "-i", "color=c=navy:s=160x90:r=10:d=1.6", "-f", "lavfi", "-i",
-      "sine=frequency=440:sample_rate=48000:duration=1.6", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", path.join(output, "master.mp4")]);
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", `color=c=navy:s=160x90:r=10:d=${duration}`, "-f", "lavfi", "-i",
+      `sine=frequency=440:sample_rate=48000:duration=${duration}`, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", path.join(output, "master.mp4")]);
     const { createEditorPreparationWorker } = await import("./editor-renderer");
     worker = createEditorPreparationWorker({ binding: { ownerId: owner.ownerId, records: [{ projectId: project.id,
       jobId: project.jobId, clipId: "clip-a", sourceFile: project.sourceFile,
@@ -97,13 +97,14 @@ async function fixture(realRender = false, imageFormat?: "png" | "jpeg" | "webp"
   } : null;
   const editor = new MarketingEditor({ worker: controls?.worker ?? worker, binding: editorBinding, overlayAssets, musicAssets,
     ...(creation ? { creationPolicy: () => creationPolicy } : {}) });
+  const editorDispatch = dispatch ? (await import("./editor-dispatch")).createEditorExportDispatcher({ binding: editorBinding, editor, worker: worker! }) : undefined;
   const composed = composeMarketingParity({ ownerId: owner.ownerId, base, records, editor, preparedEditorMedia: worker,
-    editorCancellation: controls?.cancellation ?? worker, overlayAssets, musicAssets });
+    editorCancellation: controls?.cancellation ?? worker, editorDispatch, overlayAssets, musicAssets });
   dispose = installMarketingRuntime({ ...composed, originAllowed: isSameOriginLoopbackMutation,
     authenticate: (req) => req.headers.get("x-fixture-user") === "owner" ? owner
       : req.headers.get("x-fixture-user") === "other" ? { ...owner, ownerId: "other-owner" }
       : req.headers.get("x-fixture-user") === "read-only" ? { ...owner, scopes: ["read"] } : null });
-  return { project, document, jobs, base, records, editor, worker, image, overlayAssets, musicBytes, musicAssets,
+  return { project, document, jobs, base, records, editor, worker, editorDispatch, image, overlayAssets, musicBytes, musicAssets,
     revokeCreation: () => { creationPolicy = null; }, handlers: marketingRuntime()! };
 }
 const request = (pathName = "workspace", user = "owner") => new Request(`http://127.0.0.1:3100/api/integrations/marketing/${pathName}`, { headers: { "x-fixture-user": user } });
@@ -480,28 +481,65 @@ describe("composed original records/editor/media HTTP boundary", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("renders a captioned original project through the trusted worker and streams verified prepared bytes without job attachment", async () => {
+  it("dispatches a public captioned export through real FFmpeg and protects verified GET/HEAD/range bytes without attachment", async () => {
     vi.stubEnv("PUBLISH_ENABLED", "true"); vi.stubEnv("PUBLISH_AUTO_ENQUEUE", "true");
-    const f = await fixture(true);
+    const f = await fixture(true, undefined, undefined, undefined, false, true);
+    const prepare = vi.spyOn(f.worker!, "prepare");
+    const legacyJobs = await import("@/lib/clipping/jobs"), enqueue = await import("@/lib/publisher/enqueue");
+    const attach = vi.spyOn(legacyJobs, "attachEditedClipRender").mockImplementation(() => { throw new Error("No legacy attachment in dispatcher"); });
+    const publish = vi.spyOn(enqueue, "maybeAutoEnqueueExport").mockImplementation(() => { throw new Error("No publication in dispatcher"); });
+    const sideEffectFiles = ["publish-queue.json", "threads-queue.json", "provider-records.json"];
+    for (const file of sideEffectFiles) await writeFile(path.join(root, file), JSON.stringify({ syntheticOnly: true, enabled: true }));
+    const sideEffectsBefore = await Promise.all(sideEffectFiles.map((file) => readFile(path.join(root, file), "utf8")));
     const jobsBefore = await readFile(f.jobs, "utf8");
     const snapshot = await (await f.handlers.editor(request("editor/project-a"), "project-a")).json();
-    const exported = await (await f.handlers.operations(command({ operation: "request_editor_export", commandId: randomUUID(), target: snapshot.target }))).json();
-    const workerPrincipal: Principal = { ownerId: owner.ownerId, scopes: ["worker"] };
+    const cmd = { operation: "request_editor_export", commandId: randomUUID(), target: snapshot.target };
+    const response = await f.handlers.operations(command(cmd)); expect(response.status).toBe(200);
+    const exported = await response.json();
     const requestId = exported.receipt.requestId;
-    const claimed = await f.editor.claimExport(workerPrincipal, { operation: "claim_editor_export", commandId: randomUUID(), target: snapshot.target, requestId });
-    const proof = await f.worker!.prepare(f.project.id, requestId, claimed.attemptId);
-    await f.editor.recordExportOutcome(workerPrincipal, { operation: "record_editor_export_outcome", commandId: randomUUID(),
-      target: snapshot.target, requestId, attemptId: claimed.attemptId, outcome: "prepared" });
+    expect(exported.receipt).toMatchObject({ commandId: cmd.commandId, requestId: cmd.commandId, state: "pending_dispatch" });
+    expect(exported.snapshot.export.state).toBe("prepared");
+    const state = JSON.parse(await readFile(f.document, "utf8")).clipProjects[0].marketingEditor;
+    expect(state.receipts.map((row: { result: { operation: string } }) => row.result.operation)).toEqual(["request_editor_export", "claim_editor_export", "record_editor_export_outcome"]);
+    expect(state.receipts[0].result).toEqual(exported.receipt);
+    expect(prepare).toHaveBeenCalledExactlyOnceWith(f.project.id, requestId, state.exports[0].attemptId);
+    const proof = await f.worker!.readArtifact(f.project.id, requestId, state.exports[0].attemptId);
     const prepared = await (await f.handlers.editor(request("editor/project-a"), "project-a")).json();
     expect(prepared.export.state).toBe("prepared");
     expect(prepared.media.edited).toMatchObject({ current: true, renderSignature: snapshot.target.renderSignature });
     expect(prepared.media.edited.mediaId).toBe(`prepared:project-a:${requestId}`);
     const media = await f.handlers.media(request("media/opaque"), prepared.media.edited.mediaId);
     expect(media.status).toBe(200);
-    expect(createHash("sha256").update(new Uint8Array(await media.arrayBuffer())).digest("hex")).toBe(proof.artifactSha256);
+    const bytes = Buffer.from(await media.arrayBuffer());
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe(proof.artifactSha256);
+    expect(media.headers.get("cache-control")).toBe("private, no-store"); expect(media.headers.get("location")).toBeNull();
+    const head = await f.handlers.media(new Request(request("media/opaque"), { method: "HEAD" }), prepared.media.edited.mediaId);
+    expect(head.status).toBe(200); expect(head.headers.get("content-length")).toBe(String(bytes.length)); expect(await head.text()).toBe("");
+    const range = await f.handlers.media(new Request(request("media/opaque"), { headers: { "x-fixture-user": "owner", range: "bytes=5-36" } }), prepared.media.edited.mediaId);
+    expect(range.status).toBe(206); expect(range.headers.get("content-range")).toBe(`bytes 5-36/${bytes.length}`);
+    expect(Buffer.from(await range.arrayBuffer())).toEqual(bytes.subarray(5, 37));
+    const { runFfmpeg } = await import("@/lib/clipping/ffmpeg");
+    const decoded = await runFfmpeg(["-v", "info", "-i", proof.file, "-f", "null", "-"]);
+    expect(decoded.code).toBe(0); expect(decoded.stderr).toMatch(/Video: h264/); expect(decoded.stderr).toMatch(/160x160/);
+    const exportReplay = await (await f.handlers.operations(command(cmd))).json();
+    expect(exportReplay).toMatchObject({ replayed: true, receipt: exported.receipt, snapshot: { export: { state: "prepared" } } });
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(exported.snapshot.project.sourceUrl).toBe("");
+    expect(JSON.stringify(exported)).not.toMatch(/token=fixture|artifactSha256|workerEpoch|sourceSha256/);
+    expect(attach).not.toHaveBeenCalled(); expect(publish).not.toHaveBeenCalled(); expect(f.base.execute).not.toHaveBeenCalled();
+    expect(await Promise.all(sideEffectFiles.map((file) => readFile(path.join(root, file), "utf8")))).toEqual(sideEffectsBefore);
+    const evidenceDir = path.join(process.cwd(), ".test-artifacts", "editor-dispatch"); await mkdir(evidenceDir, { recursive: true });
+    await writeFile(path.join(evidenceDir, "synthetic-public-render.json"), JSON.stringify({
+      syntheticOnly: true, boundary: "Public HTTP handlers installed through synthetic installMarketingRuntime; middleware/network/hosted ingress unrun",
+      requestId, receiptState: exported.receipt.state, snapshotState: prepared.export.state, prepareCalls: prepare.mock.calls.length,
+      sha256: proof.artifactSha256, byteLength: bytes.length, videoCodec: "h264", width: 160, height: 160, decodeExitCode: decoded.code,
+      getStatus: media.status, headStatus: head.status, headLength: Number(head.headers.get("content-length")), headEmptyBody: true,
+      rangeStatus: range.status, range: range.headers.get("content-range"), rangeMatchesBytes: true, cacheControl: media.headers.get("cache-control"),
+      noAttachmentEnqueueProviderOrQueueChange: true,
+    }, null, 2));
     expect((await f.handlers.media(request("media/opaque", "other"), prepared.media.edited.mediaId)).status).toBe(403);
     expect(await readFile(f.jobs, "utf8")).toBe(jobsBefore);
-    expect(await readdir(root)).not.toContain("publish-queue.json");
+    expect(await Promise.all(sideEffectFiles.map((file) => readFile(path.join(root, file), "utf8")))).toEqual(sideEffectsBefore);
     expect(fetch).not.toHaveBeenCalled();
     const deletion = { operation: "delete_editor_project", commandId: randomUUID(), target: prepared.target };
     const deleted = await f.handlers.operations(command(deletion));
@@ -512,6 +550,71 @@ describe("composed original records/editor/media HTTP boundary", () => {
     const replay = await (await f.handlers.operations(command(deletion))).json();
     expect(replay).toMatchObject({ replayed: true, snapshot: null, reconciliation: { state: "deleted" } });
     expect(await readFile(f.jobs, "utf8")).toBe(jobsBefore);
+  }, 60_000);
+
+  it.each(["source_hash", "source_binding", "epoch", "image", "edit", "delete"] as const)("rejects %s changes between public intent/claim and real preparation", async (change) => {
+    const f = await fixture(true, change === "image" ? "png" : undefined, undefined, undefined, false, true);
+    const snapshot = await (await f.handlers.editor(request(), "project-a")).json();
+    const cmd = { operation: "request_editor_export", commandId: randomUUID(), target: snapshot.target };
+    const prepare = f.worker!.prepare.bind(f.worker);
+    const call = vi.spyOn(f.worker!, "prepare").mockImplementationOnce(async (...args) => {
+      if (change === "source_hash") await writeFile(path.join(root, "clips", "outputs", "job-a", "master.mp4"), "changed source bytes");
+      if (change === "source_binding") {
+        const jobs = JSON.parse(await readFile(f.jobs, "utf8")); jobs[0].clips[0].file = "changed.mp4"; await writeFile(f.jobs, JSON.stringify(jobs));
+      }
+      if (change === "epoch") {
+        const data = JSON.parse(await readFile(f.document, "utf8")); data.clipProjects[0].marketingEditor.exports[0].workerEpoch = randomUUID(); await writeFile(f.document, JSON.stringify(data));
+      }
+      if (change === "image") await writeFile(f.image!.file, Buffer.alloc(f.image!.bytes.length));
+      if (change === "edit" || change === "delete") {
+        const changed = await f.handlers.operations(command({ operation: change === "edit" ? "save_editor_project" : "delete_editor_project",
+          commandId: randomUUID(), target: snapshot.target, ...(change === "edit" ? { project: { ...snapshot.project, title: "Changed during dispatch" } } : {}) }));
+        expect(changed.status).toBe(200);
+      }
+      return prepare(...args);
+    });
+    const response = await f.handlers.operations(command(cmd)); expect(response.status).toBe(503); expect((await response.json()).error.outcome).toBe("uncertain");
+    const state = JSON.parse(await readFile(f.document, "utf8")).clipProjects[0].marketingEditor;
+    expect(state.exports[0].state).not.toBe("prepared"); expect(state.exports[0].artifactSha256).toBeUndefined();
+    expect(state.receipts.some((row: { result: { state: string } }) => row.result.state === "prepared")).toBe(false);
+    await f.handlers.operations(command(cmd)); expect(call).toHaveBeenCalledTimes(1); expect(fetch).not.toHaveBeenCalled();
+  }, 60_000);
+
+  it("fences and stops the exact real FFmpeg preparation through concurrent public cancellation", async () => {
+    const f = await fixture(true, undefined, undefined, undefined, false, true, 10);
+    const ffmpeg = await import("@/lib/clipping/ffmpeg"), run = ffmpeg.runFfmpeg;
+    let entered = false, closed = false, renderSignal: AbortSignal | undefined;
+    vi.spyOn(ffmpeg, "runFfmpeg").mockImplementation(async (args, options) => {
+      const render = args.at(-1)?.endsWith("prepared.mp4");
+      if (!render) return run(args, options);
+      const controlled = [...args]; controlled.unshift("-stats_period", "0.05"); controlled.splice(controlled.indexOf("-i"), 0, "-re");
+      renderSignal = options?.signal;
+      try { return await run(controlled, { ...options, onLine: (line) => { options?.onLine?.(line); if (/frame=\s*[1-9]/.test(line)) entered = true; } }); }
+      finally { closed = true; }
+    });
+    const snapshot = await (await f.handlers.editor(request(), "project-a")).json();
+    const cmd = { operation: "request_editor_export", commandId: randomUUID(), target: snapshot.target };
+    const running = f.handlers.operations(command(cmd));
+    try {
+      await vi.waitUntil(() => entered, { timeout: 10_000, interval: 5 }); expect(closed).toBe(false);
+      const active = await f.editor.load(owner, "project-a"); expect(active.export.state).toBe("claimed");
+      const cancel = { operation: "cancel_editor_export", commandId: randomUUID(), target: active.target, requestId: cmd.commandId, attemptId: active.export.attemptId };
+      const wrong = await f.handlers.operations(command({ ...cancel, commandId: randomUUID(), attemptId: randomUUID() }));
+      expect(wrong.status).toBe(409); expect(renderSignal?.aborted).toBe(false);
+      const stopped = await f.handlers.operations(command(cancel)); expect(stopped.status).toBe(200);
+      expect(renderSignal?.aborted).toBe(true); expect(closed).toBe(true);
+      const result = await running; expect(result.status).toBe(503); expect((await result.json()).error.outcome).toBe("uncertain");
+      expect((await f.editor.load(owner, "project-a")).export.state).toBe("canceled");
+      const state = JSON.parse(await readFile(f.document, "utf8")).clipProjects[0].marketingEditor;
+      expect(state.exports[0].cancellation.commandId).toBe(cancel.commandId); expect(state.exports[0].artifactSha256).toBeUndefined();
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      if (!closed) {
+        const current = await f.editor.load(owner, "project-a");
+        await f.handlers.operations(command({ operation: "cancel_editor_export", commandId: randomUUID(), target: current.target, requestId: cmd.commandId, attemptId: current.export.attemptId }));
+      }
+      await running;
+    }
   }, 60_000);
 
   it("deletes an explicitly scoped orphan through HTTP without media preflight or touching its original jobs", async () => {
