@@ -11,6 +11,8 @@ const target: Target = {
   scheduledAt: "2026-10-20T15:00:00.000Z",
 };
 const source = { operation: "create_source", commandId: "command_source_0001", title: "Synthetic source", sourceUrl: "https://youtu.be/test" };
+const deletion = { operation: "delete_editor_project", commandId: "10000000-0000-4000-8000-000000000001",
+  target: { projectId: "project-a", jobId: "job-a", clipId: "clip-a", revision: 0, digest: "a".repeat(64), renderSignature: "1heokwo" } };
 function operation(operation = "approve_job", changes = {}) { return { operation, commandId: "command_review_0001", target, ...changes }; }
 function post(value: unknown, headers: Record<string, string> = {}, path = "/operations") {
   return new Request(base + path, { method: "POST", headers: { "content-type": "application/json", origin: "http://127.0.0.1:3100", ...headers }, body: typeof value === "string" ? value : JSON.stringify(value) });
@@ -27,6 +29,25 @@ function setup(overrides: Partial<MarketingHttpDependencies> = {}) {
 async function errorBody(response: Response) { return (await response.json()).error; }
 
 describe("marketing HTTP request boundary", () => {
+  it("forwards only the strict scoped deletion command with an authenticated write identity", async () => {
+    const handler = setup();
+    expect((await handler.operations(post(deletion))).status).toBe(200);
+    expect(handler.service.execute).toHaveBeenCalledExactlyOnceWith({ ownerId: "owner-a", scopes: ["read", "write", "review"] }, deletion);
+  });
+  it.each(["read", "review", "worker"])("requires user write permission before deletion (%s)", async (scope) => {
+    const handler = setup({ authenticate: () => ({ ownerId: "owner-a", scopes: [scope] }) });
+    expect((await handler.operations(post(deletion))).status).toBe(403);
+    expect(handler.service.execute).not.toHaveBeenCalled();
+  });
+  it.each([
+    { ...deletion, ownerId: "owner-b" }, { ...deletion, file: "C:\\private.mp4" },
+    { ...deletion, commandId: "not-a-uuid" }, { ...deletion, target: { ...deletion.target, ownerId: "owner-b" } },
+    { ...deletion, target: { ...deletion.target, revision: -1 } }, { ...deletion, target: { ...deletion.target, digest: "missing" } }
+  ])("refuses deletion identity/path/schema overrides: %j", async (body) => {
+    const handler = setup();
+    expect((await handler.operations(post(body))).status).toBe(400);
+    expect(handler.service.execute).not.toHaveBeenCalled();
+  });
   it("requires all security dependencies at construction", () => {
     expect(() => createMarketingHttpHandlers({} as MarketingHttpDependencies)).toThrow(TypeError);
     expect(() => createMarketingHttpHandlers({ ...setup().deps, originAllowed: undefined } as unknown as MarketingHttpDependencies)).toThrow(TypeError);

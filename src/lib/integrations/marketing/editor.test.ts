@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
@@ -63,6 +63,138 @@ function request(snapshot: EditorSnapshot, commandId = randomUUID()) {
   return { operation: "request_editor_export" as const, commandId, target: snapshot.target };
 }
 const disk = async () => JSON.parse(await readFile(documentFile(), "utf8"));
+
+describe("scoped editor project deletion", () => {
+  it("issues passive delete targets only for the explicit project scope and existing write permission", async () => {
+    const { data } = await fixture();
+    await writeFile(documentFile(), JSON.stringify({ ...data, clipProjects: [data.clipProjects[0], { ...data.clipProjects[0], id: "not-enrolled" }] }));
+    const readJob = vi.fn(async () => { throw new Error("A library delete target must not load a source job."); });
+    const editor = new api.MarketingEditor({ binding, store: { read: store.readExistingAppData, mutate: store.mutateExistingClipProject, readJob } });
+    const before = await readFile(documentFile(), "utf8");
+    const writable = await editor.list(owner);
+    expect(writable).toHaveLength(1);
+    expect(writable[0]).toMatchObject({ id: "project-1", canDelete: true, deleteTarget: { projectId: "project-1", jobId: "job-1", clipId: "clip-1", revision: 0 } });
+    expect(writable[0].deleteTarget.digest).toMatch(/^[a-f0-9]{64}$/);
+    const readOnly = { ...owner, scopes: ["read"] as const };
+    expect((await editor.list(readOnly))[0].canDelete).toBe(false);
+    await expect(editor.deleteProject(readOnly, { operation: "delete_editor_project", commandId: randomUUID(), target: writable[0].deleteTarget }))
+      .rejects.toMatchObject({ code: "forbidden" });
+    expect(await readFile(documentFile(), "utf8")).toBe(before);
+    expect(readJob).not.toHaveBeenCalled();
+  });
+
+  it.each(["missing", "malformed", "empty", "directory"])("deletes an original project with %s jobs.json without reading or repairing it", async (kind) => {
+    await fixture();
+    if (kind === "missing" || kind === "directory") await unlink(jobsFile());
+    if (kind === "directory") await mkdir(jobsFile());
+    if (kind === "malformed") await writeFile(jobsFile(), "{malformed synthetic job record");
+    if (kind === "empty") await writeFile(jobsFile(), "[]");
+    const readJob = vi.fn(async () => { throw new Error("Deletion must not read a source job."); });
+    const editor = new api.MarketingEditor({ binding, store: { read: store.readExistingAppData, mutate: store.mutateExistingClipProject, readJob } });
+    const summary = (await editor.list(owner))[0];
+    const command = { operation: "delete_editor_project" as const, commandId: randomUUID(), target: summary.deleteTarget };
+    const first = await editor.deleteProject(owner, command);
+    expect(first).toEqual({ receipt: { commandId: command.commandId, operation: command.operation, revision: 1,
+      digest: summary.deleteTarget.digest, renderSignature: summary.deleteTarget.renderSignature,
+      reviewInvalidated: true, publicationAuthorized: false }, replayed: false, snapshot: null, reconciliation: { state: "deleted" } });
+    const original = (await disk()).clipProjects[0];
+    expect(original.marketingEditor.deletedAt).toEqual(expect.any(String));
+    expect(original.marketingEditor.receipts[0].result).toEqual(first.receipt);
+    expect(original.captions[0].text).toBe("Hand corrected");
+    expect(await editor.list(owner)).toEqual([]);
+    expect((await editor.deleteProject(owner, command)).receipt).toEqual(first.receipt);
+    expect((await editor.replay(owner, command))?.reconciliation).toEqual({ state: "deleted" });
+    expect(readJob).not.toHaveBeenCalled();
+    if (kind === "malformed") expect(await readFile(jobsFile(), "utf8")).toBe("{malformed synthetic job record");
+    expect(await readdir(root)).not.toContain("publish-queue.json");
+  });
+
+  it("replays the exact deletion after restart and refuses UUID changes, payload changes, and resurrection", async () => {
+    const { editor } = await fixture();
+    const command = { operation: "delete_editor_project" as const, commandId: randomUUID(), target: (await editor.list(owner))[0].deleteTarget };
+    const first = await editor.deleteProject(owner, command);
+    await unlink(jobsFile());
+    vi.resetModules();
+    const { MarketingEditor } = await import("./editor");
+    const restarted = new MarketingEditor({ binding });
+    expect(await restarted.deleteProject(owner, command)).toEqual({ ...first, replayed: true });
+    await expect(restarted.deleteProject(owner, { ...command, target: { ...command.target, revision: 1 } })).rejects.toMatchObject({ code: "conflict" });
+    await expect(restarted.deleteProject(owner, { ...command, commandId: randomUUID() })).rejects.toMatchObject({ code: "not_found" });
+    expect((await disk()).clipProjects[0].marketingEditor.receipts).toHaveLength(1);
+  });
+
+  it("rejects stale delete targets after a save and permits a newly issued exact target", async () => {
+    const { editor } = await fixture();
+    const initial = await editor.load(owner, "project-1");
+    await editor.save(owner, save(initial, { title: "New original edit" }));
+    await expect(editor.deleteProject(owner, { operation: "delete_editor_project", commandId: randomUUID(), target: initial.target }))
+      .rejects.toMatchObject({ code: "conflict" });
+    const target = (await editor.list(owner))[0].deleteTarget;
+    const result = await editor.deleteProject(owner, { operation: "delete_editor_project", commandId: randomUUID(), target });
+    expect(result.receipt.revision).toBe(2);
+    expect(result.receipt.digest).toBe(target.digest);
+    expect((await disk()).clipProjects[0].title).toBe("New original edit");
+  });
+
+  it("serializes competing save/delete commands from separate module queues without losing the winner", async () => {
+    const { editor } = await fixture();
+    const initial = await editor.load(owner, "project-1");
+    vi.resetModules();
+    const { MarketingEditor } = await import("./editor");
+    const other = new MarketingEditor({ binding });
+    const outcomes = await Promise.allSettled([
+      editor.deleteProject(owner, { operation: "delete_editor_project", commandId: randomUUID(), target: initial.target }),
+      other.save(owner, save(initial, { title: "Competing original edit" }))
+    ]);
+    expect(outcomes.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(outcomes.filter((result) => result.status === "rejected")).toHaveLength(1);
+    const original = (await disk()).clipProjects[0];
+    expect(original.marketingEditor.revision).toBe(1);
+    expect(original.marketingEditor.receipts).toHaveLength(1);
+    const deleted = original.marketingEditor.receipts[0].result.operation === "delete_editor_project";
+    expect(Boolean(original.marketingEditor.deletedAt)).toBe(deleted);
+    if (!deleted) expect(original.title).toBe("Competing original edit");
+  });
+
+  it("keeps original jobs/files unchanged, stales a claimed intent, and refuses late worker proof", async () => {
+    await fixture();
+    const assertCurrent = vi.fn();
+    const ports = { assertPreparationOnly: vi.fn(), readPreparation: vi.fn(async () => null as import("./editor").EditorPreparationEvidence | null) };
+    const editor = new api.MarketingEditor({ binding, worker: ports });
+    const snapshot = await editor.load(owner, "project-1");
+    const pending = await editor.requestExport(owner, request(snapshot));
+    const claimed = await editor.claimExport(worker, { operation: "claim_editor_export", commandId: randomUUID(),
+      target: snapshot.target, requestId: pending.receipt.requestId! });
+    const jobsBefore = await readFile(jobsFile(), "utf8");
+    ports.readPreparation.mockResolvedValue({ requestId: pending.receipt.requestId!, attemptId: claimed.attemptId,
+      digest: snapshot.target.digest, renderSignature: snapshot.target.renderSignature, exportId: "late-export",
+      artifactSha256: "a".repeat(64), assertCurrent });
+    await editor.deleteProject(owner, { operation: "delete_editor_project", commandId: randomUUID(), target: snapshot.target });
+    expect((await disk()).clipProjects[0].marketingEditor.exports[0].state).toBe("stale");
+    await expect(editor.recordExportOutcome(worker, { operation: "record_editor_export_outcome", commandId: randomUUID(),
+      target: snapshot.target, requestId: pending.receipt.requestId!, attemptId: claimed.attemptId, outcome: "prepared" })).rejects.toMatchObject({ code: "not_found" });
+    await expect(editor.load(owner, "project-1")).rejects.toMatchObject({ code: "not_found" });
+    expect(assertCurrent).not.toHaveBeenCalled();
+    expect(await readFile(jobsFile(), "utf8")).toBe(jobsBefore);
+    expect(await readdir(path.join(root, "clips"))).toEqual(["jobs.json"]);
+    expect(await readdir(root)).not.toContain("publish-queue.json");
+  });
+
+  it("does not delete a changed owner/source binding or an unlisted project", async () => {
+    const { editor } = await fixture();
+    const saved = await editor.save(owner, save(await editor.load(owner, "project-1")));
+    const target = saved.snapshot!.target;
+    const command = { operation: "delete_editor_project" as const, commandId: randomUUID(), target };
+    const other = new api.MarketingEditor({ binding: { ...binding, ownerId: "another-owner" } });
+    await expect(other.deleteProject({ ...owner, ownerId: "another-owner" }, command)).rejects.toMatchObject({ code: "forbidden" });
+    await expect(editor.deleteProject(owner, { ...command, target: { ...target, projectId: "not-enrolled" } })).rejects.toMatchObject({ code: "forbidden" });
+    await store.mutateAppData((data) => ({ ...data, clipProjects: data.clipProjects.map((project) => ({ ...project, sourceFile: "changed.mp4" })) }));
+    const before = await readFile(documentFile(), "utf8");
+    await expect(editor.deleteProject(owner, command)).rejects.toMatchObject({ code: "conflict" });
+    await expect(editor.list(owner)).rejects.toMatchObject({ code: "conflict" });
+    expect(await readFile(documentFile(), "utf8")).toBe(before);
+  });
+});
 
 describe("original editor project integration", () => {
   it("passively loads the original corrected captions and cached source without initializing workers or writing", async () => {

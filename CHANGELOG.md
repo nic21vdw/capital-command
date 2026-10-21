@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Scoped editor projects can be deleted even when their source is gone.** Revision checks protect newer edits, deleted projects stay out of the library, and retrying the same request preserves its confirmed receipt. Source files and posting schedules are kept intact.
+
 - **Exported captions follow edited speech.** Words fully removed by a cut no longer remain in the caption text. Highlighted words stop at their actual end times, leaving ordinary gaps unhighlighted. ASS timestamps also carry correctly across rounded second boundaries. Generated-frame checks cover these repairs.
 
 - **Prepared previews avoid repeatedly hashing large files.** Streaming uses a bounded verified-artifact cache while rechecking owner, project and file identity; export proof still hashes the full bytes. The final audio limiter also preserves the existing -14 LUFS house target instead of adding automatic gain.

@@ -10,7 +10,7 @@ export const editorTargetSchema = z.object({
 }).strict();
 export type EditorTarget = z.infer<typeof editorTargetSchema>;
 export const editorOperationSchema = z.enum([
-  "save_editor_project", "request_editor_export", "claim_editor_export", "record_editor_export_outcome"
+  "save_editor_project", "delete_editor_project", "request_editor_export", "claim_editor_export", "record_editor_export_outcome"
 ]);
 export const editorExportStateSchema = z.enum([
   "pending_dispatch", "claimed", "prepared", "failed_before_dispatch", "uncertain", "stale"
@@ -41,6 +41,12 @@ export type MarketingEditorState = z.infer<typeof marketingEditorStateSchema>;
 export type EditorRecordBinding = { projectId: string; jobId: string; clipId: string; sourceFile: string };
 export type EditorBinding = { ownerId: string; records: readonly EditorRecordBinding[] };
 export type EditorMediaDescriptor = { jobId: string; fileName: string };
+export type EditorProjectSummary = {
+  id: string; name: string; updatedAt: string; jobId: string; durationSec: number;
+  /** Issued from the scoped stored project without requiring a live source. */
+  deleteTarget: EditorTarget;
+  canDelete: boolean;
+};
 export type EditorSnapshot = {
   project: ClipProject;
   target: EditorTarget;
@@ -50,11 +56,12 @@ export type EditorSnapshot = {
     edited?: EditorMediaDescriptor & { renderSignature?: string; current: boolean };
   };
   export: { state: "not_requested" | EditorExportIntent["state"]; requestId?: string };
-  capabilities: { save: boolean; requestExport: boolean; dispatchExport: false };
+  capabilities: { save: boolean; deleteProject: boolean; requestExport: boolean; dispatchExport: false };
   reviewRequired: true;
   publicationAuthorized: false;
 };
 export type SaveEditorCommand = { operation: "save_editor_project"; commandId: string; target: EditorTarget; project: ClipProject };
 export type RequestEditorExportCommand = { operation: "request_editor_export"; commandId: string; target: EditorTarget };
+export type DeleteEditorCommand = { operation: "delete_editor_project"; commandId: string; target: EditorTarget };
 export type EditorCommandResult = { receipt: EditorReceipt; replayed: boolean; snapshot: EditorSnapshot | null;
   reconciliation?: { state: "deleted" | "record_unavailable" } };

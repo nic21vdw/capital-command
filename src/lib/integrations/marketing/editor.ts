@@ -7,10 +7,11 @@ import { readExistingAppData, mutateExistingClipProject } from "@/lib/storage/st
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { AppData, ClipProject } from "@/types/domain";
 import type { Principal } from "./safety";
-import { canonicalEditorJson, currentEditorState, editorDigest, editorProjectDigest, editorRenderSignature } from "./editor-state";
+import { ManagedEditorDeletedError, canonicalEditorJson, currentEditorState, editorDigest, editorProjectDigest, editorRenderSignature } from "./editor-state";
 import { editorTargetSchema, type EditorBinding, type EditorCommandResult, type EditorExportIntent,
   type EditorRecordBinding, type EditorReceipt, type EditorSnapshot, type EditorTarget,
-  type MarketingEditorState, type RequestEditorExportCommand, type SaveEditorCommand } from "./editor-types";
+  type MarketingEditorState, type RequestEditorExportCommand, type SaveEditorCommand, type DeleteEditorCommand,
+  type EditorProjectSummary } from "./editor-types";
 export * from "./editor-types";
 
 const commandFields = { commandId: z.string().uuid(), target: editorTargetSchema };
@@ -23,6 +24,7 @@ export const saveEditorCommandSchema = z.object({
   }).strict()
 }).strict();
 export const requestEditorExportCommandSchema = z.object({ operation: z.literal("request_editor_export"), ...commandFields }).strict();
+export const deleteEditorCommandSchema = z.object({ operation: z.literal("delete_editor_project"), ...commandFields }).strict();
 export const claimEditorExportCommandSchema = z.object({
   operation: z.literal("claim_editor_export"), ...commandFields, requestId: z.string().uuid()
 }).strict();
@@ -31,10 +33,10 @@ export const recordEditorExportOutcomeSchema = z.object({
   requestId: z.string().uuid(), attemptId: z.string().uuid(),
   outcome: z.enum(["prepared", "failed_before_dispatch", "uncertain"])
 }).strict();
-export const editorCommandSchema = z.discriminatedUnion("operation", [saveEditorCommandSchema, requestEditorExportCommandSchema]);
+export const editorCommandSchema = z.discriminatedUnion("operation", [saveEditorCommandSchema, deleteEditorCommandSchema, requestEditorExportCommandSchema]);
 export type ClaimEditorExportCommand = z.infer<typeof claimEditorExportCommandSchema>;
 export type RecordEditorExportOutcomeCommand = z.infer<typeof recordEditorExportOutcomeSchema>;
-export type AnyEditorCommand = SaveEditorCommand | RequestEditorExportCommand | ClaimEditorExportCommand | RecordEditorExportOutcomeCommand;
+export type AnyEditorCommand = SaveEditorCommand | DeleteEditorCommand | RequestEditorExportCommand | ClaimEditorExportCommand | RecordEditorExportOutcomeCommand;
 type AnyCommand = AnyEditorCommand;
 
 export class MarketingEditorError extends Error {
@@ -194,19 +196,21 @@ export class MarketingEditor {
         ...(isEditorMediaFileName(clip.editedFile) ? { edited: { jobId: record.jobId, fileName: clip.editedFile,
           renderSignature: typeof clip.editedSignature === "string" && /^[a-z0-9]{1,64}$/.test(clip.editedSignature) ? clip.editedSignature : undefined, current } } : {}) },
       export: latest ? { state: latest.state, requestId: latest.requestId } : { state: "not_requested" },
-      capabilities: { save: principal.scopes.includes("write"), requestExport: principal.scopes.includes("write"), dispatchExport: false },
+      capabilities: { save: principal.scopes.includes("write"), deleteProject: principal.scopes.includes("write"), requestExport: principal.scopes.includes("write"), dispatchExport: false },
       reviewRequired: true, publicationAuthorized: false
     };
   }
-  async list(principal: Principal): Promise<{ id: string; name: string; updatedAt: string; jobId: string; durationSec: number }[]> {
+  async list(principal: Principal): Promise<EditorProjectSummary[]> {
     if (principal.ownerId !== this.binding.ownerId || !principal.scopes.includes("read")) fail("forbidden", "This editor operation is outside the verified owner scope.");
     if (!this.binding.records.length) return [];
     const data = await this.store.read();
     return (data?.clipProjects ?? []).flatMap((project) => {
       const record = this.binding.records.find((row) => row.projectId === project.id);
       if (!record || project.marketingEditor?.deletedAt) return [];
-      this.state(project, record);
-      return [{ id: project.id, name: project.name, updatedAt: project.updatedAt, jobId: project.jobId, durationSec: project.baseDurationSec }];
+      if (data!.clipProjects.filter((candidate) => candidate.id === project.id).length !== 1) fail("conflict", "The original editor project is not unique.");
+      const state = this.state(project, record);
+      return [{ id: project.id, name: project.name, updatedAt: project.updatedAt, jobId: project.jobId, durationSec: project.baseDurationSec,
+        deleteTarget: stateTarget(project, record, state), canDelete: principal.scopes.includes("write") }];
     });
   }
   async load(principal: Principal, projectId: string): Promise<EditorSnapshot> {
@@ -230,6 +234,7 @@ export class MarketingEditor {
    */
   async replay(principal: Principal, input: AnyEditorCommand): Promise<EditorCommandResult | null> {
     const schema = input?.operation === "save_editor_project" ? saveEditorCommandSchema
+      : input?.operation === "delete_editor_project" ? deleteEditorCommandSchema
       : input?.operation === "request_editor_export" ? requestEditorExportCommandSchema
       : input?.operation === "claim_editor_export" ? claimEditorExportCommandSchema
       : input?.operation === "record_editor_export_outcome" ? recordEditorExportOutcomeSchema : null;
@@ -258,18 +263,19 @@ export class MarketingEditor {
   }
   private async transact(
     principal: Principal, command: AnyCommand, transition: (project: ClipProject, state: MarketingEditorState) => { project: ClipProject; state: MarketingEditorState; intent?: EditorExportIntent },
-    scope: "write" | "worker" = "write"
+    scope: "write" | "worker" = "write", requireOriginalMedia = true
   ): Promise<EditorCommandResult> {
     const committed = await this.replay(principal, command);
     if (committed) return committed;
     const record = this.authorize(principal, command.target.projectId, scope);
-    const { job, clip } = await this.original(record);
+    const original = requireOriginalMedia ? await this.original(record) : null;
     const payloadSha256 = editorDigest(command);
     let receipt!: EditorReceipt;
     let replayed = false;
-    const saved = await this.store.mutate(record.projectId, (project) => {
+    let saved: ClipProject;
+    try { saved = await this.store.mutate(record.projectId, (project) => {
       const state = this.state(project, record);
-      if (Math.abs(project.clipStart - clip.start) > 0.001 || Math.abs(project.clipEnd - clip.end) > 0.001) {
+      if (original && (Math.abs(project.clipStart - original.clip.start) > 0.001 || Math.abs(project.clipEnd - original.clip.end) > 0.001)) {
         return fail("conflict", "The original clip boundaries no longer match this editor project.");
       }
       const prior = state.receipts.find((entry) => entry.result.commandId === command.commandId);
@@ -287,10 +293,19 @@ export class MarketingEditor {
         reviewInvalidated: true, publicationAuthorized: false };
       next.state.receipts.push({ payloadSha256, result: receipt });
       return { ...next.project, marketingEditor: next.state, renderSignature: next.state.renderSignature, captionCount: next.project.captions.length };
-    });
+    }); } catch (error) {
+      // A concurrent delete can win after receipt preflight. A known receipt
+      // still replays; a new command must not resurrect the tombstone.
+      if (!(error instanceof ManagedEditorDeletedError)) throw error;
+      const replay = await this.replay(principal, command);
+      if (replay) return replay;
+      return fail("not_found", "The original editor project was deleted.");
+    }
+    if (saved.marketingEditor?.deletedAt) return { receipt, replayed, snapshot: null, reconciliation: { state: "deleted" } };
     // The response uses the same original source cache read before mutation;
     // publication readiness still requires independent current-byte proof.
-    return { receipt, replayed, snapshot: this.snapshot(saved, record, job, clip, principal) };
+    if (!original) return fail("unavailable", "The editor command did not reach its expected terminal state.");
+    return { receipt, replayed, snapshot: this.snapshot(saved, record, original.job, original.clip, principal) };
   }
   async save(principal: Principal, input: SaveEditorCommand): Promise<EditorCommandResult> {
     const command = this.parsed(saveEditorCommandSchema, input) as SaveEditorCommand;
@@ -317,6 +332,24 @@ export class MarketingEditor {
       state.exports.push(intent);
       return { project, state, intent };
     });
+  }
+  /** Delete the project only; source media and running worker processes are separate. */
+  async deleteProject(principal: Principal, input: DeleteEditorCommand): Promise<EditorCommandResult> {
+    const command = this.parsed(deleteEditorCommandSchema, input);
+    const replay = await this.replay(principal, command);
+    if (replay) return replay;
+    const record = this.authorize(principal, command.target.projectId, "write");
+    const matches = (await this.store.read())?.clipProjects.filter((project) => project.id === record.projectId) ?? [];
+    if (!matches.length) return fail("not_found", "The original editor project was not found.");
+    if (matches.length !== 1) return fail("conflict", "The original editor project is not unique.");
+    this.state(matches[0], record);
+    return this.transact(principal, command, (project, state) => {
+      if (state.revision >= Number.MAX_SAFE_INTEGER) return fail("unavailable", "The editor revision requires reconciliation.");
+      state.revision += 1;
+      state.deletedAt = new Date().toISOString();
+      state.exports = state.exports.map((intent) => ({ ...intent, state: "stale" }));
+      return { project, state };
+    }, "write", false);
   }
   async claimExport(principal: Principal, input: ClaimEditorExportCommand): Promise<EditorCommandResult & { attemptId: string }> {
     const command = this.parsed(claimEditorExportCommandSchema, input);
