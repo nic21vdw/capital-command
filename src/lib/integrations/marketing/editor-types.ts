@@ -31,6 +31,16 @@ export const editorOverlayAssetIdentitySchema = z.object({
   width: z.number().int().positive().max(8192), height: z.number().int().positive().max(8192)
 }).strict();
 export type EditorOverlayAssetIdentity = z.infer<typeof editorOverlayAssetIdentitySchema>;
+/** Exact supported stored PCM bytes; never a selector or ownership grant. */
+export const editorMusicAssetIdentitySchema = z.object({
+  slot: z.literal("background_music"), format: z.literal("wav"), mimeType: z.literal("audio/wav"),
+  demuxer: z.literal("wav"), codec: z.literal("pcm_s16le"), bitsPerSample: z.literal(16),
+  sampleRate: z.number().int().min(8000).max(48000), channels: z.union([z.literal(1), z.literal(2)]),
+  sampleFrames: z.number().int().positive().max(600 * 48000), durationSec: z.number().positive().max(600),
+  byteLength: z.number().int().positive().max(8 * 1024 * 1024), sha256, sourceRefSha256: sha256
+}).strict().refine((asset) => asset.byteLength === 44 + asset.sampleFrames * asset.channels * 2
+  && asset.durationSec === asset.sampleFrames / asset.sampleRate, "The stored music identity is inconsistent.");
+export type EditorMusicAssetIdentity = z.infer<typeof editorMusicAssetIdentitySchema>;
 export const editorExportIntentSchema = z.object({
   requestId: z.string().uuid(), revision, digest: sha256, renderSignature: z.string(),
   state: editorExportStateSchema, attemptId: z.string().uuid().optional(),
@@ -44,7 +54,9 @@ export const editorExportIntentSchema = z.object({
   // Internal proof only; media is independently resolved from the original job.
   artifactSha256: sha256.optional(), exportId: id.optional(),
   /** Exact existing image bytes approved by this explicit export request. */
-  overlayAssets: z.array(editorOverlayAssetIdentitySchema).max(32).optional()
+  overlayAssets: z.array(editorOverlayAssetIdentitySchema).max(32).optional(),
+  /** Exact existing music bytes approved alongside the original project revision. */
+  musicAsset: editorMusicAssetIdentitySchema.optional()
 }).strict();
 export type EditorExportIntent = z.infer<typeof editorExportIntentSchema>;
 export const marketingEditorStateSchema = z.object({
@@ -75,6 +87,8 @@ export type EditorSnapshot = {
     edited?: EditorMediaDescriptor & { renderSignature?: string; current: boolean };
     /** Private projection resolves these IDs to opaque protected image references. */
     overlays?: { overlayId: string }[];
+    /** Private projection only; neither original inline bytes nor a caller URL. */
+    music?: EditorMusicAssetIdentity;
   };
   export: { state: "not_requested" | EditorExportIntent["state"]; requestId?: string; attemptId?: string };
   capabilities: { save: boolean; deleteProject: boolean; requestExport: boolean; dispatchExport: false };
