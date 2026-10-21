@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
-import { prepareClipExport, preparationSpecDigest, verifyPreparedClipExport, type ExportSpec, type PreparationExportBinding,
+import { prepareClipExport, preparationSpecDigest, preparationMusicAssetIdentity, verifyPreparedClipExport, type ExportSpec, type PreparationExportBinding,
   type PreparationArtifactRead, type PreparationExportCurrent, type PreparationExportProof,
-  type PreparationOverlayAssetIdentity } from "@/lib/clipping/export";
+  type PreparationOverlayAssetIdentity, type PreparationMusicAssetIdentity } from "@/lib/clipping/export";
 import { renderSignature } from "@/lib/clipping/export-signature";
 import { clipProjectSchema } from "@/lib/storage/schemas";
 import type { ClipJob } from "@/lib/clipping/types";
 import type { ClipProject } from "@/types/domain";
 import type { createStoredEditorOverlayResolver } from "./editor-overlay-assets";
+import type { createStoredEditorMusicResolver } from "./editor-audio-assets";
 import { abortEditorAttempt, getEditorWorkerEpoch, inspectEditorAttempt, readEditorCancellationSettlement,
   runEditorAttempt, type EditorAttemptIdentity, type EditorAttemptTarget } from "./editor-active-attempts";
 
@@ -14,6 +15,7 @@ import { abortEditorAttempt, getEditorWorkerEpoch, inspectEditorAttempt, readEdi
 // They intentionally satisfy MarketingEditor's EditorWorkerPorts contract.
 type Intent = { requestId: string; attemptId?: string; revision: number; digest: string;
   renderSignature: string; state: string; exportId?: string; artifactSha256?: string; overlayAssets?: PreparationOverlayAssetIdentity[];
+  musicAsset?: PreparationMusicAssetIdentity;
   workerEpoch?: string; cancellation?: { commandId: string; requestedAt: string } };
 type ManagedProject = ClipProject & { marketingEditor?: { ownerId: string; jobId: string; clipId: string;
   revision: number; digest: string; renderSignature: string; deletedAt?: string; exports: Intent[] } };
@@ -50,6 +52,7 @@ export function editorPreparationSpec(project: ClipProject): ExportSpec {
 export function createEditorPreparationWorker(options: {
   binding: { ownerId: string; records: readonly RecordBinding[] }; store: Store;
   overlayAssets?: Pick<ReturnType<typeof createStoredEditorOverlayResolver>, "resolveMany">;
+  musicAssets?: Pick<ReturnType<typeof createStoredEditorMusicResolver>, "resolve">;
 }) {
   const binding = structuredClone(options.binding);
   const id = (value: string) => /^[A-Za-z0-9_-]{1,128}$/.test(value);
@@ -70,7 +73,8 @@ export function createEditorPreparationWorker(options: {
   }
   function attemptTarget(intent: Readonly<Intent>): EditorAttemptTarget {
     return { revision: intent.revision, digest: intent.digest, renderSignature: intent.renderSignature,
-      overlayAssetsSha256: createHash("sha256").update(canonical(intent.overlayAssets ?? [])).digest("hex") };
+      overlayAssetsSha256: createHash("sha256").update(canonical(intent.musicAsset
+        ? { overlayAssets: intent.overlayAssets ?? [], musicAsset: intent.musicAsset } : intent.overlayAssets ?? [])).digest("hex") };
   }
   // Cancellation/reconciliation reads only durable owner and attempt identity.
   // Old retained fences remain usable after edits/deletion or media failure.
@@ -134,10 +138,22 @@ export function createEditorPreparationWorker(options: {
       ({ overlayId, src, sha256, format, byteLength, width, height }))) !== canonical(manifest)) {
       throw new Error("The existing image bytes do not match the explicit export request.");
     }
+    const musicManifest = intent.musicAsset;
+    if (Boolean(spec.audio.musicSrc) !== Boolean(musicManifest) || (spec.audio.musicSrc && (!options.musicAssets
+      || createHash("sha256").update(spec.audio.musicSrc).digest("hex") !== musicManifest?.sourceRefSha256))) {
+      throw new Error("The persisted music asset manifest does not match this exact project or resolver.");
+    }
+    const target = { projectId, jobId: record.jobId, clipId: record.clipId, revision: state.revision, digest, renderSignature: signature };
+    const music = verifyAssets && spec.audio.musicSrc ? await options.musicAssets!.resolve(target) : undefined;
+    if (verifyAssets && (canonical(music ? preparationMusicAssetIdentity(music) : undefined) !== canonical(musicManifest)
+      || (music && canonical(music.target) !== canonical(target)))) {
+      throw new Error("The existing music bytes do not match the explicit export request.");
+    }
     const identity: PreparationExportBinding = { ownerId: binding.ownerId, projectId, jobId: record.jobId,
       clipId: record.clipId, sourceFile: record.sourceFile, sourceSha256: record.sourceSha256,
       projectDigest: digest, specSha256: preparationSpecDigest(spec), renderSignature: signature, requestId, attemptId,
       ...(intent.workerEpoch ? { workerEpoch: intent.workerEpoch } : {}),
+      ...(musicManifest ? { musicAsset: structuredClone(musicManifest) } : {}),
       ...(manifest.length ? { overlayAssets: structuredClone(manifest) } : {}) };
     let evidence: { exportId: string; artifactSha256: string } | undefined;
     if (phase === "prepared") {
@@ -146,16 +162,20 @@ export function createEditorPreparationWorker(options: {
       }
       evidence = { exportId: intent.exportId, artifactSha256: intent.artifactSha256 };
     }
-    return { binding: identity, spec, evidence, ...(assets.length ? { overlayAssets: assets } : {}) };
+    return { binding: identity, spec, evidence, ...(assets.length ? { overlayAssets: assets } : {}), ...(music ? { musicAsset: music } : {}) };
   }
   async function readArtifact(projectId: string, requestId: string, attemptId: string): Promise<PreparationExportProof> {
     const snapshot = await current(projectId, requestId, attemptId, "prepared");
+    // Retain only small persisted evidence in the recovery callback, never its
+    // resolved raster/PCM copies or the original inline music string.
+    const evidence = structuredClone(snapshot.evidence!);
+    const evidenceKey = canonical(evidence);
     return verifyPreparedClipExport(snapshot.binding,
       async () => {
         const latest = await current(projectId, requestId, attemptId, "prepared");
-        if (canonical(latest.evidence) !== canonical(snapshot.evidence)) throw new Error("The persisted preparation proof changed.");
+        if (canonical(latest.evidence) !== evidenceKey) throw new Error("The persisted preparation proof changed.");
         return latest;
-      }, snapshot.evidence!);
+      }, evidence);
   }
   return {
     assertPreparationOnly(): void { /* This adapter has no publication or attachment port. */ },
@@ -242,6 +262,7 @@ export function createEditorPreparationWorker(options: {
       await proof.verifyCurrent();
       return { requestId: proof.requestId, attemptId: proof.attemptId, digest: proof.projectDigest,
         renderSignature: proof.renderSignature, exportId: proof.exportId, artifactSha256: proof.artifactSha256,
+        ...(proof.musicAsset ? { musicAsset: Object.freeze(structuredClone(proof.musicAsset)) } : {}),
         ...(proof.overlayAssets?.length ? { overlayAssets: structuredClone(proof.overlayAssets) } : {}),
         assertCurrent: proof.assertCurrent };
     }
