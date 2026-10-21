@@ -29,11 +29,11 @@ export const formatVttTime = (s: number) => clock(s, ".");
 
 /** ASS uses centiseconds: `H:MM:SS.cc`. */
 export function formatAssTime(seconds: number): string {
-  const s = Math.max(0, seconds);
-  const hh = Math.floor(s / 3600);
-  const mm = Math.floor((s % 3600) / 60);
-  const ss = Math.floor(s % 60);
-  const cs = Math.round((s - Math.floor(s)) * 100);
+  const total = Math.round(Math.max(0, seconds) * 100);
+  const hh = Math.floor(total / 360_000);
+  const mm = Math.floor((total % 360_000) / 6000);
+  const ss = Math.floor((total % 6000) / 100);
+  const cs = total % 100;
   return `${hh}:${pad(mm)}:${pad(ss)}.${pad(cs)}`;
 }
 
@@ -412,29 +412,30 @@ export function buildAss(
     events.push(`Dialogue: ${glow ? 1 : 0},${times},Default,,0,0,0,,${posTag}${text}`);
   };
   for (const seg of segments) {
-    if (!seg.enabled || !seg.text.trim()) continue;
+    if (!seg.enabled || !seg.text.trim() || seg.end <= seg.start) continue;
 
     if (highlightCurrentWord && seg.words.length > 0) {
-      // Word-synced captions the way clip apps burn them: one dialogue event
-      // per spoken word showing the WHOLE phrase, with the current word
-      // re-colored (and popped slightly larger). "karaoke" keeps already
-      // spoken words lit and dims upcoming ones for a progressive fill.
+      // Partition at actual word starts AND ends, matching the preview's
+      // half-open active interval. The whole phrase stays visible during gaps;
+      // karaoke retains its spoken fill without inventing an active word.
       const words = [...seg.words].sort((a, b) => a.start - b.start);
       const karaoke = style.animation === "karaoke";
-      for (let i = 0; i < words.length; i++) {
-        const eventStart = i === 0 ? seg.start : Math.max(seg.start, words[i].start);
-        const eventEnd = i === words.length - 1 ? seg.end : Math.min(seg.end, Math.max(eventStart + 0.01, words[i + 1].start));
+      const boundaries = [...new Set([seg.start, seg.end, ...words.flatMap((word) => [word.start, word.end])
+        .filter((time) => time > seg.start && time < seg.end)])].sort((a, b) => a - b);
+      for (let i = 0; i < boundaries.length - 1; i++) {
+        const eventStart = boundaries[i];
+        const eventEnd = boundaries[i + 1];
         if (eventEnd <= eventStart) continue;
         const text = words
           .map((w, j) => {
             const breakTag = j > 0 && j % wordsPerLine === 0 ? "\\N" : j > 0 ? " " : "";
             let styled: string;
-            if (j === i) {
+            if (eventStart >= w.start && eventStart < w.end) {
               const popTag = style.animation === "pop" || karaoke ? "\\fscx112\\fscy112" : "";
               styled = `{\\1c${highlight}${popTag}}${transform(w.text)}{\\r}`;
-            } else if (karaoke && j < i) {
+            } else if (karaoke && eventStart >= w.end) {
               styled = `{\\1c${highlight}}${transform(w.text)}{\\r}`;
-            } else if (karaoke && j > i) {
+            } else if (karaoke && eventStart < w.start) {
               styled = `{\\alpha&H70&}${transform(w.text)}{\\r}`;
             } else {
               styled = transform(w.text);

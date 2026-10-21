@@ -4,6 +4,7 @@ import {
   buildClipTitleDialogue,
   buildWatermarkDialogue,
   chunkWords,
+  formatAssTime,
   formatSrtTime,
   formatVttTime,
   mergeSegments,
@@ -44,6 +45,13 @@ describe("time formatting", () => {
   it("formats SRT with comma and VTT with dot", () => {
     expect(formatSrtTime(3723.25)).toBe("01:02:03,250");
     expect(formatVttTime(3723.25)).toBe("01:02:03.250");
+  });
+
+  it("carries rounded ASS centiseconds across second, minute and hour boundaries", () => {
+    expect(formatAssTime(0.999)).toBe("0:00:01.00");
+    expect(formatAssTime(59.999)).toBe("0:01:00.00");
+    expect(formatAssTime(3599.999)).toBe("1:00:00.00");
+    expect(formatAssTime(1.234)).toBe("0:00:01.23");
   });
 });
 
@@ -312,6 +320,43 @@ describe("buildAss", () => {
     // Middle event: word 1 spoken (highlight), word 3 upcoming (dimmed alpha).
     expect(dialogues[1]).toContain("\\alpha&H70&");
     expect((dialogues[1].match(/\\1c/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("highlights only actual word intervals with plain phrases before, between and after words", () => {
+    const source: CaptionSegment = { id: "gaps", start: 0, end: 1.2, text: "HELLO WORLD", enabled: true,
+      words: [{ text: "HELLO", start: 0.2, end: 0.4 }, { text: "WORLD", start: 0.9, end: 1.1 }] };
+    const dialogues = buildAss([source], { ...defaultCaptionStyle, animation: "none" }, 320, 180, true)
+      .split("\n").filter((line) => line.startsWith("Dialogue:"));
+    expect(dialogues.map((line) => line.split(",").slice(1, 3))).toEqual([
+      ["0:00:00.00", "0:00:00.20"], ["0:00:00.20", "0:00:00.40"], ["0:00:00.40", "0:00:00.90"],
+      ["0:00:00.90", "0:00:01.10"], ["0:00:01.10", "0:00:01.20"]
+    ]);
+    for (const index of [0, 2, 4]) {
+      expect(dialogues[index]).toContain("HELLO WORLD");
+      expect(dialogues[index]).not.toContain("\\1c");
+    }
+    expect(dialogues[1]).toMatch(/\\1c[^}]+\}HELLO/);
+    expect(dialogues[3]).toMatch(/\\1c[^}]+\}WORLD/);
+  });
+
+  it("keeps karaoke spoken fill through gaps without an invented active-word pop", () => {
+    const source: CaptionSegment = { id: "gap", start: 0, end: 1, text: "ONE TWO", enabled: true,
+      words: [{ text: "ONE", start: 0, end: 0.2 }, { text: "TWO", start: 0.8, end: 1 }] };
+    const dialogues = buildAss([source], { ...defaultCaptionStyle, animation: "karaoke" }, 320, 180, true)
+      .split("\n").filter((line) => line.startsWith("Dialogue:"));
+    expect(dialogues[1]).toContain("0:00:00.20,0:00:00.80");
+    expect(dialogues[1]).toMatch(/\\1c[^}]+\}ONE/);
+    expect(dialogues[1]).toContain("\\alpha&H70&}TWO");
+    expect(dialogues[1]).not.toContain("\\fscx112");
+  });
+
+  it("does not invent a highlight duration for a zero-duration word or render an empty segment", () => {
+    const source: CaptionSegment = { id: "zero", start: 0, end: 1, text: "ZERO", enabled: true,
+      words: [{ text: "ZERO", start: 0.4, end: 0.4 }] };
+    const dialogues = buildAss([source], { ...defaultCaptionStyle, animation: "none" }, 320, 180, true)
+      .split("\n").filter((line) => line.startsWith("Dialogue:"));
+    expect(dialogues.every((line) => !line.includes("\\1c"))).toBe(true);
+    expect(buildAss([{ ...source, end: 0 }], defaultCaptionStyle, 320, 180, true)).not.toContain("Dialogue:");
   });
 
   it("wraps lines every wordsPerLine words", () => {
