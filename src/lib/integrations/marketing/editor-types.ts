@@ -49,6 +49,8 @@ export type EditorProjectSummary = {
 };
 export type EditorSnapshot = {
   project: ClipProject;
+  /** Server preflight flag; never contains original asset URLs or local paths. */
+  requiresAssetConnection: boolean;
   target: EditorTarget;
   cachedCaptions: { captions: CaptionSegment[]; fetchedAt: string | null };
   media: {

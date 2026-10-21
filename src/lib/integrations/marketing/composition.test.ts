@@ -74,6 +74,33 @@ const command = (body: unknown, user = "owner") => new Request("http://127.0.0.1
 });
 
 describe("composed original records/editor/media HTTP boundary", () => {
+  it.each(["svg", "local_audio"] as const)("refuses an incomplete %s asset preview without mutating the original project", async (kind) => {
+    const f = await fixture();
+    const data = JSON.parse(await readFile(f.document, "utf8"));
+    if (kind === "svg") data.clipProjects[0].overlays = [{ id: "overlay-a", kind: "image", src: "data:image/svg+xml;base64,PHN2Zy8+", x: 0.5, y: 0.5, width: 0.25, scale: 1, start: 0, end: 10, rotation: 0, opacity: 1 }];
+    else data.clipProjects[0].audio.musicSrc = "C:\\synthetic-private\\music.wav";
+    await writeFile(f.document, JSON.stringify(data));
+    const before = await readFile(f.document, "utf8");
+    const jobsBefore = await readFile(f.jobs, "utf8");
+    const internal = await f.editor.load(owner, f.project.id);
+    expect(internal.requiresAssetConnection).toBe(true);
+    expect(JSON.stringify(internal)).not.toContain("synthetic-private");
+    const loaded = await f.handlers.editor(request("editor/project-a"), "project-a");
+    expect(loaded.status).toBe(503);
+    for (const operation of ["save_editor_project", "request_editor_export"]) {
+      const response = await f.handlers.operations(command({ operation, commandId: randomUUID(), target: internal.target,
+        ...(operation === "save_editor_project" ? { project: internal.project } : {}) }));
+      expect(response.status).toBe(503);
+      expect((await response.json()).error.outcome).toBe("failed");
+    }
+    expect(await readFile(f.document, "utf8")).toBe(before);
+    expect(await readFile(f.jobs, "utf8")).toBe(jobsBefore);
+    const workspace = await (await f.handlers.workspace(request())).json();
+    const deleted = await f.handlers.operations(command({ operation: "delete_editor_project", commandId: randomUUID(), target: workspace.editorProjects[0].deleteTarget }));
+    expect(deleted.status).toBe(200);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("renders a captioned original project through the trusted worker and streams verified prepared bytes without job attachment", async () => {
     vi.stubEnv("PUBLISH_ENABLED", "true"); vi.stubEnv("PUBLISH_AUTO_ENQUEUE", "true");
     const f = await fixture(true);

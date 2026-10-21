@@ -55,8 +55,8 @@ export function composeMarketingParity(options: {
     }
     // Original asset selectors need their own scoped transport. Do not hand the
     // browser original file routes or silently discard assets from a project.
-    if (snapshot.project.overlays.some((row) => row.src?.startsWith("/api/clips/"))) {
-      throw new MarketingHttpError(503, "unavailable", "This project requires the original image asset connection before it can be edited here.");
+    if (snapshot.requiresAssetConnection || snapshot.project.overlays.some((row) => row.src?.startsWith("/api/clips/"))) {
+      throw new MarketingHttpError(503, "unavailable", "This project requires the original image or audio asset connection before it can be edited here.");
     }
     let prepared;
     if (snapshot.export.state === "prepared" && snapshot.export.requestId && options.preparedEditorMedia) {

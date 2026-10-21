@@ -196,6 +196,8 @@ export class MarketingEditor {
         ...(isEditorMediaFileName(clip.editedFile) ? { edited: { jobId: record.jobId, fileName: clip.editedFile,
           renderSignature: typeof clip.editedSignature === "string" && /^[a-z0-9]{1,64}$/.test(clip.editedSignature) ? clip.editedSignature : undefined, current } } : {}) },
       export: latest ? { state: latest.state, requestId: latest.requestId } : { state: "not_requested" },
+      requiresAssetConnection: project.overlays.some((overlay) => Boolean(overlay.src) && safeAsset(overlay.src) !== overlay.src)
+        || Boolean(project.audio.musicSrc && safeAsset(project.audio.musicSrc) !== project.audio.musicSrc),
       capabilities: { save: principal.scopes.includes("write"), deleteProject: principal.scopes.includes("write"), requestExport: principal.scopes.includes("write"), dispatchExport: false },
       reviewRequired: true, publicationAuthorized: false
     };

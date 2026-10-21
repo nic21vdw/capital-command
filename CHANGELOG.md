@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Incomplete Site asset previews are clearly unavailable.** Projects with an unsupported original image or audio reference wait for the asset connection instead of showing a preview with that content silently missing.
+
 - **Scoped editor projects can be deleted even when their source is gone.** Revision checks protect newer edits, deleted projects stay out of the library, and retrying the same request preserves its confirmed receipt. Source files and posting schedules are kept intact.
 
 - **Exported captions follow edited speech.** Words fully removed by a cut no longer remain in the caption text. Highlighted words stop at their actual end times, leaving ordinary gaps unhighlighted. ASS timestamps also carry correctly across rounded second boundaries. Generated-frame checks cover these repairs.
