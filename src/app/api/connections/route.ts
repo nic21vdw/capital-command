@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { CONNECTIONS, CONNECTION_FIELD_NAMES } from "@/lib/publisher/connections";
-import { credentialSources, credentialsPresent, saveCredentials } from "@/lib/publisher/credentials";
+import { CredentialStoreReadError, credentialSources, credentialsPresent, saveCredentials } from "@/lib/publisher/credentials";
 import { accountIdConfigured } from "@/lib/publisher/accounts";
 import { googleRedirectUri } from "@/lib/publisher/googleAuth";
 import { tiktokRedirectUri } from "@/lib/publisher/tiktokAuth";
@@ -92,7 +92,8 @@ export async function POST(request: Request) {
         ...(threadsChange ? { code: "env_owned", threadsRecovery: await readThreadsCredentialRecovery(sources) } : {})
       }, { status: 409 });
     }
-    await saveCredentials(updates);
+    if (threadsChange) await saveCredentials(updates, { strict: true });
+    else await saveCredentials(updates);
     return null;
   };
 
@@ -104,11 +105,13 @@ export async function POST(request: Request) {
     // Disk/lock errors can contain paths or values. Only controlled messages
     // leave this endpoint; no secret or raw exception is logged or echoed.
     const recoveryError = error instanceof ThreadsCredentialRecoveryError;
+    const storeError = error instanceof CredentialStoreReadError;
+    const status = storeError || (recoveryError && error.code !== "threads_controls_busy") ? 409 : 503;
     return NextResponse.json({
-      error: recoveryError ? error.message : "The Threads credential save could not be confirmed. Reload account setup before retrying; keep Threads paused.",
-      code: recoveryError ? error.code : "threads_save_unconfirmed",
+      error: recoveryError ? error.message : storeError ? "The saved credentials could not be read safely. Keep Threads paused and ask the owner to repair the credential store before saving." : "The Threads credential save could not be confirmed. Reload account setup before retrying; keep Threads paused.",
+      code: recoveryError ? error.code : storeError ? "credential_store_unavailable" : "threads_save_unconfirmed",
       threadsRecovery: await readThreadsCredentialRecovery(await credentialSources(CONNECTION_FIELD_NAMES))
-    }, { status: recoveryError ? 409 : 503 });
+    }, { status });
   }
 
   return NextResponse.json({

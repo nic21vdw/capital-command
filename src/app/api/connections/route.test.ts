@@ -7,7 +7,8 @@ import { spotifyConnected } from "@/lib/spotify/auth";
 import { dataPath } from "@/lib/paths";
 import { readAutomationControls, setAutomationPaused, withAutomationControlsLock } from "@/lib/automations/store";
 
-vi.mock("@/lib/publisher/credentials", () => ({
+vi.mock("@/lib/publisher/credentials", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/publisher/credentials")>()),
   credentialsPresent: vi.fn(),
   credentialSources: vi.fn(),
   saveCredentials: vi.fn()
@@ -179,7 +180,7 @@ describe("Threads credential recovery", () => {
     await writeFile(dataPath("threads-queue.json"), queue);
     const response = await POST(saveRequest({ THREADS_ACCESS_TOKEN: fixtureToken }));
     expect(response.status).toBe(200);
-    expect(saveCredentials).toHaveBeenCalledExactlyOnceWith({ THREADS_ACCESS_TOKEN: fixtureToken });
+    expect(saveCredentials).toHaveBeenCalledExactlyOnceWith({ THREADS_ACCESS_TOKEN: fixtureToken }, { strict: true });
     const body = await response.json();
     expect(body.threadsRecovery.control).toBe("paused");
     expect(JSON.stringify(body)).not.toContain(fixtureToken);

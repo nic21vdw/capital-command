@@ -1,5 +1,6 @@
 import { readAutomationControls, withAutomationControlsLock } from "@/lib/automations/store";
 import type { CredentialSource } from "@/lib/publisher/credentials";
+import { FileLockTimeoutError } from "@/lib/storage/file-lock";
 
 export const THREADS_CREDENTIAL_FIELDS = ["THREADS_ACCESS_TOKEN", "THREADS_USER_ID"] as const;
 
@@ -33,9 +34,11 @@ export async function readThreadsCredentialRecovery(
 }
 
 export class ThreadsCredentialRecoveryError extends Error {
-  constructor(readonly code: "threads_pause_required" | "threads_controls_unavailable") {
+  constructor(readonly code: "threads_pause_required" | "threads_controls_unavailable" | "threads_controls_busy") {
     super(code === "threads_pause_required"
       ? "Pause Threads in Automations before changing its credentials. Saving does not resume delivery."
+      : code === "threads_controls_busy"
+        ? "Automation controls are busy or their saved lock needs owner review. Keep Threads paused. After an interrupted operation, ask the owner to check the control lock; never remove a live lock."
       : "Threads pause could not be verified. Repair the saved automation controls before changing credentials.");
   }
 }
@@ -47,14 +50,19 @@ export class ThreadsCredentialRecoveryError extends Error {
  * provider request cannot be recalled by a pause or by this transaction.
  */
 export async function withPausedThreadsCredentialChange<T>(work: () => Promise<T>): Promise<T> {
-  return withAutomationControlsLock(async () => {
-    let paused: boolean;
-    try {
-      paused = (await readAutomationControls()).threads?.paused === true;
-    } catch {
-      throw new ThreadsCredentialRecoveryError("threads_controls_unavailable");
-    }
-    if (!paused) throw new ThreadsCredentialRecoveryError("threads_pause_required");
-    return work();
-  });
+  try {
+    return await withAutomationControlsLock(async () => {
+      let paused: boolean;
+      try {
+        paused = (await readAutomationControls()).threads?.paused === true;
+      } catch {
+        throw new ThreadsCredentialRecoveryError("threads_controls_unavailable");
+      }
+      if (!paused) throw new ThreadsCredentialRecoveryError("threads_pause_required");
+      return work();
+    });
+  } catch (error) {
+    if (error instanceof FileLockTimeoutError) throw new ThreadsCredentialRecoveryError("threads_controls_busy");
+    throw error;
+  }
 }

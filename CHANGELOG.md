@@ -15,6 +15,7 @@ already shipped.
 ## Unreleased
 
 - Threads credential changes now require a verified saved pause, stay separate from resuming delivery, and explain how the owner must replace tokens set in .env. Unreadable controls block recovery saves.
+- Threads recovery also refuses to overwrite damaged saved credentials, preserves other connections from the latest saved file, and explains when an interrupted control operation needs owner review.
 
 - **Free automatic TikTok through Buffer.** Put a Buffer API key in `.env` (`BUFFER_API_KEY`) with TikTok connected in Buffer, and every scheduled TikTok is handed to Buffer at its slot and posted to your profile automatically, with no inbox tap and no paid plan.
 
