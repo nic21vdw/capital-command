@@ -203,6 +203,21 @@ export type StoredEditorOverlayStreamingRead = Readonly<{
   assertCurrentFile(): void;
 }>;
 
+// Keep both cacheable guards in module scope with primitive-only inputs. A
+// closure created beside copyBytes could otherwise retain the raster/batch.
+function createFullFileGuard(file: string, expectedIdentity: string, expectedSha256: string): () => void {
+  return () => {
+    const latest = readBoundFile(file);
+    if (latest.identity !== expectedIdentity || hash("sha256", latest.bytes) !== expectedSha256) fail("changed");
+  };
+}
+function createStreamingRead(file: string, expectedIdentity: string): () => StoredEditorOverlayStreamingRead {
+  const streaming = Object.freeze({ purpose: "streaming" as const, assertCurrentFile: () => {
+    if (currentIdentity(file) !== expectedIdentity) fail("changed");
+  } });
+  return () => streaming;
+}
+
 export type StoredEditorOverlayAsset = Readonly<Header & {
   overlayId: string; src: string; sha1: string; sha256: string; byteLength: number;
   /** A defensive copy of the verified raster, suitable for private render scratch. */
@@ -289,10 +304,8 @@ export function createStoredEditorOverlayResolver(options: { binding: EditorBind
       }
       const assets = files.map(({ src, file, sha1, initial, header, overlayId }): StoredEditorOverlayAsset => {
         const sha256 = hash("sha256", initial.bytes);
-        function assertCurrentFile(): void {
-          const latest = readBoundFile(file);
-          if (latest.identity !== initial.identity || hash("sha256", latest.bytes) !== sha256) fail("changed");
-        }
+        const assertCurrentFile = createFullFileGuard(file, initial.identity, sha256);
+        const streamingRead = createStreamingRead(file, initial.identity);
         async function verifyCurrent(): Promise<void> {
           await assertProject();
           assertCurrentFile();
@@ -300,9 +313,7 @@ export function createStoredEditorOverlayResolver(options: { binding: EditorBind
         }
         return Object.freeze({ ...header, overlayId, src, sha1, sha256, byteLength: initial.bytes.length,
           copyBytes: () => Buffer.from(initial.bytes), verifyCurrent, assertCurrentFile,
-          streamingRead: () => Object.freeze({ purpose: "streaming" as const, assertCurrentFile: () => {
-            if (currentIdentity(file) !== initial.identity) fail("changed");
-          } }) });
+          streamingRead });
       });
       await assertProject();
       assets.forEach((asset) => asset.assertCurrentFile());

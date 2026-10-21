@@ -265,6 +265,30 @@ describe("trusted stored editor overlay raster proof", () => {
     expect(() => streaming.assertCurrentFile()).toThrow();
   });
 
+  it("keeps extracted guards independent of the asset, decoder and project reader", async () => {
+    const f = await fixture();
+    const read = vi.fn(store.read);
+    const bounded = createStoredEditorOverlayResolver({ binding, store: { read } });
+    const guards = await (async () => {
+      const asset = await bounded.resolve(f.target, "overlay-1");
+      // Retain only the functions integration may cache, never the image asset.
+      return { full: asset.assertCurrentFile, streamingRead: asset.streamingRead };
+    })();
+    read.mockClear().mockImplementation(async () => { throw new Error("Detached file guards do not load a project."); });
+    vi.mocked(loadImage).mockClear();
+    vi.mocked(fs.readSync).mockClear();
+    guards.streamingRead().assertCurrentFile();
+    expect(vi.mocked(fs.readSync)).not.toHaveBeenCalled();
+    guards.full();
+    expect(vi.mocked(fs.readSync)).toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+    expect(vi.mocked(loadImage)).not.toHaveBeenCalled();
+    const changed = Buffer.from(f.bytes); changed[changed.length - 1] ^= 1;
+    await writeFile(f.file, changed);
+    expect(() => guards.streamingRead().assertCurrentFile()).toThrow();
+    expect(guards.full).toThrow();
+  });
+
   it("preflights batch count and duplicate IDs before any stored-file or decoder work", async () => {
     const f = await fixture();
     const read = vi.fn(store.read);
