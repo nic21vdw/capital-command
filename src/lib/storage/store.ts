@@ -1,12 +1,15 @@
 import { copyFile, mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { dataPath } from "@/lib/paths";
 import { emptyData, seedData } from "@/lib/mockData/seed";
 import { atomicWriteFile } from "@/lib/storage/atomic-json";
 import { withFileLock } from "@/lib/storage/file-lock";
 import { appDataSchema } from "@/lib/storage/schemas";
-import { ManagedEditorDeletedError, preserveManagedEditorProjects } from "@/lib/integrations/marketing/editor-state";
+import { ManagedEditorDeletedError, ManagedEditorCreationConflictError, preserveManagedEditorProjects,
+  assertEditorProjectCreation, type TrustedEditorProjectCreation } from "@/lib/integrations/marketing/editor-state";
 import type { AppData, ClipProject } from "@/types/domain";
+import type { EditorCreationReceipt } from "@/lib/integrations/marketing/editor-types";
 
 const dataFilePath = dataPath("capital-command.json");
 let writeQueue = Promise.resolve();
@@ -216,9 +219,10 @@ async function keepSnapshot(serialized: string) {
   await Promise.all(stale.map((snapshot) => rm(snapshot.path, { force: true })));
 }
 
-async function commit(data: AppData, previous?: AppData | null, trustedProjectId?: string): Promise<string> {
+async function commit(data: AppData, previous?: AppData | null, trustedProjectId?: string, creation?: TrustedEditorProjectCreation, assertCreationCurrent?: () => void): Promise<string> {
   const stored = previous === undefined ? await readExistingAppData() : previous;
-  const serialized = JSON.stringify(appDataSchema.parse(preserveManagedEditorProjects(data, stored, trustedProjectId)), null, 2);
+  const serialized = JSON.stringify(appDataSchema.parse(preserveManagedEditorProjects(data, stored, trustedProjectId, creation)), null, 2);
+  assertCreationCurrent?.();
   await atomicWriteFile(dataFilePath, serialized);
   return serialized;
 }
@@ -228,7 +232,7 @@ async function commit(data: AppData, previous?: AppData | null, trustedProjectId
 // superseded seconds later anyway.
 let queuedWrites = 0;
 
-async function enqueueWrite(commitWrite: () => Promise<string>) {
+async function enqueueWrite(commitWrite: () => Promise<string | undefined>) {
   queuedWrites += 1;
   const write = async () => {
     try {
@@ -244,7 +248,7 @@ async function enqueueWrite(commitWrite: () => Promise<string>) {
   // allowed to turn a successful save into a failed one.
   writeQueue = committed.then(
     async (serialized) => {
-      if (queuedWrites > 0) return;
+      if (queuedWrites > 0 || serialized === undefined) return;
       await keepSnapshot(serialized).catch(() => undefined);
     },
     () => undefined
@@ -287,8 +291,10 @@ export async function mutateAppData(update: (current: AppData) => AppData): Prom
  * writes. The callback is an owner-process integration port, never an HTTP body.
  * Metadata enrollment/receipts are accepted only from this explicit transition.
  */
+export type CreatedClipProjectGuard = { rootProjectId: string;
+  assertCurrentRoot(root: Readonly<ClipProject>, child: Readonly<ClipProject>): void };
 export async function mutateExistingClipProject(
-  id: string, update: (project: ClipProject) => ClipProject
+  id: string, update: (project: ClipProject) => ClipProject, guard?: CreatedClipProjectGuard
 ): Promise<ClipProject> {
   let result!: ClipProject;
   await enqueueWrite(async () => {
@@ -297,10 +303,60 @@ export async function mutateExistingClipProject(
     const stored = matches[0];
     if (!current || !stored || matches.length !== 1) throw new Error("The existing editor project could not be uniquely identified.");
     if (stored.marketingEditor?.deletedAt) throw new ManagedEditorDeletedError();
+    if (guard) {
+      const roots = current.clipProjects.filter((project) => project.id === guard.rootProjectId);
+      if (roots.length !== 1) throw new ManagedEditorCreationConflictError();
+      guard.assertCurrentRoot(structuredClone(roots[0]), structuredClone(stored));
+    }
     result = update(structuredClone(stored));
     if (result.id !== id) throw new Error("An editor transaction cannot change project identity.");
     const updated = { ...current, clipProjects: current.clipProjects.map((project) => project.id === id ? result : project) };
     return commit(updated, current, id);
+  });
+  return result;
+}
+
+export type EditorProjectCreationCommit = { root: ClipProject; child: ClipProject | null;
+  receipt: EditorCreationReceipt; replayed: boolean };
+/**
+ * One existing root receipt and one server-ID child in the original document.
+ * This private owner-process builder is never supplied by an HTTP request.
+ */
+export async function createClipProjectFromRoot(
+  rootId: string, commandId: string, payloadSha256: string,
+  create: (root: ClipProject, childId: string) => Promise<{ root: ClipProject; child: ClipProject; assertCurrent(): void }>
+): Promise<EditorProjectCreationCommit> {
+  let result!: EditorProjectCreationCommit;
+  await enqueueWrite(async () => {
+    const current = await readExistingAppData();
+    const roots = current?.clipProjects.filter((project) => project.id === rootId) ?? [];
+    if (!current || roots.length !== 1) throw new ManagedEditorCreationConflictError();
+    const original = roots[0];
+    const receipts = original.marketingEditor?.receipts.filter((entry) => entry.result.commandId === commandId) ?? [];
+    if (receipts.length > 1) throw new ManagedEditorCreationConflictError();
+    if (receipts.length) {
+      const prior = receipts[0];
+      if (prior.payloadSha256 !== payloadSha256 || prior.result.operation !== "create_editor_project_from_source") throw new ManagedEditorCreationConflictError();
+      const receipt = prior.result;
+      const children = current.clipProjects.filter((project) => project.id === receipt.createdProjectId);
+      if (children.length > 1) throw new ManagedEditorCreationConflictError();
+      result = { root: structuredClone(original), child: children[0] ? structuredClone(children[0]) : null,
+        receipt: structuredClone(prior.result), replayed: true };
+      return undefined; // Receipt replay does not replace data or create a snapshot.
+    }
+    if (original.marketingEditor?.deletedAt) throw new ManagedEditorDeletedError();
+    const childId = `clip-${randomUUID()}`;
+    if (current.clipProjects.some((project) => project.id === childId)) throw new ManagedEditorCreationConflictError();
+    const next = await create(structuredClone(original), childId);
+    if (next.root.id !== rootId || next.child.id !== childId) throw new ManagedEditorCreationConflictError();
+    assertEditorProjectCreation(original, next.root, next.child);
+    const appended = next.root.marketingEditor!.receipts.at(-1)!;
+    if (appended.result.operation !== "create_editor_project_from_source" || appended.result.commandId !== commandId
+      || appended.payloadSha256 !== payloadSha256) throw new ManagedEditorCreationConflictError();
+    const updated = { ...current, clipProjects: [next.child, ...current.clipProjects.map((project) => project.id === rootId ? next.root : project)] };
+    const serialized = await commit(updated, current, rootId, { rootProjectId: rootId, childProjectId: childId }, next.assertCurrent);
+    result = { root: structuredClone(next.root), child: structuredClone(next.child), receipt: structuredClone(appended.result), replayed: false };
+    return serialized;
   });
   return result;
 }

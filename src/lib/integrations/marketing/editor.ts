@@ -1,20 +1,28 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { constants, closeSync, fstatSync, lstatSync, openSync, readSync, realpathSync } from "node:fs";
+import path from "node:path";
 import { z } from "zod";
 import { dataPath } from "@/lib/paths";
 import { clipProjectSchema, captionSegmentSchema } from "@/lib/storage/schemas";
-import { readExistingAppData, mutateExistingClipProject } from "@/lib/storage/store";
+import { readExistingAppData, mutateExistingClipProject, createClipProjectFromRoot,
+  type CreatedClipProjectGuard } from "@/lib/storage/store";
+import { makeClipProject, generateClipTitle, makeTitleOverlay } from "@/lib/clipping/editor";
+import { chunkWords, windowSegments } from "@/lib/clipping/captions";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
-import type { AppData, ClipProject } from "@/types/domain";
+import type { AppData, CaptionSegment, ClipProject } from "@/types/domain";
 import type { Principal } from "./safety";
 import { ManagedEditorDeletedError, canonicalEditorJson, currentEditorState, editorDigest, editorProjectDigest, editorRenderSignature,
-  invalidateEditorExportIntent } from "./editor-state";
+  invalidateEditorExportIntent, ManagedEditorCreationConflictError } from "./editor-state";
 import { editorTargetSchema, type EditorBinding, type EditorCommandResult, type EditorExportIntent,
   type EditorRecordBinding, type EditorReceipt, type EditorSnapshot, type EditorTarget,
   type MarketingEditorState, type RequestEditorExportCommand, type SaveEditorCommand, type DeleteEditorCommand,
   type EditorProjectSummary, type EditorOverlayAssetIdentity, editorMusicAssetIdentitySchema,
   type EditorMusicAssetIdentity, type CancelEditorExportCommand,
-  type ReconcileEditorExportCommand, type SettleEditorExportCancellationCommand } from "./editor-types";
+  type ReconcileEditorExportCommand, type SettleEditorExportCancellationCommand,
+  editorCreationPolicySchema, createEditorProjectFromSourceCommandSchema,
+  type EditorCreationPolicyReader, type EditorCreationPolicy, type EditorCreationContext,
+  type CreateEditorProjectFromSourceCommand, type EditorProjectCreationResult, type EditorCreationReceipt } from "./editor-types";
 import type { createStoredEditorOverlayResolver, StoredEditorOverlayAsset } from "./editor-overlay-assets";
 import type { createStoredEditorMusicResolver, StoredEditorMusicAsset } from "./editor-audio-assets";
 export * from "./editor-types";
@@ -60,8 +68,9 @@ export class MarketingEditorError extends Error {
 const fail = (code: MarketingEditorError["code"], message: string): never => { throw new MarketingEditorError(code, message); };
 export type EditorStore = {
   read(): Promise<AppData | null>;
-  mutate(id: string, update: (project: ClipProject) => ClipProject): Promise<ClipProject>;
+  mutate(id: string, update: (project: ClipProject) => ClipProject, guard?: CreatedClipProjectGuard): Promise<ClipProject>;
   readJob(jobId: string): Promise<ClipJob | undefined>;
+  createFromRoot?: typeof createClipProjectFromRoot;
 };
 export type EditorPreparationEvidence = {
   requestId: string; attemptId: string; digest: string; renderSignature: string;
@@ -106,9 +115,60 @@ export async function readOriginalEditorJob(jobId: string): Promise<ClipJob | un
     return fail("unavailable", "The existing clip records could not be read.");
   }
 }
-const originalStore: EditorStore = { read: readExistingAppData, mutate: mutateExistingClipProject, readJob: readOriginalEditorJob };
+const originalStore: EditorStore = { read: readExistingAppData, mutate: mutateExistingClipProject, readJob: readOriginalEditorJob,
+  createFromRoot: createClipProjectFromRoot };
 const safeId = (value: string): boolean => /^[A-Za-z0-9_-]{1,128}$/.test(value);
 type VerifiedEditorAssets = { overlays: readonly StoredEditorOverlayAsset[]; music: StoredEditorMusicAsset | null };
+type CreationRoot = EditorCreationPolicy["roots"][number];
+type AuthorizedRecord = EditorRecordBinding & { creationRootId?: string };
+const SOURCE_BYTES_LIMIT = 512 * 1024 * 1024;
+/** Fixed, explicitly granted local source only; no decoder, paths from commands or remote protocols. */
+function creationSourceSha(root: CreationRoot, sourceRoot: string): string {
+  const file = path.resolve(sourceRoot, root.jobId, root.sourceFile);
+  const assertPath = () => {
+    let current = path.parse(file).root;
+    for (const segment of file.slice(current.length).split(path.sep)) {
+      current = path.join(current, segment);
+      if (lstatSync(current).isSymbolicLink()) return fail("unavailable", "The explicitly bound source contains a filesystem alias.");
+    }
+    if (path.relative(path.resolve(file), path.resolve(realpathSync(file))) !== "") return fail("unavailable", "The explicitly bound source changed location.");
+  };
+  try {
+    assertPath();
+    const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+      const before = fstatSync(fd, { bigint: true });
+      if (!before.isFile() || before.nlink !== 1n || before.size < 1n || before.size > BigInt(SOURCE_BYTES_LIMIT)) return fail("unavailable", "The bound source is unavailable or exceeds the supported size.");
+      const assertEntry = () => {
+        assertPath();
+        const entry = lstatSync(file, { bigint: true });
+        if (!entry.isFile() || entry.nlink !== 1n || ["dev", "ino", "size", "mtimeNs", "ctimeNs"].some((key) => before[key as keyof typeof before] !== entry[key as keyof typeof entry])) {
+          return fail("conflict", "The bound source pathname changed while being verified.");
+        }
+      };
+      assertEntry();
+      const hash = createHash("sha256"); let count = 0;
+      const buffer = Buffer.allocUnsafe(256 * 1024);
+      while (true) {
+        const read = readSync(fd, buffer, 0, Math.min(buffer.length, SOURCE_BYTES_LIMIT + 1 - count), null);
+        if (!read) break;
+        count += read;
+        if (count > SOURCE_BYTES_LIMIT) return fail("unavailable", "The bound source exceeds the supported size.");
+        hash.update(buffer.subarray(0, read));
+      }
+      const after = fstatSync(fd, { bigint: true }); assertEntry();
+      if (count !== Number(before.size) || ["dev", "ino", "size", "mtimeNs", "ctimeNs"].some((key) => before[key as keyof typeof before] !== after[key as keyof typeof after])) {
+        return fail("conflict", "The bound source changed while being verified.");
+      }
+      const sha256 = hash.digest("hex");
+      if (sha256 !== root.sourceSha256) return fail("conflict", "The explicitly bound source bytes changed.");
+      return sha256;
+    } finally { closeSync(fd); }
+  } catch (error) {
+    if (error instanceof MarketingEditorError) throw error;
+    return fail("unavailable", "The explicitly bound source could not be verified.");
+  }
+}
 export const isEditorMediaFileName = (value: unknown): value is string => typeof value === "string"
   && value.length > 0 && value.length <= 255 && !value.startsWith(".") && !/[\\/:\u0000-\u001f\u007f]/.test(value);
 const storedImageRef = (value: string | undefined): boolean => Boolean(value
@@ -126,6 +186,14 @@ function publicProject(project: ClipProject): ClipProject {
 }
 const equal = (a: unknown, b: unknown): boolean => canonicalEditorJson(a) === canonicalEditorJson(b);
 const sameTarget = (a: EditorTarget, b: EditorTarget): boolean => equal(a, b);
+const cachedCreationCaptionsSchema = z.array(z.object({
+  id: z.string().max(128), text: z.string().max(100_000), start: z.number().finite().min(0), end: z.number().finite().min(0),
+  enabled: z.boolean(), words: z.array(z.object({ text: z.string().max(10_000), start: z.number().finite().min(0), end: z.number().finite().min(0) }).strict()).max(100_000)
+}).strict()).max(20_000);
+function frozen<T>(value: T): T {
+  if (value && typeof value === "object") { Object.values(value).forEach(frozen); Object.freeze(value); }
+  return value;
+}
 const receiptOnly = (operation: AnyCommand["operation"]): boolean => ["cancel_editor_export", "reconcile_editor_export", "settle_editor_export_cancellation"].includes(operation);
 const workerOperation = (operation: AnyCommand["operation"]): boolean => ["claim_editor_export", "record_editor_export_outcome", "settle_editor_export_cancellation"].includes(operation);
 function exactIntent(state: MarketingEditorState, requestId: string, attemptId?: string): EditorExportIntent {
@@ -178,14 +246,19 @@ export class MarketingEditor {
   private readonly worker?: EditorWorkerPorts;
   private readonly overlayAssets?: Pick<ReturnType<typeof createStoredEditorOverlayResolver>, "resolveMany">;
   private readonly musicAssets?: Pick<ReturnType<typeof createStoredEditorMusicResolver>, "resolve">;
+  private readonly creationPolicy?: EditorCreationPolicyReader;
+  private readonly creationSourceRoot: string;
   constructor(options: { binding: EditorBinding; store?: EditorStore; worker?: EditorWorkerPorts;
     overlayAssets?: Pick<ReturnType<typeof createStoredEditorOverlayResolver>, "resolveMany">;
-    musicAssets?: Pick<ReturnType<typeof createStoredEditorMusicResolver>, "resolve"> }) {
+    musicAssets?: Pick<ReturnType<typeof createStoredEditorMusicResolver>, "resolve">;
+    creationPolicy?: EditorCreationPolicyReader }) {
     this.binding = structuredClone(options.binding);
     this.store = options.store ?? originalStore;
     this.worker = options.worker;
     this.overlayAssets = options.overlayAssets;
     this.musicAssets = options.musicAssets;
+    this.creationPolicy = options.creationPolicy;
+    this.creationSourceRoot = path.resolve(dataPath("clips", "outputs"));
     if (!this.binding.ownerId?.trim() || this.binding.ownerId.length > 128) fail("invalid", "An explicit owner binding is required.");
     const records = this.binding.records;
     if (!Array.isArray(records) || records.some((row) => ![row.projectId, row.jobId, row.clipId].every(safeId)
@@ -193,11 +266,90 @@ export class MarketingEditor {
       fail("invalid", "An explicit original-record allowlist is required.");
     }
   }
-  private authorize(principal: Principal, projectId: string, scope: "read" | "write" | "worker"): EditorRecordBinding {
+  private async authorize(principal: Principal, projectId: string, scope: "read" | "write" | "worker", receiptLookup = false): Promise<AuthorizedRecord> {
     if (principal.ownerId !== this.binding.ownerId || !principal.scopes.includes(scope)) fail("forbidden", "This editor operation is outside the verified owner scope.");
     const record = this.binding.records.find((row) => row.projectId === projectId);
-    if (!record) return fail("forbidden", "This original editor record is outside the explicit allowlist.");
-    return record;
+    if (record) return record;
+    if (scope === "worker") return fail("forbidden", "Creation does not grant worker or render access.");
+    return this.recordForProject(projectId, undefined, receiptLookup);
+  }
+  private currentCreationPolicy(): EditorCreationPolicy | null {
+    try {
+      if (!this.creationPolicy) return null;
+      const parsed = editorCreationPolicySchema.safeParse(this.creationPolicy());
+      if (!parsed.success || parsed.data.ownerId !== this.binding.ownerId
+        || new Set(parsed.data.roots.map((root) => root.projectId)).size !== parsed.data.roots.length
+        || parsed.data.roots.some((root) => !this.binding.records.some((record) => record.projectId === root.projectId
+          && record.jobId === root.jobId && record.clipId === root.clipId && record.sourceFile === root.sourceFile))) return null;
+      return structuredClone(parsed.data);
+    } catch { return null; }
+  }
+  private grant(policy: EditorCreationPolicy, rootId: string) {
+    const root = policy.roots.find((entry) => entry.projectId === rootId);
+    if (!root) return fail("forbidden", "No explicit creation policy covers this original root.");
+    return { root, digest: editorDigest({ id: policy.id, version: policy.version, ownerId: policy.ownerId, root }) };
+  }
+  private sourceSha(root: CreationRoot): string {
+    if (path.resolve(dataPath("clips", "outputs")) !== this.creationSourceRoot) return fail("unavailable", "The original source root changed configuration.");
+    return creationSourceSha(root, this.creationSourceRoot);
+  }
+  private createdRecord(root: Readonly<ClipProject>, child: Readonly<ClipProject>, receiptLookup = false): AuthorizedRecord {
+    const policy = this.currentCreationPolicy();
+    if (!policy) return fail("forbidden", "No active creation policy authorizes this child.");
+    const { root: allowed, digest } = this.grant(policy, root.id);
+    const parentState = root.marketingEditor;
+    const state = child.marketingEditor;
+    const provenance = state?.creation;
+    if (root.id === child.id || root.jobId !== allowed.jobId || root.sourceFile !== allowed.sourceFile
+      || !parentState || parentState.deletedAt || parentState.creation || parentState.ownerId !== policy.ownerId
+      || parentState.jobId !== allowed.jobId || parentState.clipId !== allowed.clipId
+      || !state || (state.deletedAt && !receiptLookup) || state.ownerId !== policy.ownerId || state.jobId !== allowed.jobId || state.clipId !== allowed.clipId
+      || child.jobId !== allowed.jobId || child.sourceFile !== allowed.sourceFile || !provenance || provenance.rootProjectId !== root.id
+      || provenance.policyId !== policy.id || provenance.policyVersion !== policy.version || provenance.grantDigest !== digest
+      || provenance.sourceSha256 !== allowed.sourceSha256) return fail("forbidden", "The current root policy and child provenance do not agree.");
+    const creations = parentState.receipts.filter((entry) => entry.result.operation === "create_editor_project_from_source");
+    const matches = creations.filter((entry) => entry.result.commandId === provenance.commandId);
+    if (matches.length !== 1 || creations.length !== parentState.creationRevision) return fail("conflict", "The original creation history requires reconciliation.");
+    const entry = matches[0]; const receipt = entry.result;
+    if (receipt.operation !== "create_editor_project_from_source" || receipt.createdProjectId !== child.id || receipt.rootProjectId !== root.id
+      || !equal(provenance, { rootProjectId: root.id, commandId: receipt.commandId, payloadSha256: entry.payloadSha256,
+        policyId: receipt.policyId, policyVersion: receipt.policyVersion, creationRevision: receipt.creationRevision,
+        sourceDigest: receipt.sourceDigest, captionDigest: receipt.captionDigest, captionState: receipt.captionState,
+        sourceSha256: receipt.sourceSha256, grantDigest: receipt.grantDigest })) return fail("conflict", "The child does not match its immutable root creation receipt.");
+    this.sourceSha(allowed);
+    const active = this.currentCreationPolicy();
+    if (!active || this.grant(active, root.id).digest !== digest) return fail("forbidden", "The child policy was revoked during source verification.");
+    return { projectId: child.id, jobId: allowed.jobId, clipId: allowed.clipId, sourceFile: allowed.sourceFile, creationRootId: root.id };
+  }
+  private async recordForProject(projectId: string, existing?: AppData | null, receiptLookup = false): Promise<AuthorizedRecord> {
+    const bound = this.binding.records.find((row) => row.projectId === projectId);
+    if (bound) return bound;
+    if (!this.currentCreationPolicy()) return fail("forbidden", "This original editor record is outside the explicit allowlist.");
+    const data = existing === undefined ? await this.store.read() : existing;
+    return this.recordFromDocument(projectId, data, receiptLookup);
+  }
+  private recordFromDocument(projectId: string, data: AppData | null, receiptLookup = false): AuthorizedRecord {
+    const bound = this.binding.records.find((row) => row.projectId === projectId);
+    if (bound) return bound;
+    const children = data?.clipProjects.filter((project) => project.id === projectId) ?? [];
+    const rootId = children[0]?.marketingEditor?.creation?.rootProjectId;
+    const roots = data?.clipProjects.filter((project) => project.id === rootId) ?? [];
+    if (children.length !== 1 || roots.length !== 1) return fail("forbidden", "The authorized child and original root could not be uniquely identified.");
+    return this.createdRecord(roots[0], children[0], receiptLookup);
+  }
+  private createdGuard(record: AuthorizedRecord): CreatedClipProjectGuard | undefined {
+    if (!record.creationRootId) return undefined;
+    return { rootProjectId: record.creationRootId, assertCurrentRoot: (root, child) => {
+      if (!equal(record, this.createdRecord(root, child))) return fail("conflict", "The child binding changed before its locked save.");
+    } };
+  }
+  private async assertDerivedRead(project: ClipProject, record: EditorRecordBinding): Promise<void> {
+    if (this.binding.records.some((entry) => entry.projectId === project.id)) return;
+    const data = await this.store.read();
+    const current = data?.clipProjects.filter((entry) => entry.id === project.id) ?? [];
+    const verified = this.recordFromDocument(project.id, data);
+    if (current.length !== 1 || !sameTarget(stateTarget(project, record, this.state(project, record)),
+      stateTarget(current[0], verified, this.state(current[0], verified)))) return fail("conflict", "The child project changed while it was being read.");
   }
   private state(project: ClipProject, record: EditorRecordBinding): MarketingEditorState {
     if (project.id !== record.projectId || project.jobId !== record.jobId || project.sourceFile !== record.sourceFile) fail("conflict", "The original project or media identity changed.");
@@ -221,6 +373,157 @@ export class MarketingEditor {
     }
     return { job, clip: matches[0] };
   }
+  private staticRoot(principal: Principal, projectId: string): EditorRecordBinding {
+    if (principal.ownerId !== this.binding.ownerId || !principal.scopes.includes("write")) return fail("forbidden", "Creation requires the explicit original root owner scope.");
+    const root = this.binding.records.find((entry) => entry.projectId === projectId);
+    if (!root) return fail("forbidden", "Only an explicitly bound static root can create a project.");
+    return root;
+  }
+  private creationState(project: ClipProject, record: EditorRecordBinding, maximum: number): MarketingEditorState {
+    const state = this.state(project, record);
+    const count = state.receipts.filter((entry) => entry.result.operation === "create_editor_project_from_source").length;
+    if (state.creation || (state.creationRevision ?? 0) !== count) return fail("conflict", "The original creation history requires reconciliation.");
+    if (count >= maximum || state.receipts.length >= 1024 || (state.creationRevision ?? 0) >= Number.MAX_SAFE_INTEGER) return fail("unavailable", "The explicit lifetime project creation limit was reached.");
+    return state;
+  }
+  private async creationInputs(record: EditorRecordBinding, policy: EditorCreationPolicy) {
+    const { root, digest: grantDigest } = this.grant(policy, record.projectId);
+    const { job, clip } = await this.original(record);
+    if (typeof job.fileName !== "string" || job.fileName.length > 4096 || typeof job.sourceUrl !== "string" || job.sourceUrl.length > 16_384
+      || clip.end > 86400 || (clip.title !== undefined && (typeof clip.title !== "string" || clip.title.length > 4096))
+      || (clip.posterFile !== undefined && !isEditorMediaFileName(clip.posterFile))) return fail("unavailable", "The original creation inputs are malformed or exceed supported bounds.");
+    if (clip.sourceFrame !== undefined && (!clip.sourceFrame || !Number.isInteger(clip.sourceFrame.width) || !Number.isInteger(clip.sourceFrame.height)
+      || clip.sourceFrame.width < 1 || clip.sourceFrame.height < 1 || clip.sourceFrame.width > 16384 || clip.sourceFrame.height > 16384
+      || !Number.isFinite(clip.sourceFrame.fps) || clip.sourceFrame.fps <= 0 || clip.sourceFrame.fps > 240)) return fail("unavailable", "The original source frame is invalid.");
+    if (job.output !== undefined && (!job.output || !["source", "2160", "1440", "1080", "720"].includes(job.output.resolution)
+      || !["source", "60", "30", "24"].includes(job.output.frameRate))) return fail("unavailable", "The original output quality is invalid.");
+    const captionState = job.sourceCaptions === undefined ? "absent" as const : "present" as const;
+    if (captionState === "absent" && job.captionsError) return fail("unavailable", "The original cached transcript reports a failed read.");
+    let captions: CaptionSegment[] = [];
+    if (captionState === "present") {
+      // Check array and total word bounds before parsing/copying it.
+      if (!Array.isArray(job.sourceCaptions) || job.sourceCaptions.length > 20_000
+        || job.sourceCaptions.reduce((sum, row) => sum + (Array.isArray(row?.words) ? row.words.length : 100_001), 0) > 100_000) return fail("unavailable", "The cached transcript is malformed or exceeds supported bounds.");
+      // Bound new parser/canonicalization allocations before Zod clones rows or
+      // canonicalEditorJson builds strings. UTF8/canonical overhead is checked
+      // exactly afterward; string units are a cheap allocation lower bound.
+      let stringUnits = 0;
+      for (const row of job.sourceCaptions) {
+        if (typeof row.id !== "string" || typeof row.text !== "string") return fail("unavailable", "The cached transcript is malformed.");
+        stringUnits += row.id.length + row.text.length;
+        if (stringUnits > 4_000_000) return fail("unavailable", "The cached transcript exceeds supported bounds.");
+        for (const word of row.words) {
+          if (!word || typeof word.text !== "string") return fail("unavailable", "The cached transcript is malformed.");
+          stringUnits += word.text.length;
+          if (stringUnits > 4_000_000) return fail("unavailable", "The cached transcript exceeds supported bounds.");
+        }
+      }
+      const parsed = cachedCreationCaptionsSchema.safeParse(job.sourceCaptions);
+      if (!parsed.success || Buffer.byteLength(canonicalEditorJson(job.sourceCaptions), "utf8") > 4_000_000
+        || parsed.data.some((row) => row.end < row.start || row.end > 86400 || row.words.some((word) => word.end < word.start || word.end > 86400))) return fail("unavailable", "The cached transcript could not be verified.");
+      captions = parsed.data;
+    }
+    const index = job.clips.findIndex((entry) => entry.id === clip.id);
+    const sourceSha256 = this.sourceSha(root);
+    const sourceDigest = editorDigest({ grantDigest, sourceSha256, index, jobId: job.id, name: job.fileName, sourceUrl: job.sourceUrl,
+      output: job.output, clip: { id: clip.id, start: clip.start, end: clip.end, title: clip.title, posterFile: clip.posterFile, sourceFrame: clip.sourceFrame }, sourceFile: record.sourceFile });
+    const captionDigest = editorDigest({ state: captionState, captions });
+    return { job: structuredClone(job), clip: structuredClone(clip), index, captions, sourceDigest, captionDigest, captionState, sourceSha256, grantDigest };
+  }
+  /** Passive, static-root only. No configured policy means no discovery or media read. */
+  async getCreationContext(principal: Principal, rootProjectId: string): Promise<EditorCreationContext | null> {
+    const record = this.staticRoot(principal, rootProjectId);
+    if (!principal.scopes.includes("read")) return fail("forbidden", "Creation context requires the explicit owner read scope.");
+    const policy = this.currentCreationPolicy();
+    if (!policy || !policy.roots.some((root) => root.projectId === rootProjectId)) return null;
+    const { root, digest } = this.grant(policy, rootProjectId);
+    const projects = (await this.store.read())?.clipProjects.filter((entry) => entry.id === rootProjectId) ?? [];
+    if (projects.length !== 1) return fail("not_found", "The original creation root was not found.");
+    const state = this.creationState(projects[0], record, root.maxCreatedProjects);
+    const target = stateTarget(projects[0], record, state);
+    const inputs = await this.creationInputs(record, policy);
+    if (Math.abs(projects[0].clipStart - inputs.clip.start) > 0.001 || Math.abs(projects[0].clipEnd - inputs.clip.end) > 0.001) return fail("conflict", "The root and original clip boundaries changed.");
+    const current = (await this.store.read())?.clipProjects.filter((entry) => entry.id === rootProjectId) ?? [];
+    this.sourceSha(root);
+    const active = this.currentCreationPolicy();
+    if (!active || this.grant(active, rootProjectId).digest !== digest || current.length !== 1
+      || !sameTarget(target, stateTarget(current[0], record, this.creationState(current[0], record, root.maxCreatedProjects)))
+      || (current[0].marketingEditor?.creationRevision ?? 0) !== (state.creationRevision ?? 0)) return fail("conflict", "The original creation context changed while being read.");
+    return frozen({ target, policyId: policy.id, policyVersion: policy.version, creationRevision: state.creationRevision ?? 0,
+      sourceDigest: inputs.sourceDigest, captionDigest: inputs.captionDigest, captionState: inputs.captionState });
+  }
+  private async creationResult(principal: Principal, receipt: EditorCreationReceipt, replayed: boolean): Promise<EditorProjectCreationResult> {
+    const base = { receipt: frozen(structuredClone(receipt)), replayed, createdProjectId: receipt.createdProjectId, childTarget: null, snapshot: null };
+    if (!this.currentCreationPolicy()) return { ...base, reconciliation: { state: "policy_unavailable" } };
+    try {
+      const snapshot = await this.load(principal, receipt.createdProjectId);
+      return { ...base, childTarget: snapshot.target, snapshot };
+    } catch { return { ...base, reconciliation: { state: "record_unavailable" } }; }
+  }
+  /** Exact root receipt replay is independent of a subsequently revoked child capability. */
+  async createProjectFromSource(principal: Principal, input: CreateEditorProjectFromSourceCommand): Promise<EditorProjectCreationResult> {
+    const command = this.parsed(createEditorProjectFromSourceCommandSchema, input);
+    const record = this.staticRoot(principal, command.target.projectId);
+    const payloadSha256 = editorDigest(command);
+    const roots = (await this.store.read())?.clipProjects.filter((entry) => entry.id === record.projectId) ?? [];
+    if (roots.length !== 1) return fail("not_found", "The original creation root was not found.");
+    const existing = roots[0].marketingEditor;
+    if (existing && (existing.ownerId !== this.binding.ownerId || existing.jobId !== record.jobId || existing.clipId !== record.clipId)) return fail("forbidden", "The original creation receipt belongs to another binding.");
+    const prior = existing?.receipts.filter((entry) => entry.result.commandId === command.commandId) ?? [];
+    if (prior.length > 1) return fail("conflict", "Duplicate creation receipts require reconciliation.");
+    if (prior.length) {
+      if (prior[0].payloadSha256 !== payloadSha256 || prior[0].result.operation !== command.operation) return fail("conflict", "The command UUID was already used for a different editor action.");
+      return this.creationResult(principal, prior[0].result, true);
+    }
+    const policy = this.currentCreationPolicy();
+    if (!policy) return fail("forbidden", "No explicit project creation policy is configured.");
+    const grant = this.grant(policy, record.projectId);
+    if (!this.store.createFromRoot) return fail("unavailable", "The atomic original-store creation port is not configured.");
+    try {
+      const result = await this.store.createFromRoot(record.projectId, command.commandId, payloadSha256, async (project, childId) => {
+        const active = this.currentCreationPolicy();
+        if (!active || this.grant(active, record.projectId).digest !== grant.digest || active.id !== command.policyId || active.version !== command.policyVersion) return fail("conflict", "The explicit creation policy changed.");
+        const state = this.creationState(project, record, grant.root.maxCreatedProjects);
+        if (!sameTarget(command.target, stateTarget(project, record, state)) || command.creationRevision !== (state.creationRevision ?? 0)) return fail("conflict", "The original root or creation revision changed.");
+        const inputs = await this.creationInputs(record, active);
+        if (Math.abs(project.clipStart - inputs.clip.start) > 0.001 || Math.abs(project.clipEnd - inputs.clip.end) > 0.001) return fail("conflict", "The root and original clip boundaries changed.");
+        if (command.sourceDigest !== inputs.sourceDigest || command.captionDigest !== inputs.captionDigest || command.captionState !== inputs.captionState) return fail("conflict", "The original source or cached transcript changed since creation review.");
+        const child = makeClipProject({ jobId: record.jobId, name: `${inputs.job.fileName} - clip ${inputs.index + 1}`,
+          sourceFile: record.sourceFile, posterFile: inputs.clip.posterFile, sourceUrl: inputs.job.sourceUrl,
+          clipStart: inputs.clip.start, clipEnd: inputs.clip.end, sourceFrame: inputs.clip.sourceFrame, output: inputs.job.output });
+        child.id = childId;
+        const windowed = windowSegments(inputs.captions, inputs.clip.start, inputs.clip.end);
+        const words = windowed.flatMap((row) => row.words);
+        child.captions = words.length ? chunkWords(words, child.captionStyle.maxWordsPerCaption) : windowed;
+        child.title = inputs.clip.title || generateClipTitle(child.captions, `Clip ${inputs.index + 1}`);
+        if (child.title) child.name = child.title;
+        child.overlays = [...child.overlays, makeTitleOverlay(child)];
+        const creationRevision = (state.creationRevision ?? 0) + 1;
+        const identity = { policyId: active.id, policyVersion: active.version, creationRevision, sourceDigest: inputs.sourceDigest,
+          captionDigest: inputs.captionDigest, captionState: inputs.captionState, sourceSha256: inputs.sourceSha256, grantDigest: inputs.grantDigest };
+        const receipt: EditorCreationReceipt = { operation: command.operation, commandId: command.commandId, rootProjectId: project.id, createdProjectId: child.id,
+          revision: state.revision, digest: state.digest, renderSignature: state.renderSignature, ...identity,
+          reviewInvalidated: false, rootReviewPreserved: true, publicationAuthorized: false };
+        child.marketingEditor = { ownerId: this.binding.ownerId, jobId: record.jobId, clipId: record.clipId, revision: 0,
+          digest: editorProjectDigest(child), renderSignature: editorRenderSignature(child), receipts: [], exports: [],
+          creation: { rootProjectId: project.id, commandId: command.commandId, payloadSha256, ...identity } };
+        child.renderSignature = child.marketingEditor.renderSignature; child.captionCount = child.captions.length;
+        state.creationRevision = creationRevision; state.receipts.push({ payloadSha256, result: receipt });
+        const assertCurrent = () => {
+          this.sourceSha(grant.root);
+          const finalPolicy = this.currentCreationPolicy();
+          if (!finalPolicy || this.grant(finalPolicy, record.projectId).digest !== grant.digest) return fail("conflict", "The creation policy was revoked before commit.");
+        };
+        assertCurrent();
+        return { root: { ...project, marketingEditor: state }, child, assertCurrent };
+      });
+      return this.creationResult(principal, result.receipt, result.replayed);
+    } catch (error) {
+      if (error instanceof ManagedEditorCreationConflictError) return fail("conflict", "The original creation records changed before commit.");
+      if (error instanceof ManagedEditorDeletedError) return fail("not_found", "The original creation root was deleted.");
+      throw error;
+    }
+  }
   private async snapshot(project: ClipProject, record: EditorRecordBinding, job: ClipJob, clip: ClipCandidate, principal: Principal): Promise<EditorSnapshot> {
     if (Math.abs(project.clipStart - clip.start) > 0.001 || Math.abs(project.clipEnd - clip.end) > 0.001) {
       return fail("conflict", "The original clip boundaries no longer match this editor project.");
@@ -239,6 +542,7 @@ export class MarketingEditor {
     if (complete) {
       try { music = await this.resolveMusic(target, project); } catch { complete = false; }
     }
+    await this.assertDerivedRead(project, record);
     return {
       project: publicProject(project), target,
       cachedCaptions: { captions: captions.success ? captions.data : [],
@@ -253,7 +557,7 @@ export class MarketingEditor {
         ...(latest.attemptId ? { attemptId: latest.attemptId } : {}) } : { state: "not_requested" },
       requiresAssetConnection: !complete,
       capabilities: { save: complete && principal.scopes.includes("write"), deleteProject: principal.scopes.includes("write"),
-        requestExport: complete && principal.scopes.includes("write"), dispatchExport: false },
+        requestExport: complete && principal.scopes.includes("write") && this.binding.records.some((entry) => entry.projectId === project.id), dispatchExport: false },
       reviewRequired: true, publicationAuthorized: false
     };
   }
@@ -261,34 +565,64 @@ export class MarketingEditor {
     if (principal.ownerId !== this.binding.ownerId || !principal.scopes.includes("read")) fail("forbidden", "This editor operation is outside the verified owner scope.");
     if (!this.binding.records.length) return [];
     const data = await this.store.read();
-    return (data?.clipProjects ?? []).flatMap((project) => {
-      const record = this.binding.records.find((row) => row.projectId === project.id);
-      if (!record || project.marketingEditor?.deletedAt) return [];
+    const summaries: EditorProjectSummary[] = [];
+    for (const project of data?.clipProjects ?? []) {
+      if (project.marketingEditor?.deletedAt) continue;
+      let record = this.binding.records.find((row) => row.projectId === project.id);
+      if (!record && project.marketingEditor?.creation) {
+        try { record = await this.recordForProject(project.id, data); } catch { continue; }
+      }
+      if (!record) continue;
       if (data!.clipProjects.filter((candidate) => candidate.id === project.id).length !== 1) fail("conflict", "The original editor project is not unique.");
       const state = this.state(project, record);
-      return [{ id: project.id, name: project.name, updatedAt: project.updatedAt, jobId: project.jobId, durationSec: project.baseDurationSec,
-        deleteTarget: stateTarget(project, record, state), canDelete: principal.scopes.includes("write") }];
-    });
+      await this.assertDerivedRead(project, record);
+      summaries.push({ id: project.id, name: project.name, updatedAt: project.updatedAt, jobId: project.jobId, durationSec: project.baseDurationSec,
+        deleteTarget: stateTarget(project, record, state), canDelete: principal.scopes.includes("write") });
+    }
+    const derived = summaries.filter((summary) => !this.binding.records.some((entry) => entry.projectId === summary.id));
+    if (derived.length) {
+      const latest = await this.store.read();
+      for (const summary of derived) {
+        const children = latest?.clipProjects.filter((entry) => entry.id === summary.id) ?? [];
+        const rootId = children[0]?.marketingEditor?.creation?.rootProjectId;
+        const roots = latest?.clipProjects.filter((entry) => entry.id === rootId) ?? [];
+        if (children.length !== 1 || roots.length !== 1) return fail("conflict", "The child list changed while being read.");
+        const record = this.createdRecord(roots[0], children[0]);
+        if (!sameTarget(summary.deleteTarget, stateTarget(children[0], record, this.state(children[0], record)))) return fail("conflict", "The child list changed while being read.");
+      }
+    }
+    return summaries;
   }
   /** Exact owner/revision preflight for already verified prepared media; no asset decode. */
   async readPreparedTarget(principal: Principal, projectId: string, requestId: string): Promise<EditorTarget> {
-    const record = this.authorize(principal, projectId, "read");
+    const record = await this.authorize(principal, projectId, "read");
     const data = await this.store.read();
     const matches = data?.clipProjects.filter((project) => project.id === projectId) ?? [];
     if (matches.length !== 1) return fail("not_found", "The original editor project was not found.");
     const state = this.state(matches[0], record);
     const latest = state.exports.at(-1);
     if (latest?.state !== "prepared" || latest.requestId !== requestId) return fail("not_found", "This is not the current prepared editor export.");
+    await this.assertDerivedRead(matches[0], record);
     return stateTarget(matches[0], record, state);
   }
   async load(principal: Principal, projectId: string): Promise<EditorSnapshot> {
-    const record = this.authorize(principal, projectId, "read");
+    const record = await this.authorize(principal, projectId, "read");
     const data = await this.store.read();
     const matches = data?.clipProjects.filter((project) => project.id === projectId) ?? [];
     if (matches.length !== 1) return fail("not_found", "The original editor project was not found.");
     this.state(matches[0], record);
     const { job, clip } = await this.original(record);
     return this.snapshot(matches[0], record, job, clip, principal);
+  }
+  /** Final private projection fence: no cached-caption read, asset decode or write. */
+  async assertSnapshotCurrent(principal: Principal, input: EditorTarget): Promise<void> {
+    const target = this.parsed(editorTargetSchema, input);
+    if (principal.ownerId !== this.binding.ownerId || !principal.scopes.includes("read")) return fail("forbidden", "This editor projection is outside the verified owner scope.");
+    const data = await this.store.read();
+    const record = this.recordFromDocument(target.projectId, data);
+    const projects = data?.clipProjects.filter((project) => project.id === target.projectId) ?? [];
+    if (projects.length !== 1) return fail("not_found", "The original editor project was not found.");
+    if (!sameTarget(target, stateTarget(projects[0], record, this.state(projects[0], record)))) return fail("conflict", "The editor projection changed before its response.");
   }
   private parsed<T>(schema: z.ZodType<T>, value: unknown): T {
     const result = schema.safeParse(value);
@@ -312,8 +646,10 @@ export class MarketingEditor {
     if (!schema) return fail("invalid", "The editor command is invalid or incomplete.");
     const command = this.parsed(schema as z.ZodType<AnyEditorCommand>, input);
     const scope = workerOperation(command.operation) ? "worker" : "write";
-    const record = this.authorize(principal, command.target.projectId, scope);
-    const matches = (await this.store.read())?.clipProjects.filter((project) => project.id === record.projectId) ?? [];
+    const record = await this.authorize(principal, command.target.projectId, scope, true);
+    const data = await this.store.read();
+    const matches = data?.clipProjects.filter((project) => project.id === record.projectId) ?? [];
+    if (record.creationRootId) await this.recordForProject(record.projectId, data, true);
     if (matches.length > 1) return fail("conflict", "The original editor receipt record is not unique.");
     const project = matches[0];
     const state = project?.marketingEditor;
@@ -323,7 +659,7 @@ export class MarketingEditor {
     }
     const prior = state.receipts.find((entry) => entry.result.commandId === command.commandId);
     if (!prior) return null;
-    if (prior.payloadSha256 !== editorDigest(command)) return fail("conflict", "The command UUID was already used for a different editor action.");
+    if (prior.result.operation === "create_editor_project_from_source" || prior.payloadSha256 !== editorDigest(command)) return fail("conflict", "The command UUID was already used for a different editor action.");
     if (receiptOnly(command.operation)) return { receipt: prior.result, replayed: true, snapshot: null, reconciliation: { state: "refresh_required" } };
     if (state.deletedAt) return { receipt: prior.result, replayed: true, snapshot: null, reconciliation: { state: "deleted" } };
     try {
@@ -339,7 +675,7 @@ export class MarketingEditor {
   ): Promise<EditorCommandResult> {
     const committed = await this.replay(principal, command);
     if (committed) return committed;
-    const record = this.authorize(principal, command.target.projectId, scope);
+    const record = await this.authorize(principal, command.target.projectId, scope);
     const original = requireOriginalMedia ? await this.original(record) : null;
     const payloadSha256 = editorDigest(command);
     let receipt!: EditorReceipt;
@@ -352,7 +688,7 @@ export class MarketingEditor {
       }
       const prior = state.receipts.find((entry) => entry.result.commandId === command.commandId);
       if (prior) {
-        if (prior.payloadSha256 !== payloadSha256) return fail("conflict", "The command UUID was already used for a different editor action.");
+        if (prior.result.operation === "create_editor_project_from_source" || prior.payloadSha256 !== payloadSha256) return fail("conflict", "The command UUID was already used for a different editor action.");
         receipt = prior.result; replayed = true; return { ...project, marketingEditor: state };
       }
       if (!sameTarget(command.target, stateTarget(project, record, state))) return fail("conflict", "The editor revision or content changed. Load the current original project.");
@@ -366,9 +702,10 @@ export class MarketingEditor {
         reviewInvalidated: true, publicationAuthorized: false };
       next.state.receipts.push({ payloadSha256, result: receipt });
       return { ...next.project, marketingEditor: next.state, renderSignature: next.state.renderSignature, captionCount: next.project.captions.length };
-    }); } catch (error) {
+    }, this.createdGuard(record)); } catch (error) {
       // A concurrent delete can win after receipt preflight. A known receipt
       // still replays; a new command must not resurrect the tombstone.
+      if (error instanceof ManagedEditorCreationConflictError) return fail("conflict", "The original creation binding changed before the edit.");
       if (!(error instanceof ManagedEditorDeletedError)) throw error;
       const replay = await this.replay(principal, command);
       if (replay) return replay;
@@ -383,7 +720,7 @@ export class MarketingEditor {
   }
   async save(principal: Principal, input: SaveEditorCommand): Promise<EditorCommandResult> {
     const command = this.parsed(saveEditorCommandSchema, input) as SaveEditorCommand;
-    this.authorize(principal, command.target.projectId, "write");
+    await this.authorize(principal, command.target.projectId, "write", true);
     const replay = await this.replay(principal, command);
     if (replay) return replay;
     const assets = await this.resolveAssets(command.target);
@@ -403,7 +740,8 @@ export class MarketingEditor {
   }
   async requestExport(principal: Principal, input: RequestEditorExportCommand): Promise<EditorCommandResult> {
     const command = this.parsed(requestEditorExportCommandSchema, input);
-    this.authorize(principal, command.target.projectId, "write");
+    await this.authorize(principal, command.target.projectId, "write");
+    if (!this.binding.records.some((entry) => entry.projectId === command.target.projectId)) return fail("forbidden", "Creation does not grant worker or render access.");
     const replay = await this.replay(principal, command);
     if (replay) return replay;
     const superseded = command.supersedesRequestId ? await this.readIntent(principal, command.target, command.supersedesRequestId, "write") : null;
@@ -441,7 +779,7 @@ export class MarketingEditor {
     const command = this.parsed(deleteEditorCommandSchema, input);
     const replay = await this.replay(principal, command);
     if (replay) return replay;
-    const record = this.authorize(principal, command.target.projectId, "write");
+    const record = await this.authorize(principal, command.target.projectId, "write");
     const matches = (await this.store.read())?.clipProjects.filter((project) => project.id === record.projectId) ?? [];
     if (!matches.length) return fail("not_found", "The original editor project was not found.");
     if (matches.length !== 1) return fail("conflict", "The original editor project is not unique.");
@@ -521,7 +859,7 @@ export class MarketingEditor {
   }
   async claimExport(principal: Principal, input: ClaimEditorExportCommand): Promise<EditorCommandResult & { attemptId: string }> {
     const command = this.parsed(claimEditorExportCommandSchema, input);
-    this.authorize(principal, command.target.projectId, "worker");
+    await this.authorize(principal, command.target.projectId, "worker");
     const replay = await this.replay(principal, command);
     if (!replay && !this.worker) return fail("unavailable", "No preparation-only renderer is bound. The explicit export intent remains pending.");
     if (!replay) this.worker!.assertPreparationOnly();
@@ -546,7 +884,7 @@ export class MarketingEditor {
   }
   async recordExportOutcome(principal: Principal, input: RecordEditorExportOutcomeCommand): Promise<EditorCommandResult> {
     const command = this.parsed(recordEditorExportOutcomeSchema, input);
-    this.authorize(principal, command.target.projectId, "worker");
+    await this.authorize(principal, command.target.projectId, "worker");
     const replay = await this.replay(principal, command);
     if (replay) return replay;
     if (!this.worker) return fail("unavailable", "No preparation-only renderer proof reader is bound.");
@@ -578,7 +916,7 @@ export class MarketingEditor {
     }, "worker");
   }
   private async readIntent(principal: Principal, target: EditorTarget, requestId: string, scope: "write" | "worker") {
-    const record = this.authorize(principal, target.projectId, scope);
+    const record = await this.authorize(principal, target.projectId, scope);
     const matches = (await this.store.read())?.clipProjects.filter((project) => project.id === record.projectId) ?? [];
     if (!matches.length) return fail("not_found", "The original editor project was not found.");
     if (matches.length !== 1) return fail("conflict", "The original editor project is not unique.");
@@ -638,8 +976,7 @@ export class MarketingEditor {
     return music;
   }
   private async resolveAssets(target: EditorTarget): Promise<VerifiedEditorAssets> {
-    const record = this.binding.records.find((row) => row.projectId === target.projectId);
-    if (!record) return fail("forbidden", "The editor assets are outside the trusted project scope.");
+    const record = await this.recordForProject(target.projectId);
     const projects = (await this.store.read())?.clipProjects.filter((row) => row.id === target.projectId) ?? [];
     if (projects.length !== 1) return fail("conflict", "The original editor project is missing or ambiguous.");
     const project = projects[0];
