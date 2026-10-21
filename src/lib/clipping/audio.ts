@@ -40,7 +40,8 @@ export function shortsAudioFilter(): string {
     "highpass=f=70",
     "acompressor=threshold=0.125:ratio=3:attack=10:release=200",
     `loudnorm=I=${SHORTS_LOUDNESS_LUFS}:TP=${SHORTS_TRUE_PEAK_DB}:LRA=${SHORTS_LOUDNESS_RANGE}`,
-    "alimiter=limit=0.891",
+    // Preserve loudnorm's target instead of automatically boosting the output.
+    "alimiter=limit=0.891:level=false",
     "aresample=48000"
   ].join(",");
 }
