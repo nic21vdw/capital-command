@@ -12,9 +12,11 @@ import { ManagedEditorDeletedError, canonicalEditorJson, currentEditorState, edi
 import { editorTargetSchema, type EditorBinding, type EditorCommandResult, type EditorExportIntent,
   type EditorRecordBinding, type EditorReceipt, type EditorSnapshot, type EditorTarget,
   type MarketingEditorState, type RequestEditorExportCommand, type SaveEditorCommand, type DeleteEditorCommand,
-  type EditorProjectSummary, type EditorOverlayAssetIdentity, type CancelEditorExportCommand,
+  type EditorProjectSummary, type EditorOverlayAssetIdentity, editorMusicAssetIdentitySchema,
+  type EditorMusicAssetIdentity, type CancelEditorExportCommand,
   type ReconcileEditorExportCommand, type SettleEditorExportCancellationCommand } from "./editor-types";
 import type { createStoredEditorOverlayResolver, StoredEditorOverlayAsset } from "./editor-overlay-assets";
+import type { createStoredEditorMusicResolver, StoredEditorMusicAsset } from "./editor-audio-assets";
 export * from "./editor-types";
 
 const commandFields = { commandId: z.string().uuid(), target: editorTargetSchema };
@@ -65,6 +67,7 @@ export type EditorPreparationEvidence = {
   requestId: string; attemptId: string; digest: string; renderSignature: string;
   exportId: string; artifactSha256: string;
   overlayAssets?: EditorOverlayAssetIdentity[];
+  musicAsset?: EditorMusicAssetIdentity;
   /** Recheck the trusted artifact identity immediately before locked commit. */
   assertCurrent(): void;
 };
@@ -105,6 +108,7 @@ export async function readOriginalEditorJob(jobId: string): Promise<ClipJob | un
 }
 const originalStore: EditorStore = { read: readExistingAppData, mutate: mutateExistingClipProject, readJob: readOriginalEditorJob };
 const safeId = (value: string): boolean => /^[A-Za-z0-9_-]{1,128}$/.test(value);
+type VerifiedEditorAssets = { overlays: readonly StoredEditorOverlayAsset[]; music: StoredEditorMusicAsset | null };
 export const isEditorMediaFileName = (value: unknown): value is string => typeof value === "string"
   && value.length > 0 && value.length <= 255 && !value.startsWith(".") && !/[\\/:\u0000-\u001f\u007f]/.test(value);
 const storedImageRef = (value: string | undefined): boolean => Boolean(value
@@ -173,12 +177,15 @@ export class MarketingEditor {
   private readonly store: EditorStore;
   private readonly worker?: EditorWorkerPorts;
   private readonly overlayAssets?: Pick<ReturnType<typeof createStoredEditorOverlayResolver>, "resolveMany">;
+  private readonly musicAssets?: Pick<ReturnType<typeof createStoredEditorMusicResolver>, "resolve">;
   constructor(options: { binding: EditorBinding; store?: EditorStore; worker?: EditorWorkerPorts;
-    overlayAssets?: Pick<ReturnType<typeof createStoredEditorOverlayResolver>, "resolveMany"> }) {
+    overlayAssets?: Pick<ReturnType<typeof createStoredEditorOverlayResolver>, "resolveMany">;
+    musicAssets?: Pick<ReturnType<typeof createStoredEditorMusicResolver>, "resolve"> }) {
     this.binding = structuredClone(options.binding);
     this.store = options.store ?? originalStore;
     this.worker = options.worker;
     this.overlayAssets = options.overlayAssets;
+    this.musicAssets = options.musicAssets;
     if (!this.binding.ownerId?.trim() || this.binding.ownerId.length > 128) fail("invalid", "An explicit owner binding is required.");
     const records = this.binding.records;
     if (!Array.isArray(records) || records.some((row) => ![row.projectId, row.jobId, row.clipId].every(safeId)
@@ -214,7 +221,7 @@ export class MarketingEditor {
     }
     return { job, clip: matches[0] };
   }
-  private snapshot(project: ClipProject, record: EditorRecordBinding, job: ClipJob, clip: ClipCandidate, principal: Principal): EditorSnapshot {
+  private async snapshot(project: ClipProject, record: EditorRecordBinding, job: ClipJob, clip: ClipCandidate, principal: Principal): Promise<EditorSnapshot> {
     if (Math.abs(project.clipStart - clip.start) > 0.001 || Math.abs(project.clipEnd - clip.end) > 0.001) {
       return fail("conflict", "The original clip boundaries no longer match this editor project.");
     }
@@ -222,21 +229,31 @@ export class MarketingEditor {
     const current = Boolean(clip.editedFile && clip.editedSignature === state.renderSignature);
     const captions = z.array(captionSegmentSchema).safeParse(job.sourceCaptions ?? []);
     const latest = state.exports.at(-1);
+    const target = stateTarget(project, record, state);
+    // Image bytes are verified by the protected composition. Keep this read
+    // metadata-only so cached HEAD/ranges do not decode those files again.
+    const imageRows = project.overlays.filter((row) => row.kind !== "text");
+    let complete = !project.overlays.some((row) => row.kind === "text" ? Boolean(row.src) : !storedImageRef(row.src))
+      && (!imageRows.length || Boolean(this.overlayAssets));
+    let music: StoredEditorMusicAsset | null = null;
+    if (complete) {
+      try { music = await this.resolveMusic(target, project); } catch { complete = false; }
+    }
     return {
-      project: publicProject(project), target: stateTarget(project, record, state),
+      project: publicProject(project), target,
       cachedCaptions: { captions: captions.success ? captions.data : [],
         fetchedAt: typeof job.captionsFetchedAt === "string" && Number.isFinite(Date.parse(job.captionsFetchedAt)) ? job.captionsFetchedAt : null },
       media: { source: { jobId: record.jobId, fileName: record.sourceFile },
-        ...(project.overlays.some((row) => row.kind !== "text" && storedImageRef(row.src))
-          ? { overlays: project.overlays.filter((row) => row.kind !== "text" && storedImageRef(row.src)).map((row) => ({ overlayId: row.id })) } : {}),
+        ...(complete && imageRows.length ? { overlays: imageRows.map((row) => ({ overlayId: row.id })) } : {}),
+        ...(complete && music ? { music: this.musicIdentity(music) } : {}),
         ...(isEditorMediaFileName(project.posterFile) ? { poster: { jobId: record.jobId, fileName: project.posterFile } } : {}),
         ...(isEditorMediaFileName(clip.editedFile) ? { edited: { jobId: record.jobId, fileName: clip.editedFile,
           renderSignature: typeof clip.editedSignature === "string" && /^[a-z0-9]{1,64}$/.test(clip.editedSignature) ? clip.editedSignature : undefined, current } } : {}) },
       export: latest ? { state: latest.state, requestId: latest.requestId,
         ...(latest.attemptId ? { attemptId: latest.attemptId } : {}) } : { state: "not_requested" },
-      requiresAssetConnection: project.overlays.some((overlay) => overlay.kind === "text" ? Boolean(overlay.src) : !storedImageRef(overlay.src))
-        || Boolean(project.audio.musicSrc),
-      capabilities: { save: principal.scopes.includes("write"), deleteProject: principal.scopes.includes("write"), requestExport: principal.scopes.includes("write"), dispatchExport: false },
+      requiresAssetConnection: !complete,
+      capabilities: { save: complete && principal.scopes.includes("write"), deleteProject: principal.scopes.includes("write"),
+        requestExport: complete && principal.scopes.includes("write"), dispatchExport: false },
       reviewRequired: true, publicationAuthorized: false
     };
   }
@@ -300,7 +317,7 @@ export class MarketingEditor {
     if (state.deletedAt) return { receipt: prior.result, replayed: true, snapshot: null, reconciliation: { state: "deleted" } };
     try {
       const { job, clip } = await this.original(record);
-      return { receipt: prior.result, replayed: true, snapshot: this.snapshot(project, record, job, clip, principal) };
+      return { receipt: prior.result, replayed: true, snapshot: await this.snapshot(project, record, job, clip, principal) };
     } catch {
       return { receipt: prior.result, replayed: true, snapshot: null, reconciliation: { state: "record_unavailable" } };
     }
@@ -351,11 +368,16 @@ export class MarketingEditor {
     // The response uses the same original source cache read before mutation;
     // publication readiness still requires independent current-byte proof.
     if (!original) return fail("unavailable", "The editor command did not reach its expected terminal state.");
-    return { receipt, replayed, snapshot: this.snapshot(saved, record, original.job, original.clip, principal) };
+    return { receipt, replayed, snapshot: await this.snapshot(saved, record, original.job, original.clip, principal) };
   }
   async save(principal: Principal, input: SaveEditorCommand): Promise<EditorCommandResult> {
     const command = this.parsed(saveEditorCommandSchema, input) as SaveEditorCommand;
+    this.authorize(principal, command.target.projectId, "write");
+    const replay = await this.replay(principal, command);
+    if (replay) return replay;
+    const assets = await this.resolveAssets(command.target);
     return this.transact(principal, command, (project, state) => {
+      this.assertAssetsCurrent(assets, project);
       const edited = validateEdit(command.project, project);
       const next = currentEditorState(edited, state);
       // Even a no-op save is an explicit new review boundary. Requesting an
@@ -395,8 +417,9 @@ export class MarketingEditor {
       const intent: EditorExportIntent = { requestId: command.commandId, revision: state.revision,
         digest: state.digest, renderSignature: state.renderSignature, state: "pending_dispatch",
         ...(command.supersedesRequestId ? { supersedesRequestId: command.supersedesRequestId } : {}),
-        ...(assets.length ? { overlayAssets: this.assetIdentities(assets) } : {}) };
-      assets.forEach((asset) => asset.assertCurrentFile());
+        ...(assets.overlays.length ? { overlayAssets: this.assetIdentities(assets.overlays) } : {}),
+        ...(assets.music ? { musicAsset: this.musicIdentity(assets.music) } : {}) };
+      this.assertAssetsCurrent(assets, project);
       if (superseded) exactIntent(state, superseded.intent.requestId, superseded.intent.attemptId).supersededByRequestId = intent.requestId;
       state.exports.push(intent);
       return { project, state, intent };
@@ -493,13 +516,14 @@ export class MarketingEditor {
     if (!replay) this.worker!.assertPreparationOnly();
     const workerEpoch = replay ? undefined : this.worker?.getWorkerEpoch?.();
     if (!replay && !z.string().uuid().safeParse(workerEpoch).success) return fail("unavailable", "A trusted owning-process epoch is required to claim this export.");
-    const assets = replay ? [] : await this.exportAssets(command.target);
+    const assets = replay ? null : await this.exportAssets(command.target);
     const result = replay ?? await this.transact(principal, command, (project, state) => {
       const intent = state.exports.find((candidate) => candidate.requestId === command.requestId);
       if (!intent || intent.state !== "pending_dispatch" || intent.digest !== state.digest || intent.revision !== state.revision) return fail("conflict", "The export request is not pending for this exact editor revision.");
-      if (!equal(intent.overlayAssets ?? [], this.assetIdentities(assets))) return fail("conflict", "The requested image bytes changed before this export was claimed.");
+      if (!equal(intent.overlayAssets ?? [], this.assetIdentities(assets!.overlays))
+        || !equal(intent.musicAsset, assets!.music ? this.musicIdentity(assets!.music) : undefined)) return fail("conflict", "The requested asset bytes changed before this export was claimed.");
       if (this.worker!.getWorkerEpoch?.() !== workerEpoch) return fail("conflict", "The trusted worker epoch changed before its claim committed.");
-      assets.forEach((asset) => asset.assertCurrentFile());
+      this.assertAssetsCurrent(assets!, project);
       intent.state = "claimed"; intent.attemptId = randomUUID(); intent.workerEpoch = workerEpoch;
       return { project, state, intent };
     }, "worker");
@@ -516,6 +540,7 @@ export class MarketingEditor {
     if (replay) return replay;
     if (!this.worker) return fail("unavailable", "No preparation-only renderer proof reader is bound.");
     this.worker.assertPreparationOnly();
+    const assets = command.outcome === "prepared" ? await this.exportAssets(command.target) : null;
     const project = (await this.store.read())?.clipProjects.find((candidate) => candidate.id === command.target.projectId);
     const intent = project?.marketingEditor?.exports.find((candidate) => candidate.requestId === command.requestId);
     if (!project || !intent || intent.attemptId !== command.attemptId) return fail("conflict", "The original export attempt does not match.");
@@ -525,12 +550,16 @@ export class MarketingEditor {
     if (command.outcome === "prepared" && (!evidence || evidence.requestId !== intent.requestId || evidence.attemptId !== intent.attemptId
       || evidence.digest !== intent.digest || evidence.renderSignature !== intent.renderSignature
       || !equal(evidence.overlayAssets ?? [], intent.overlayAssets ?? [])
+      || !equal(evidence.musicAsset, intent.musicAsset)
+      || !equal(evidence.musicAsset, assets?.music ? this.musicIdentity(assets.music) : undefined)
       || !safeId(evidence.exportId) || !/^[a-f0-9]{64}$/.test(evidence.artifactSha256))) fail("conflict", "Independent preparation proof does not match this export attempt.");
     if (command.outcome === "failed_before_dispatch" && !failureVerified) fail("conflict", "The worker has not independently verified failure before dispatch.");
     return this.transact(principal, command, (current, state) => {
       const active = state.exports.find((candidate) => candidate.requestId === command.requestId);
       if (!active || active.state !== "claimed" || active.attemptId !== command.attemptId || active.digest !== state.digest
-        || active.revision !== state.revision || (evidence && !equal(active.overlayAssets ?? [], evidence.overlayAssets ?? []))) return fail("conflict", "The export attempt is stale or no longer claimed.");
+        || active.revision !== state.revision || (evidence && (!equal(active.overlayAssets ?? [], evidence.overlayAssets ?? [])
+          || !equal(active.musicAsset, evidence.musicAsset)))) return fail("conflict", "The export attempt is stale or no longer claimed.");
+      if (assets) this.assertAssetsCurrent(assets, current);
       evidence?.assertCurrent();
       active.state = command.outcome;
       if (evidence) { active.artifactSha256 = evidence.artifactSha256; active.exportId = evidence.exportId; }
@@ -574,18 +603,52 @@ export class MarketingEditor {
   private assetIdentities(assets: readonly StoredEditorOverlayAsset[]): EditorOverlayAssetIdentity[] {
     return assets.map(({ overlayId, src, sha256, format, byteLength, width, height }) => ({ overlayId, src, sha256, format, byteLength, width, height }));
   }
-  private async exportAssets(target: EditorTarget): Promise<readonly StoredEditorOverlayAsset[]> {
-    const record = this.binding.records.find((row) => row.projectId === target.projectId)!;
+  private musicIdentity(asset: StoredEditorMusicAsset): EditorMusicAssetIdentity {
+    const { slot, format, mimeType, demuxer, codec, bitsPerSample, sampleRate, channels, sampleFrames,
+      durationSec, byteLength, sha256, sourceRefSha256 } = asset;
+    const parsed = editorMusicAssetIdentitySchema.safeParse({ slot, format, mimeType, demuxer, codec,
+      bitsPerSample, sampleRate, channels, sampleFrames, durationSec, byteLength, sha256, sourceRefSha256 });
+    if (!parsed.success) return fail("unavailable", "The trusted stored music identity is invalid.");
+    return Object.freeze(parsed.data);
+  }
+  private assertAssetsCurrent(assets: VerifiedEditorAssets, project: Readonly<ClipProject>): void {
+    assets.overlays.forEach((asset) => asset.assertCurrentFile());
+    if (Boolean(project.audio.musicSrc) !== Boolean(assets.music)) return fail("conflict", "The stored music attachment changed.");
+    assets.music?.assertCurrentProject(project);
+  }
+  private async resolveMusic(target: EditorTarget, project: Readonly<ClipProject>): Promise<StoredEditorMusicAsset | null> {
+    if (!project.audio.musicSrc) return null;
+    if (!this.musicAssets) return fail("unavailable", "The existing music asset resolver is not configured.");
+    const music = await this.musicAssets.resolve(target);
+    if (!music) return fail("unavailable", "The existing music attachment could not be verified.");
+    this.musicIdentity(music);
+    if (!sameTarget(target, music.target)) return fail("conflict", "The stored music proof belongs to a different editor target.");
+    music.assertCurrentProject(project);
+    return music;
+  }
+  private async resolveAssets(target: EditorTarget): Promise<VerifiedEditorAssets> {
+    const record = this.binding.records.find((row) => row.projectId === target.projectId);
+    if (!record) return fail("forbidden", "The editor assets are outside the trusted project scope.");
     const projects = (await this.store.read())?.clipProjects.filter((row) => row.id === target.projectId) ?? [];
     if (projects.length !== 1) return fail("conflict", "The original editor project is missing or ambiguous.");
     const project = projects[0];
-    if (!sameTarget(target, stateTarget(project, record, this.state(project, record)))) return fail("conflict", "The editor revision changed before its image bytes were verified.");
-    if (project.audio.musicSrc || project.sfx?.enabled || project.overlays.some((row) => row.kind === "text" ? Boolean(row.src) : !storedImageRef(row.src))) {
-      return fail("unavailable", "This export requires an unsupported original asset capability.");
+    if (!sameTarget(target, stateTarget(project, record, this.state(project, record)))) return fail("conflict", "The editor revision changed before its asset bytes were verified.");
+    if (project.overlays.some((row) => row.kind === "text" ? Boolean(row.src) : !storedImageRef(row.src))) {
+      return fail("unavailable", "This project requires an unsupported original asset capability.");
     }
     const ids = project.overlays.filter((row) => row.kind !== "text").map((row) => row.id);
-    if (!ids.length) return [];
-    if (!this.overlayAssets) return fail("unavailable", "The existing image asset resolver is not configured.");
-    return this.overlayAssets.resolveMany(target, ids);
+    if (ids.length && !this.overlayAssets) return fail("unavailable", "The existing image asset resolver is not configured.");
+    if (project.audio.musicSrc && !this.musicAssets) return fail("unavailable", "The existing music asset resolver is not configured.");
+    const overlays = ids.length ? await this.overlayAssets!.resolveMany(target, ids) : [];
+    const music = await this.resolveMusic(target, project);
+    const assets = { overlays, music };
+    this.assertAssetsCurrent(assets, project);
+    return assets;
+  }
+  private async exportAssets(target: EditorTarget): Promise<VerifiedEditorAssets> {
+    const assets = await this.resolveAssets(target);
+    const project = (await this.store.read())?.clipProjects.find((row) => row.id === target.projectId);
+    if (!project || project.sfx?.enabled) return fail("unavailable", "This export requires an unsupported original sound capability.");
+    return assets;
   }
 }
