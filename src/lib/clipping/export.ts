@@ -147,7 +147,9 @@ function shiftedOverlays(spec: ExportSpec): Overlay[] {
 function selectExpression(spec: ExportSpec): string {
   const ranges = editRanges(spec);
   if (ranges.length === 0) throw new Error("Nothing to export — every timeline segment is cut.");
-  return ranges.map((range) => `between(t,${range.start.toFixed(3)},${range.end.toFixed(3)})`).join("+");
+  return ranges.map((range) => ranges.length === 1
+    ? `between(t,${range.start.toFixed(3)},${range.end.toFixed(3)})`
+    : `gte(t,${range.start.toFixed(3)})*lt(t,${range.end.toFixed(3)})`).join("+");
 }
 
 async function writeOverlayImages(spec: ExportSpec, dir: string) {
@@ -171,7 +173,7 @@ function buildExportAss(spec: ExportSpec, w: number, h: number): string {
   const captions = shiftedCaptions(spec);
   const overlays = shiftedOverlays(spec);
   const captionDoc = buildAss(
-    spec.captionsVisible ? captions : [],
+    spec.captionsVisible && spec.settings.burnCaptions ? captions : [],
     spec.captionStyle,
     w,
     h,

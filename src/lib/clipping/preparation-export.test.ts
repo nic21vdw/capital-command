@@ -117,6 +117,32 @@ describe("original editor preparation-only export", () => {
     expect(spies.enqueue).not.toHaveBeenCalled();
   }, 30_000);
 
+  it("honors Burn captions off in both export paths while retaining positioned text overlays", async () => {
+    project.exportSettings.burnCaptions = false;
+    project.overlays = [{ id: "text", kind: "text", text: "KEEP OVERLAY", x: 0.5, y: 0.25,
+      scale: 1, rotation: 0, opacity: 1, z: 1, locked: false, start: 0.2, end: 1.2, color: "#ffffff" }];
+    binding = { ...binding, projectDigest: projectDigest(project), specSha256: preparationSpecDigest(spec()),
+      renderSignature: renderSignature(spec()) };
+    const prepared = await prepareClipExport(binding, current);
+    const hidden = { ...project, captionsVisible: false };
+    const hiddenSpec = editorPreparationSpec(hidden);
+    const hiddenBinding = { ...binding, attemptId: randomUUID(), projectDigest: projectDigest(hidden),
+      specSha256: preparationSpecDigest(hiddenSpec), renderSignature: renderSignature(hiddenSpec) };
+    const reference = await prepareClipExport(hiddenBinding, async () => ({ binding: hiddenBinding, spec: hiddenSpec }));
+    const original = startExport(spec());
+    await vi.waitUntil(() => original.status !== "processing", { timeout: 30_000, interval: 20 });
+    expect(original.status).toBe("done");
+    const frameHash = async (file: string) => (await runFfmpeg(["-i", file, "-frames:v", "1", "-an", "-f", "md5", "-"])).stdout;
+    const expected = await frameHash(reference.file);
+    expect(await frameHash(prepared.file)).toBe(expected);
+    expect(await frameHash(dataPath("clips", "outputs", project.jobId, original.file!))).toBe(expected);
+    const blankSpec = { ...hiddenSpec, overlays: [] };
+    const blankBinding = { ...hiddenBinding, attemptId: randomUUID(), specSha256: preparationSpecDigest(blankSpec),
+      renderSignature: renderSignature(blankSpec) };
+    const blank = await prepareClipExport(blankBinding, async () => ({ binding: blankBinding, spec: blankSpec }));
+    expect(await frameHash(blank.file)).not.toBe(expected);
+  }, 30_000);
+
   it("rejects source or canonical spec changes before rendering", async () => {
     await expect(prepareClipExport({ ...binding, sourceSha256: "0".repeat(64) },
       async () => ({ binding: { ...binding, sourceSha256: "0".repeat(64) }, spec: spec() }))).rejects.toThrow("source bytes changed");
@@ -124,6 +150,40 @@ describe("original editor preparation-only export", () => {
     await expect(prepareClipExport(binding, current)).rejects.toThrow("render spec changed");
     expect(spies.attach).not.toHaveBeenCalled();
   });
+
+  it("keeps the correct source frames across multiple cuts in both real render paths", async () => {
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "color=c=black:s=160x90:r=10:d=1.6,geq=lum='16+N*10':cb=128:cr=128",
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=1.6", "-c:v", "libx264", "-crf", "0",
+      "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", source]);
+    project = { ...project, captionsVisible: false, trimStart: 0, trimEnd: 0.6,
+      exportSettings: { ...project.exportSettings, width: 160, height: 90 }, segments: [
+        { id: "first", start: 0, end: 0.2, kind: "speech", enabled: true },
+        { id: "cut", start: 0.2, end: 0.4, kind: "silence", enabled: false },
+        { id: "last", start: 0.4, end: 0.6, kind: "speech", enabled: true }
+      ] };
+    binding = { ...binding, sourceSha256: sha(await readFile(source)), projectDigest: projectDigest(project),
+      specSha256: preparationSpecDigest(spec()), renderSignature: renderSignature(spec()) };
+    const prepared = await prepareClipExport(binding, current);
+    const original = startExport(spec());
+    await vi.waitUntil(() => original.status !== "processing", { timeout: 30_000, interval: 20 });
+    expect(original.status).toBe("done");
+    const levels = async (file: string, name: string): Promise<number[]> => {
+      const decoded = path.join(path.dirname(source), `${name}.gray`);
+      await runFfmpeg(["-y", "-i", file, "-an", "-f", "rawvideo", "-pix_fmt", "gray", decoded]);
+      const bytes = await readFile(decoded);
+      const values = [];
+      for (let offset = 0; offset < bytes.length; offset += 160 * 90) {
+        const frame = bytes.subarray(offset, offset + 160 * 90);
+        values.push(frame.reduce((sum, value) => sum + value, 0) / frame.length);
+      }
+      return values;
+    };
+    const input = await levels(source, "source-frames");
+    const nearest = (values: number[]) => values.map((value) => input.reduce((best, candidate, index) =>
+      Math.abs(candidate - value) < Math.abs(input[best] - value) ? index : best, 0));
+    expect(nearest(await levels(prepared.file, "prepared-frames"))).toEqual([0, 1, 4, 5]);
+    expect(nearest(await levels(dataPath("clips", "outputs", project.jobId, original.file!), "original-frames"))).toEqual([0, 1, 4, 5]);
+  }, 30_000);
 
   it("rejects changed source bytes after rendering and blocks disguised remote playlists", async () => {
     const proof = await prepareClipExport(binding, current);
