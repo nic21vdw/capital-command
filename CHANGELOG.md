@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Marketing records and editor work are scoped to their owner.** Passive source and clip views, protected previews, revision-checked editor saves and explicit preparation requests reuse the original records. Preparation remains separate from scheduling and posting; the hosted worker connection is still unconfigured.
+
 - **The private marketing workspace has a tested local adapter.** Source drafts and exact clip reviews, edit requests and safe retry receipts use the existing records. Changed clips invalidate review; uncertain deliveries stay held. Synthetic tests exercise the actual local routes, atomic saves and original render helpers. The hosted connection remains unconfigured, and review never grants permission to post.
 
 - **Free automatic TikTok through Buffer.** Put a Buffer API key in `.env` (`BUFFER_API_KEY`) with TikTok connected in Buffer, and every scheduled TikTok is handed to Buffer at its slot and posted to your profile automatically, with no inbox tap and no paid plan.
