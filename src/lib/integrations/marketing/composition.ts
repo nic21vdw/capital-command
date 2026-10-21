@@ -119,7 +119,7 @@ export function composeMarketingParity(options: {
       } catch (error) { return failure(error); }
     },
     async execute(principal, command) {
-      if (command.operation !== "save_editor_project" && command.operation !== "request_editor_export" && command.operation !== "prepare_source") {
+      if (command.operation !== "save_editor_project" && command.operation !== "request_editor_export" && command.operation !== "delete_editor_project" && command.operation !== "prepare_source") {
         return options.base.execute(principal, command);
       }
       authorize(principal, "write");
@@ -147,6 +147,9 @@ export function composeMarketingParity(options: {
           try { return { ...replay, snapshot: await publicSnapshot(principal.ownerId, replay.snapshot) }; }
           catch { return { ...replay, snapshot: null, reconciliation: { state: "record_unavailable" } }; }
         }
+        // Deleting an explicitly bound editor row does not require its source
+        // job or media to survive. It records a tombstone, not worker cancellation.
+        if (command.operation === "delete_editor_project") return options.editor.deleteProject(principal, command);
         // Resolve scope/media BEFORE writing as well as after. A revoked media
         // binding must not cause a successful edit hidden behind a read error.
         await publicSnapshot(principal.ownerId, await options.editor.load(principal, command.target.projectId));

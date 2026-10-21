@@ -97,7 +97,37 @@ describe("composed original records/editor/media HTTP boundary", () => {
     expect(await readFile(f.jobs, "utf8")).toBe(jobsBefore);
     expect(await readdir(root)).not.toContain("publish-queue.json");
     expect(fetch).not.toHaveBeenCalled();
+    const deletion = { operation: "delete_editor_project", commandId: randomUUID(), target: prepared.target };
+    const deleted = await f.handlers.operations(command(deletion));
+    expect(deleted.status).toBe(200);
+    expect(await deleted.json()).toMatchObject({ snapshot: null, reconciliation: { state: "deleted" } });
+    expect((await f.handlers.media(request("media/opaque"), prepared.media.edited.mediaId)).status).toBe(404);
+    expect((await f.handlers.editor(request("editor/project-a"), "project-a")).status).toBe(404);
+    const replay = await (await f.handlers.operations(command(deletion))).json();
+    expect(replay).toMatchObject({ replayed: true, snapshot: null, reconciliation: { state: "deleted" } });
+    expect(await readFile(f.jobs, "utf8")).toBe(jobsBefore);
   }, 60_000);
+
+  it("deletes an explicitly scoped orphan through HTTP without media preflight or touching its original jobs", async () => {
+    const f = await fixture();
+    await writeFile(f.jobs, "[]");
+    const workspace = await (await f.handlers.workspace(request())).json();
+    const target = workspace.editorProjects[0].deleteTarget;
+    expect(target.projectId).toBe("project-a");
+    const deletion = { operation: "delete_editor_project", commandId: randomUUID(), target };
+    expect((await f.handlers.operations(command(deletion, "other"))).status).toBe(403);
+    const firstResponse = await f.handlers.operations(command(deletion));
+    expect(firstResponse.status).toBe(200);
+    const first = await firstResponse.json();
+    expect(first).toMatchObject({ snapshot: null, reconciliation: { state: "deleted" }, receipt: { revision: target.revision + 1 } });
+    const replay = await (await f.handlers.operations(command(deletion))).json();
+    expect(replay.receipt).toEqual(first.receipt);
+    expect(replay.replayed).toBe(true);
+    expect((await (await f.handlers.workspace(request())).json()).editorProjects).toEqual([]);
+    expect(await readFile(f.jobs, "utf8")).toBe("[]");
+    expect(await readdir(root)).not.toContain("publish-queue.json");
+    expect(fetch).not.toHaveBeenCalled();
+  });
 
   it("passively projects original saved clips, captions and range media without worker initialization or mutation", async () => {
     const f = await fixture();
