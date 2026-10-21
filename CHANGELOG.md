@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Saved PNG, JPEG and WebP overlays stay visible in prepared exports.** Existing project images are verified, previewed through private media references and rendered across kept cuts without duplicating inputs. Changed or unsupported assets stop preparation clearly; no source files or schedules are changed.
+
 - **Text overlays export with their chosen width, font and background.** Narrow text wraps, scaled boxes stay centered, and standard Inter weights use bundled licensed fonts. Existing files remain unchanged until an explicit rerender.
 
 - **Incomplete Site asset previews are clearly unavailable.** Projects with an unsupported original image or audio reference wait for the asset connection instead of showing a preview with that content silently missing.
