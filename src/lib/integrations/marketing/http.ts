@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { authenticateMarketingPrincipal, type MarketingAuthenticator, type MarketingOriginPolicy } from "./auth";
 import type { Principal, Target } from "./safety";
+import { saveEditorCommandSchema, requestEditorExportCommandSchema } from "./editor";
 
 const text = (max: number) => z.string().min(1).max(max).refine((value) => value.trim().length > 0 && !/[\u0000-\u001f\u007f]/.test(value));
 const commandId = z.string().regex(/^[a-zA-Z0-9_-]{16,128}$/);
@@ -30,6 +31,11 @@ export const marketingHttpCommandSchema = z.discriminatedUnion("operation", [
     instructions: z.string().min(1).max(4000).refine((value) => value.trim().length > 0) }).strict(),
   z.object({ operation: z.literal("approve_job"), commandId, target: marketingHttpTargetSchema }).strict(),
   z.object({ operation: z.literal("retry_job"), commandId, target: marketingHttpTargetSchema }).strict(),
+  saveEditorCommandSchema,
+  requestEditorExportCommandSchema,
+  z.object({ operation: z.literal("prepare_source"), commandId: z.string().uuid(),
+    runId: z.string().regex(/^site-[0-9a-f-]{36}$/i), expectedRevision: z.number().int().positive().safe(),
+    sourceId: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/) }).strict(),
 ]);
 export type MarketingHttpCommand = z.infer<typeof marketingHttpCommandSchema>;
 
@@ -55,7 +61,7 @@ export interface MarketingHttpDependencies {
   service: MarketingHttpService;
 }
 
-const BODY_LIMIT = 96 * 1024;
+const BODY_LIMIT = 1024 * 1024;
 const headers = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Vary": "Cookie, Authorization" };
 function json(value: unknown, status = 200, extra: Record<string, string> = {}) {
   return Response.json(value, { status, headers: { ...headers, ...extra } });
@@ -131,7 +137,7 @@ export function createMarketingHttpHandlers(deps: MarketingHttpDependencies) {
       if (command instanceof Response) return command;
       const scope = command.operation === "approve_job" ? "review" : "write";
       if (!principal.scopes.includes(scope)) return error(403, "scope_required", "This command requires a matching user permission.");
-      if ("target" in command && command.target.ownerId !== principal.ownerId) return error(403, "owner_mismatch", "The target does not belong to the verified owner.");
+      if ("target" in command && "ownerId" in command.target && command.target.ownerId !== principal.ownerId) return error(403, "owner_mismatch", "The target does not belong to the verified owner.");
       try { return json(await deps.service.execute(principal, command)); }
       catch (cause) { return safeFailure(cause, true); }
     },

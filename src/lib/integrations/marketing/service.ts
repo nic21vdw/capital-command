@@ -57,6 +57,9 @@ export function createMarketingService(options: {
           const result = await options.sources.createMarketingDraft(principal.ownerId, command);
           return { ok: true, result, message: "Source saved in the existing pipeline. Preparation has not started." };
         }
+        if (command.operation !== "approve_job" && command.operation !== "request_edits" && command.operation !== "retry_job") {
+          throw new MarketingHttpError(503, "unavailable", "This owner-scoped operation is not configured.");
+        }
         const result = command.operation === "approve_job" ? await options.ledger.review(principal, command)
           : command.operation === "request_edits" ? await options.ledger.requestEdits(principal, command)
           : await options.ledger.retry(principal, command);

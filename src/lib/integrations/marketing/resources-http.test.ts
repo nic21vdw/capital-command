@@ -7,11 +7,21 @@ describe("marketing passive resource boundary", () => {
   it("authenticates before resolving records or media and strips worker-only permission", async () => {
     const read = vi.fn();
     for (const identity of [null, { ownerId: "owner-a", scopes: ["worker"] }]) {
-      const handlers = createMarketingResourceHandlers({ authenticate: () => identity, service: { records: read, media: read } });
+      const handlers = createMarketingResourceHandlers({ authenticate: () => identity, service: { records: read, analytics: read, media: read } });
       expect((await handlers.records(request())).status).toBe(identity ? 403 : 401);
+      expect((await handlers.analytics(request("/analytics"))).status).toBe(identity ? 403 : 401);
       expect((await handlers.media(request("/media/abc"), "abc")).status).toBe(identity ? 403 : 401);
     }
     expect(read).not.toHaveBeenCalled();
+  });
+  it("reads only the scoped saved analytics snapshot and rejects ownership or sync query parameters", async () => {
+    const analytics = vi.fn(() => ({ snapshot: "persisted_metrics", store: { state: "missing" }, totals: null }));
+    const handlers = createMarketingResourceHandlers({ authenticate: () => owner, service: { analytics } });
+    expect((await handlers.analytics(request("/analytics?sync=true"))).status).toBe(400);
+    const response = await handlers.analytics(request("/analytics"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ totals: null });
+    expect(analytics).toHaveBeenCalledExactlyOnceWith(owner);
   });
   it("passes only verified principal and exact resource id, never client owner or file arguments", async () => {
     const read = vi.fn(() => ({ project: { id: "project-1" } }));

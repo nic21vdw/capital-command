@@ -9,6 +9,8 @@ export type ProtectedMediaGrant = {
   dataRoot: string;
   relativePath: string;
   sourceType: ExistingMediaSource;
+  /** Optional trusted worker proof, rechecked after opening the bound bytes. */
+  assertCurrent?: () => void;
 };
 export type ProtectedMediaResolver = (authenticatedOwnerId: string, mediaId: string) => Promise<ProtectedMediaGrant | null>;
 
@@ -69,6 +71,7 @@ export function createProtectedMediaReader(config: { resolveMedia: ProtectedMedi
       // Recheck the path after opening, defending symlink swaps around the open.
       if (await realpath(requested) !== file || signature(await stat(file)) !== signature(info)
         || signature(await handle.stat()) !== signature(info)) return unavailable();
+      grant.assertCurrent?.();
       const headers: Record<string, string> = { ...PRIVATE_HEADERS, "content-type": type, "accept-ranges": "bytes", "content-disposition": "inline" };
       const rangeHeader = request.headers.get("range");
       // A mismatched If-Range sends the entire representation. No public validators

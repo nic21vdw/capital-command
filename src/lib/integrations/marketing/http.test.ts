@@ -122,9 +122,9 @@ describe("marketing HTTP request boundary", () => {
 
   it("bounds actual streamed bytes even when Content-Length is absent or false", async () => {
     const handler = setup();
-    expect((await handler.operations(post("x".repeat(100_000)))).status).toBe(413);
-    expect((await handler.operations(post("x".repeat(100_000), { "content-length": "2" }))).status).toBe(413);
-    expect((await handler.operations(post(source, { "content-length": "100000" }))).status).toBe(413);
+    expect((await handler.operations(post("x".repeat(1024 * 1024 + 1)))).status).toBe(413);
+    expect((await handler.operations(post("x".repeat(1024 * 1024 + 1), { "content-length": "2" }))).status).toBe(413);
+    expect((await handler.operations(post(source, { "content-length": String(1024 * 1024 + 1) }))).status).toBe(413);
     expect(handler.service.execute).not.toHaveBeenCalled();
   });
 

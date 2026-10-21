@@ -14,6 +14,12 @@ already shipped.
 
 ## Unreleased
 
+- **Exported captions follow edited speech.** Words fully removed by a cut no longer remain in the caption text. Highlighted words stop at their actual end times, leaving ordinary gaps unhighlighted. ASS timestamps also carry correctly across rounded second boundaries. Generated-frame checks cover these repairs.
+
+- **Prepared previews avoid repeatedly hashing large files.** Streaming uses a bounded verified-artifact cache while rechecking owner, project and file identity; export proof still hashes the full bytes. The final audio limiter also preserves the existing -14 LUFS house target instead of adding automatic gain.
+
+- **Clip exports honor the caption toggle and preserve selected frames.** Turning off burned captions now removes them from exports. Multi-cut renders use half-open ranges so removed boundary frames do not reappear or displace the final kept frames. Both changes are checked with generated footage; no existing media is rerendered.
+
 - **Marketing records and editor work are scoped to their owner.** Passive source and clip views, protected previews, revision-checked editor saves and explicit preparation requests reuse the original records. Preparation remains separate from scheduling and posting; the hosted worker connection is still unconfigured.
 
 - **The private marketing workspace has a tested local adapter.** Source drafts and exact clip reviews, edit requests and safe retry receipts use the existing records. Changed clips invalidate review; uncertain deliveries stay held. Synthetic tests exercise the actual local routes, atomic saves and original render helpers. The hosted connection remains unconfigured, and review never grants permission to post.
