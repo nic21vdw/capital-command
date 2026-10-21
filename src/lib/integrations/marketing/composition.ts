@@ -13,6 +13,15 @@ import type { createStoredEditorOverlayResolver, StoredEditorOverlayStreamingRea
 import type { createStoredEditorMusicResolver, StoredEditorMusicAsset } from "./editor-audio-assets";
 import { createStoredMusicMediaReader } from "./editor-music-media";
 import { canonicalEditorJson } from "./editor-state";
+import type { EditorCreationReceipt } from "./editor-types";
+
+/** Deliberate public projection: proof hashes and provenance remain in the ledger. */
+function publicCreationReceipt(receipt: EditorCreationReceipt) {
+  const { operation, commandId, rootProjectId, createdProjectId, revision, digest, renderSignature,
+    policyId, policyVersion, creationRevision, reviewInvalidated, rootReviewPreserved, publicationAuthorized } = receipt;
+  return { operation, commandId, rootProjectId, createdProjectId, revision, digest, renderSignature,
+    policyId, policyVersion, creationRevision, reviewInvalidated, rootReviewPreserved, publicationAuthorized };
+}
 
 function musicMetadata(asset: StoredEditorMusicAsset) {
   const { slot, format, mimeType, demuxer, codec, bitsPerSample, sampleRate, channels,
@@ -126,7 +135,7 @@ export function composeMarketingParity(options: {
       const mediaId = `prepared:${snapshot.target.projectId}:${snapshot.export.requestId}`;
       prepared = { mediaId, url: `/api/marketing/media/${encodeURIComponent(mediaId)}`, current: true, renderSignature: proof.renderSignature };
     }
-    return { ...snapshot, media: {
+    const projected = { ...snapshot, media: {
       source: await reference(snapshot.media.source),
       musicRequired: Boolean(snapshot.media.music),
       ...(overlayMedia.length ? { overlays: overlayMedia } : {}),
@@ -135,6 +144,10 @@ export function composeMarketingParity(options: {
       ...(prepared ? { edited: prepared } : snapshot.media.edited ? { edited: { ...await reference(snapshot.media.edited),
         current: snapshot.media.edited.current, renderSignature: snapshot.media.edited.renderSignature } } : {}),
     } };
+    // A derived child's policy may change during asynchronous media projection.
+    // Recheck the original target/grant without decoding the assets a second time.
+    await options.editor.assertSnapshotCurrent({ ownerId, scopes: ["read"] }, snapshot.target);
+    return projected;
   }
   const readMedia = createProtectedMediaReader({ resolveMedia: async (ownerId, mediaId) => {
     if (mediaId.startsWith("overlay:")) {
@@ -205,6 +218,11 @@ export function composeMarketingParity(options: {
       try { return await publicSnapshot(principal.ownerId, await options.editor.load(principal, projectId)); }
       catch (error) { return failure(error); }
     },
+    async editorCreation(principal, projectId) {
+      authorize(principal, "read"); authorize(principal, "write");
+      try { return await options.editor.getCreationContext(principal, projectId); }
+      catch (error) { return failure(error); }
+    },
     async media(principal, mediaId, request) {
       authorize(principal, "read");
       return mediaId.startsWith("music:") ? readMusic(principal.ownerId, mediaId, request) : readMedia(principal.ownerId, mediaId, request);
@@ -224,11 +242,24 @@ export function composeMarketingParity(options: {
     },
     async execute(principal, command) {
       if (command.operation !== "save_editor_project" && command.operation !== "request_editor_export" && command.operation !== "delete_editor_project"
-        && command.operation !== "cancel_editor_export" && command.operation !== "reconcile_editor_export" && command.operation !== "prepare_source") {
+        && command.operation !== "cancel_editor_export" && command.operation !== "reconcile_editor_export" && command.operation !== "prepare_source"
+        && command.operation !== "create_editor_project_from_source") {
         return options.base.execute(principal, command);
       }
       authorize(principal, "write");
       try {
+        if (command.operation === "create_editor_project_from_source") {
+          authorize(principal, "read");
+          const result = await options.editor.createProjectFromSource(principal, command);
+          const projected = { ...result, receipt: publicCreationReceipt(result.receipt) };
+          if (!result.snapshot) return projected;
+          try { return { ...projected, snapshot: await publicSnapshot(principal.ownerId, result.snapshot) }; }
+          catch {
+            // Creation already committed atomically. A missing preview must not
+            // discard that receipt or encourage a second child/command identity.
+            return { ...projected, childTarget: null, snapshot: null, reconciliation: { state: "record_unavailable" } };
+          }
+        }
         if (command.operation === "prepare_source") {
           if (!options.preparationAccess) throw new MarketingHttpError(503, "unavailable", "This owner's uploaded source preparation is not configured.");
           if (options.preparationAccess.ownerId !== principal.ownerId || !options.preparationAccess.sourceIds.has(command.sourceId)) {

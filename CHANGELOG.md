@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Source-based editor creation has a scoped, atomic adapter contract.** An explicitly configured policy can create a child and its replay receipt in the original store while preserving the root's edits, review and prepared output. The policy is absent by default; this does not enable hosted creation, child rendering or posting.
+
 - **Existing PCM WAV background music stays attached to prepared exports.** Owner-bound music uses protected previews and exact byte manifests, while redacted saves retain the original source. Preparation keeps the original mixer, volume, timing and no-loop behavior. Other audio formats and Site playback controls remain incomplete; the hosted backend stays unconnected.
 
 - **Prepared editor exports retain a cancellation and restart record.** Stop requests are saved before the worker is signaled, and only verified process settlement confirms a stop. Interrupted attempts remain uncertain until explicit reconciliation; a fresh export keeps a link to the original attempt instead of silently retrying it. Hosted controls remain unconnected.

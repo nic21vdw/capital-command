@@ -3,6 +3,7 @@ import { authenticateMarketingPrincipal, type MarketingAuthenticator, type Marke
 import type { Principal, Target } from "./safety";
 import { saveEditorCommandSchema, deleteEditorCommandSchema, requestEditorExportCommandSchema,
   cancelEditorExportCommandSchema, reconcileEditorExportCommandSchema } from "./editor";
+import { createEditorProjectFromSourceCommandSchema } from "./editor-types";
 
 const text = (max: number) => z.string().min(1).max(max).refine((value) => value.trim().length > 0 && !/[\u0000-\u001f\u007f]/.test(value));
 const commandId = z.string().regex(/^[a-zA-Z0-9_-]{16,128}$/);
@@ -37,6 +38,7 @@ export const marketingHttpCommandSchema = z.discriminatedUnion("operation", [
   requestEditorExportCommandSchema,
   cancelEditorExportCommandSchema,
   reconcileEditorExportCommandSchema,
+  createEditorProjectFromSourceCommandSchema,
   z.object({ operation: z.literal("prepare_source"), commandId: z.string().uuid(),
     runId: z.string().regex(/^site-[0-9a-f-]{36}$/i), expectedRevision: z.number().int().positive().safe(),
     sourceId: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/) }).strict(),

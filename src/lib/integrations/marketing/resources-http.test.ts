@@ -4,6 +4,24 @@ import { createMarketingResourceHandlers } from "./resources-http";
 const request = (path = "/records", init?: RequestInit) => new Request(`http://localhost/api/integrations/marketing${path}`, init);
 const owner = { ownerId: "owner-a", scopes: ["read"] };
 describe("marketing passive resource boundary", () => {
+  it("reads creation context only through a verified exact root and never turns a read into creation", async () => {
+    const read = vi.fn(() => null);
+    for (const identity of [null, { ownerId: "owner-a", scopes: ["worker"] }]) {
+      const handlers = createMarketingResourceHandlers({ authenticate: () => identity, service: { editorCreation: read } });
+      expect((await handlers.editorCreation(request("/editor/root/creation"), "root")).status).toBe(identity ? 403 : 401);
+    }
+    const handlers = createMarketingResourceHandlers({ authenticate: () => owner, service: { editorCreation: read } });
+    expect((await handlers.editorCreation(request("/editor/root/creation", { method: "POST" }), "root")).status).toBe(405);
+    expect((await handlers.editorCreation(request("/editor/root/creation?source=another"), "root")).status).toBe(400);
+    expect((await handlers.editorCreation(request("/editor/root/creation"), "../another")).status).toBe(400);
+    expect(read).not.toHaveBeenCalled();
+    const response = await handlers.editorCreation(request("/editor/root/creation"), "root");
+    expect(response.status).toBe(200); expect(await response.json()).toBeNull();
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(read).toHaveBeenCalledExactlyOnceWith(owner, "root");
+    const closed = createMarketingResourceHandlers({ authenticate: () => owner, service: {} });
+    expect((await closed.editorCreation(request("/editor/root/creation"), "root")).status).toBe(503);
+  });
   it("authenticates before resolving records or media and strips worker-only permission", async () => {
     const read = vi.fn();
     for (const identity of [null, { ownerId: "owner-a", scopes: ["worker"] }]) {

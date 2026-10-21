@@ -7,6 +7,7 @@ export interface MarketingResourceService {
   records?(principal: Principal): unknown | Promise<unknown>;
   analytics?(principal: Principal): unknown | Promise<unknown>;
   editor?(principal: Principal, projectId: string): unknown | Promise<unknown>;
+  editorCreation?(principal: Principal, projectId: string): unknown | Promise<unknown>;
   media?(principal: Principal, mediaId: string, request: Request): Response | Promise<Response>;
 }
 
@@ -24,7 +25,7 @@ function failure(status: number, code: string, message: string) {
 export function createMarketingResourceHandlers(deps: {
   authenticate: MarketingAuthenticator; service: MarketingResourceService;
 }) {
-  async function read(request: Request, kind: "records" | "analytics" | "editor" | "media", id?: string): Promise<Response> {
+  async function read(request: Request, kind: "records" | "analytics" | "editor" | "editorCreation" | "media", id?: string): Promise<Response> {
     const allowed = kind === "media" ? ["GET", "HEAD"] : ["GET"];
     if (!allowed.includes(request.method)) {
       const response = failure(405, "method_not_allowed", `Use ${allowed.join(" or ")}.`);
@@ -34,7 +35,7 @@ export function createMarketingResourceHandlers(deps: {
     const principal = await authenticateMarketingPrincipal(request, deps.authenticate);
     if (!principal) return failure(401, "authentication_required", "A verified session is required.");
     if (!principal.scopes.includes("read")) return failure(403, "scope_required", "Read permission is required.");
-    if (new URL(request.url).search || ((kind === "editor" || kind === "media") && !validMarketingResourceId(id, kind === "media" ? 512 : 128))) {
+    if (new URL(request.url).search || ((kind === "editor" || kind === "editorCreation" || kind === "media") && !validMarketingResourceId(id, kind === "media" ? 512 : 128))) {
       return failure(400, "invalid_request", "Use the exact resource identifier from the scoped workspace.");
     }
     try {
@@ -49,6 +50,9 @@ export function createMarketingResourceHandlers(deps: {
       }
       if (kind === "editor" && deps.service.editor) {
         return Response.json(await deps.service.editor(principal, id!), { headers });
+      }
+      if (kind === "editorCreation" && deps.service.editorCreation) {
+        return Response.json(await deps.service.editorCreation(principal, id!), { headers });
       }
       if (kind === "records" && deps.service.records) {
         return Response.json(await deps.service.records(principal), { headers });
@@ -66,6 +70,7 @@ export function createMarketingResourceHandlers(deps: {
     records: (request: Request) => read(request, "records"),
     analytics: (request: Request) => read(request, "analytics"),
     editor: (request: Request, projectId: string) => read(request, "editor", projectId),
+    editorCreation: (request: Request, projectId: string) => read(request, "editorCreation", projectId),
     async media(request: Request, mediaId: string) {
       const response = await read(request, "media", mediaId);
       return request.method === "HEAD" ? new Response(null, { status: response.status, headers: response.headers }) : response;

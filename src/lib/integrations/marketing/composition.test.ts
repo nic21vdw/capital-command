@@ -18,7 +18,7 @@ afterEach(() => { dispose?.(); dispose = undefined; vi.unstubAllEnvs(); vi.unstu
 
 async function fixture(realRender = false, imageFormat?: "png" | "jpeg" | "webp", controls?: {
   worker: import("./editor").EditorWorkerPorts; cancellation: import("./composition").EditorCancellationControl;
-}, music?: { enabled: boolean; omitResolver?: boolean; unsupported?: boolean }) {
+}, music?: { enabled: boolean; omitResolver?: boolean; unsupported?: boolean }, creation = false) {
   const { clipProjectSchema, appDataSchema } = await import("@/lib/storage/schemas");
   const { emptyData } = await import("@/lib/mockData/seed");
   const project = clipProjectSchema.parse({ id: "project-a", name: "Synthetic corrected clip", jobId: "job-a", sourceFile: "master.mp4",
@@ -59,7 +59,7 @@ async function fixture(realRender = false, imageFormat?: "png" | "jpeg" | "webp"
   const output = path.join(root, "clips", "outputs", "job-a");
   await mkdir(output, { recursive: true });
   await writeFile(document, JSON.stringify(appDataSchema.parse({ ...emptyData, clipProjects: [project] })));
-  await writeFile(jobs, JSON.stringify([{ id: "job-a", fileName: "Synthetic source", status: "queued", stage: "downloading", progress: 12,
+  await writeFile(jobs, JSON.stringify([{ id: "job-a", fileName: "Synthetic source", sourceUrl: "upload://synthetic", status: "queued", stage: "downloading", progress: 12,
     notices: [], createdAt: project.createdAt, clips: [{ id: "clip-a", title: "Synthetic clip", start: project.clipStart, end: project.clipEnd, file: "master.mp4",
       score: 50, breakdown: { hook: 50, pacing: 50, standalone: 50, intensity: 50 }, rationale: "Synthetic" }],
     sourceCaptions: [{ id: "cached", start: 21, end: 23, text: "Cached source", words: [], enabled: true }] }]));
@@ -91,13 +91,20 @@ async function fixture(realRender = false, imageFormat?: "png" | "jpeg" | "webp"
   const records = createExistingRecordReader({ resolveScope: (id) => id === owner.ownerId ? {
     ownerId: id, sourceIds: [], runIds: [], clipJobIds: ["job-a"], queueIds: [], accountIds: {},
   } : null });
-  const editor = new MarketingEditor({ worker: controls?.worker ?? worker, binding: editorBinding, overlayAssets, musicAssets });
+  let creationPolicy: import("./editor-types").EditorCreationPolicy | null = creation ? {
+    id: "fixture-creation", version: "v1", ownerId: owner.ownerId, roots: [{ ...editorBinding.records[0],
+      sourceSha256: createHash("sha256").update(await readFile(path.join(output, "master.mp4"))).digest("hex"), maxCreatedProjects: 3 }],
+  } : null;
+  const editor = new MarketingEditor({ worker: controls?.worker ?? worker, binding: editorBinding, overlayAssets, musicAssets,
+    ...(creation ? { creationPolicy: () => creationPolicy } : {}) });
   const composed = composeMarketingParity({ ownerId: owner.ownerId, base, records, editor, preparedEditorMedia: worker,
     editorCancellation: controls?.cancellation ?? worker, overlayAssets, musicAssets });
   dispose = installMarketingRuntime({ ...composed, originAllowed: isSameOriginLoopbackMutation,
     authenticate: (req) => req.headers.get("x-fixture-user") === "owner" ? owner
-      : req.headers.get("x-fixture-user") === "other" ? { ...owner, ownerId: "other-owner" } : null });
-  return { project, document, jobs, base, records, editor, worker, image, overlayAssets, musicBytes, musicAssets, handlers: marketingRuntime()! };
+      : req.headers.get("x-fixture-user") === "other" ? { ...owner, ownerId: "other-owner" }
+      : req.headers.get("x-fixture-user") === "read-only" ? { ...owner, scopes: ["read"] } : null });
+  return { project, document, jobs, base, records, editor, worker, image, overlayAssets, musicBytes, musicAssets,
+    revokeCreation: () => { creationPolicy = null; }, handlers: marketingRuntime()! };
 }
 const request = (pathName = "workspace", user = "owner") => new Request(`http://127.0.0.1:3100/api/integrations/marketing/${pathName}`, { headers: { "x-fixture-user": user } });
 const command = (body: unknown, user = "owner") => new Request("http://127.0.0.1:3100/api/integrations/marketing/operations", {
@@ -105,6 +112,106 @@ const command = (body: unknown, user = "owner") => new Request("http://127.0.0.1
 });
 
 describe("composed original records/editor/media HTTP boundary", () => {
+  it("keeps creation dormant by default and requires exact owner read/write scope", async () => {
+    const f = await fixture(); const before = await readFile(f.document, "utf8");
+    const context = await f.handlers.editorCreation(request("editor/project-a/creation"), "project-a");
+    expect(context.status).toBe(200); expect(await context.json()).toBeNull();
+    expect(context.headers.get("cache-control")).toContain("no-store");
+    for (const user of ["other", "read-only"]) {
+      expect((await f.handlers.editorCreation(request("editor/project-a/creation", user), "project-a")).status).toBe(403);
+    }
+    expect((await f.handlers.editorCreation(request("editor/project-a/creation", "anonymous"), "project-a")).status).toBe(401);
+    expect(await readFile(f.document, "utf8")).toBe(before); expect(f.base.execute).not.toHaveBeenCalled();
+  });
+
+  it("creates through the original HTTP/store flow without invalidating the real prepared root or publishing", async () => {
+    vi.stubEnv("PUBLISH_ENABLED", "true"); vi.stubEnv("PUBLISH_AUTO_ENQUEUE", "true");
+    const f = await fixture(true, "png", undefined, { enabled: true }, true);
+    const jobsBefore = await readFile(f.jobs, "utf8");
+    const initial = await (await f.handlers.editor(request(), "project-a")).json();
+    const exported = await (await f.handlers.operations(command({ operation: "request_editor_export", commandId: randomUUID(), target: initial.target }))).json();
+    const workerPrincipal: Principal = { ownerId: owner.ownerId, scopes: ["worker"] };
+    const claimed = await f.editor.claimExport(workerPrincipal, { operation: "claim_editor_export", commandId: randomUUID(), target: initial.target, requestId: exported.receipt.requestId });
+    await f.worker!.prepare(f.project.id, exported.receipt.requestId, claimed.attemptId);
+    await f.editor.recordExportOutcome(workerPrincipal, { operation: "record_editor_export_outcome", commandId: randomUUID(), target: initial.target,
+      requestId: exported.receipt.requestId, attemptId: claimed.attemptId, outcome: "prepared" });
+    const prepared = await (await f.handlers.editor(request(), "project-a")).json();
+    const before = JSON.parse(await readFile(f.document, "utf8"));
+    const creationContext = await (await f.handlers.editorCreation(request(), "project-a")).json();
+    const cmd = { ...creationContext, operation: "create_editor_project_from_source", commandId: randomUUID() };
+    const response = await f.handlers.operations(command(cmd)); expect(response.status).toBe(200);
+    const created = await response.json();
+    expect(created.receipt).toMatchObject({ commandId: cmd.commandId, rootProjectId: "project-a", creationRevision: 1,
+      revision: initial.target.revision, digest: initial.target.digest, reviewInvalidated: false, rootReviewPreserved: true, publicationAuthorized: false });
+    expect(Object.keys(created.receipt).sort()).toEqual(["operation", "commandId", "rootProjectId", "createdProjectId", "revision", "digest", "renderSignature",
+      "policyId", "policyVersion", "creationRevision", "reviewInvalidated", "rootReviewPreserved", "publicationAuthorized"].sort());
+    expect(created.childTarget).toEqual(created.snapshot.target); expect(created.createdProjectId).toBe(created.snapshot.project.id);
+    expect(created.snapshot.capabilities.requestExport).toBe(false);
+    expect(JSON.stringify(created)).not.toMatch(/sourceSha256|grantDigest|payloadSha256|sourceDigest|captionDigest|captionState|data:audio|token=fixture/);
+    const after = JSON.parse(await readFile(f.document, "utf8"));
+    expect(after.clipProjects).toHaveLength(before.clipProjects.length + 1);
+    const { clipProjects: _beforeProjects, ...beforeOther } = before, { clipProjects: _afterProjects, ...afterOther } = after;
+    expect(afterOther).toEqual(beforeOther);
+    const storedRoot = (data: { clipProjects: import("@/types/domain").ClipProject[] }) => data.clipProjects.find((row) => row.id === "project-a")!;
+    expect(storedRoot(after).marketingEditor!.exports).toEqual(storedRoot(before).marketingEditor!.exports);
+    const current = await (await f.handlers.editor(request(), "project-a")).json();
+    expect(current.target).toEqual(prepared.target); expect(current.media.edited).toEqual(prepared.media.edited);
+    expect((await f.handlers.media(new Request(request(), { method: "HEAD" }), prepared.media.edited.mediaId)).status).toBe(200);
+    const committed = await readFile(f.document, "utf8");
+    const replay = await (await f.handlers.operations(command(cmd))).json();
+    expect(replay).toMatchObject({ receipt: created.receipt, replayed: true, createdProjectId: created.createdProjectId });
+    expect(await readFile(f.document, "utf8")).toBe(committed);
+    expect((await f.handlers.operations(command({ ...cmd, commandId: randomUUID() }))).status).toBe(409);
+    expect((await f.handlers.operations(command({ operation: "request_editor_export", commandId: randomUUID(), target: created.childTarget }))).status).toBe(403);
+    expect(await readFile(f.document, "utf8")).toBe(committed);
+    expect(await readFile(f.jobs, "utf8")).toBe(jobsBefore); expect(f.base.execute).not.toHaveBeenCalled();
+    expect(await readdir(root)).not.toContain("publish"); expect(fetch).not.toHaveBeenCalled();
+  }, 120_000);
+
+  it("retains a public creation receipt across projection loss and policy revocation without a duplicate child", async () => {
+    const f = await fixture(false, undefined, undefined, undefined, true);
+    const context = await (await f.handlers.editorCreation(request(), "project-a")).json();
+    const cmd = { ...context, operation: "create_editor_project_from_source", commandId: randomUUID() };
+    const media = vi.spyOn(f.records, "mediaId").mockImplementationOnce(async () => { throw new Error("synthetic-private-path"); });
+    const response = await f.handlers.operations(command(cmd)); expect(response.status).toBe(200);
+    const created = await response.json();
+    expect(created).toMatchObject({ replayed: false, childTarget: null, snapshot: null, reconciliation: { state: "record_unavailable" } });
+    expect(JSON.stringify(created)).not.toContain("synthetic-private-path"); media.mockRestore();
+    const committed = await readFile(f.document, "utf8"); f.revokeCreation();
+    const replay = await (await f.handlers.operations(command(cmd))).json();
+    expect(replay).toEqual({ ...created, replayed: true, reconciliation: { state: "policy_unavailable" } });
+    expect((await f.handlers.editor(request(), created.createdProjectId)).status).toBe(403);
+    expect((await f.handlers.operations(command({ ...cmd, commandId: randomUUID() }))).status).toBe(403);
+    expect(await readFile(f.document, "utf8")).toBe(committed);
+  });
+
+  it("fences policy revocation during asynchronous child projection while preserving the independent root source grant", async () => {
+    const f = await fixture(false, undefined, undefined, undefined, true);
+    const context = await (await f.handlers.editorCreation(request(), "project-a")).json();
+    const cmd = { ...context, operation: "create_editor_project_from_source", commandId: randomUUID() };
+    const originalMediaId = f.records.mediaId.bind(f.records);
+    vi.spyOn(f.records, "mediaId").mockImplementationOnce(async (...args) => { const id = await originalMediaId(...args); f.revokeCreation(); return id; });
+    const response = await f.handlers.operations(command(cmd)); expect(response.status).toBe(200);
+    const created = await response.json(); expect(created.snapshot).toBeNull(); expect(created.childTarget).toBeNull();
+    expect(created.reconciliation.state).toBe("record_unavailable");
+    const rootSnapshot = await (await f.handlers.editor(request(), "project-a")).json();
+    const sourceResponse = await f.handlers.media(request(), rootSnapshot.media.source.mediaId);
+    expect(sourceResponse.status).toBe(200); expect(await sourceResponse.text()).toBe("0123456789");
+    expect((await f.handlers.editor(request(), created.createdProjectId)).status).toBe(403);
+  });
+
+  it("rejects forged creation fields and foreign or read-only commands before changing the original document", async () => {
+    const f = await fixture(false, undefined, undefined, undefined, true);
+    const context = await (await f.handlers.editorCreation(request(), "project-a")).json();
+    const cmd = { ...context, operation: "create_editor_project_from_source", commandId: randomUUID() };
+    const before = await readFile(f.document, "utf8");
+    for (const fields of [{ sourceFile: "foreign.mp4" }, { createdProjectId: "caller-id" }, { policy: {} }, { sourceDigest: "bad" }]) {
+      expect((await f.handlers.operations(command({ ...cmd, ...fields }))).status).toBe(400);
+    }
+    for (const user of ["other", "read-only"]) expect((await f.handlers.operations(command(cmd, user))).status).toBe(403);
+    expect(await readFile(f.document, "utf8")).toBe(before); expect(f.base.execute).not.toHaveBeenCalled();
+  });
+
   it("streams bound original music privately, preserves it through redacted saves, and revokes the old revision", async () => {
     const f = await fixture(false, "png", undefined, { enabled: true });
     const before = await readFile(f.document, "utf8");
