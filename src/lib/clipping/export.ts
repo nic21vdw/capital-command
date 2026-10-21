@@ -7,7 +7,7 @@ import { clipProjectSchema } from "@/lib/storage/schemas";
 import { brandKit } from "@/lib/brand/kit";
 import { shortsAudioArgs, shortsAudioFilter } from "@/lib/clipping/audio";
 import { containScale, masterVideoArgs, scaleFilter } from "@/lib/clipping/encode";
-import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue } from "@/lib/clipping/captions";
+import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue, textOverlayFont } from "@/lib/clipping/captions";
 import { hasAudioStream, isRenderCanceled, parseVideoStreamInfo, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { attachEditedClipRender, outputDir, workDir } from "@/lib/clipping/jobs";
 import { renderSignature } from "@/lib/clipping/export-signature";
@@ -168,7 +168,7 @@ async function writeOverlayImages(spec: ExportSpec, dir: string) {
 }
 
 /** Generates the combined ASS document (captions + positioned text overlays). */
-function buildExportAss(spec: ExportSpec, w: number, h: number): string {
+async function buildExportAss(spec: ExportSpec, w: number, h: number): Promise<string> {
   const dur = trimDuration(spec);
   const captions = shiftedCaptions(spec);
   const overlays = shiftedOverlays(spec);
@@ -179,9 +179,9 @@ function buildExportAss(spec: ExportSpec, w: number, h: number): string {
     h,
     spec.highlightCurrentWord
   );
-  const overlayLines = overlays
+  const overlayLines = await Promise.all(overlays
     .filter((o) => o.kind === "text" && o.text && o.text.trim())
-    .map((o) =>
+    .map(async (o) =>
       buildTextOverlayDialogue(
         o.text as string,
         {
@@ -193,17 +193,48 @@ function buildExportAss(spec: ExportSpec, w: number, h: number): string {
           color: o.color ?? brandKit().palette.purple,
           rotation: o.rotation,
           bold: (o.fontWeight ?? 800) >= 600,
-          opacity: o.opacity
+          opacity: o.opacity,
+          width: o.width,
+          scale: o.scale,
+          fontFamily: o.fontFamily,
+          fontWeight: o.fontWeight,
+          background: o.background,
+          ...(o.width !== undefined || o.fontFamily !== undefined || o.background !== undefined
+            ? await overlayTextMeasure(o.fontFamily ?? "Inter", o.fontWeight ?? 800, Math.round(0.05 * o.scale * h)) : {})
         },
         w,
         h
       )
-    );
+    ));
   const extra = [...overlayLines];
   if (spec.settings.watermark) {
     extra.push(buildWatermarkDialogue(h, 0, dur));
   }
   return extra.length ? `${captionDoc}${extra.join("\n")}\n` : captionDoc;
+}
+
+let overlayFontMetrics: Promise<typeof import("@napi-rs/canvas")> | undefined;
+async function overlayTextMeasure(familyList: string, weight: number, size: number): Promise<{ measureText: (text: string) => number; assFontSize: number }> {
+  const { family } = textOverlayFont(familyList, weight);
+  overlayFontMetrics ??= import("@napi-rs/canvas").then((canvas) => {
+    const bundled: Record<string, string> = { "Montserrat Black": "Montserrat-Black.ttf", "Montserrat ExtraBold": "Montserrat-ExtraBold.ttf",
+      "Poppins Black": "Poppins-Black.ttf", "Poppins ExtraBold": "Poppins-ExtraBold.ttf", Anton: "Anton-Regular.ttf",
+      "Archivo Black": "ArchivoBlack-Regular.ttf", "Instrument Serif": "InstrumentSerif-Italic.ttf" };
+    for (let weight = 100; weight <= 900; weight += 100) bundled[`Inter Overlay ${weight}`] = `Inter-Text-${weight}.ttf`;
+    for (const [name, file] of Object.entries(bundled)) {
+      const font = path.join(process.cwd(), "public", "fonts", "captions", file);
+      assertPreparationPath(font);
+      if (!canvas.GlobalFonts.registerFromPath(font, name)) throw new Error("A bundled overlay font could not be loaded.");
+    }
+    return canvas;
+  });
+  const { createCanvas } = await overlayFontMetrics;
+  const context = createCanvas(1, 1).getContext("2d");
+  context.font = `${weight} ${Math.max(1, size)}px "${family}"`;
+  // ASS sizes a font by ascender-to-descender height; CSS uses em size.
+  const metrics = context.measureText("Mg");
+  return { measureText: (text) => context.measureText(text).width,
+    assFontSize: Number((metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent).toFixed(3)) };
 }
 
 /** Escapes a filesystem path for use inside an ffmpeg filtergraph argument. */
@@ -268,7 +299,7 @@ async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePa
 
   const images = await writeOverlayImages(spec, dir);
   const assPath = path.join(dir, "subs.ass");
-  await writeFile(assPath, buildExportAss(spec, w, h), "utf8");
+  await writeFile(assPath, await buildExportAss(spec, w, h), "utf8");
 
   const ext = settings.format === "webm" ? "webm" : "mp4";
   const outFile = preparation?.outFile ?? path.join(outputDir(spec.jobId), `export-${path.basename(dir)}.${ext}`);

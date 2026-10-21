@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAss,
   buildClipTitleDialogue,
+  buildTextOverlayDialogue,
   buildWatermarkDialogue,
   chunkWords,
   formatAssTime,
@@ -386,6 +387,47 @@ describe("buildAss", () => {
   it("leaves events unpositioned when no offsets are set", () => {
     const ass = buildAss([seg("a", 0, 2, "hello world")], defaultCaptionStyle, 1080, 1920, false);
     expect(ass).not.toContain("\\pos(");
+  });
+});
+
+describe("text overlay formatting", () => {
+  const options = { x: 0.5, y: 0.5, start: 0, end: 1, fontScale: 0.05, color: "#ffffff", rotation: 0, bold: true, opacity: 1 };
+  it("retains the legacy dialogue when optional formatting fields are omitted", () => {
+    expect(buildTextOverlayDialogue("Legacy words", options, 320, 180)).toBe(
+      "Dialogue: 1,0:00:00.00,0:00:01.00,Default,,0,0,0,,{\\an5\\pos(160,90)\\fs9\\1c&H00FFFFFF\\alpha00&\\b1}Legacy words"
+    );
+  });
+  it("keeps wrapping stable under overlay scale and honors an explicit local family", () => {
+    const measureText = (text: string) => text.length * 10;
+    const narrow = buildTextOverlayDialogue("AAAA BBBB CCCC", { ...options, width: 0.3, scale: 1, fontFamily: "Anton", measureText }, 320, 180);
+    const scaled = buildTextOverlayDialogue("AAAA BBBB CCCC", { ...options, fontScale: 0.1, width: 0.3, scale: 2,
+      fontFamily: "Anton", measureText: (text) => measureText(text) * 2 }, 320, 180);
+    expect(narrow.split("\n")).toHaveLength(2);
+    expect(scaled.split("\n")).toHaveLength(2);
+    expect(narrow).toContain("\\fnAnton");
+    expect(narrow).toContain("\\b0");
+  });
+  it("uses standard background alpha multiplied by overlay opacity and rejects unsupported CSS", () => {
+    const result = buildTextOverlayDialogue("Box", { ...options, width: 0.5, background: "rgba(255,0,0,0.5)", opacity: 0.5 }, 320, 180);
+    expect(result).toContain("\\p1\\bord0\\shad0\\1c&H000000FF\\alpha&HBF&");
+    expect(result).toContain("l 160.00 13.50");
+    expect(() => buildTextOverlayDialogue("Box", { ...options, background: "url(https://example.invalid/image)" }, 320, 180)).toThrow("backgrounds support");
+    expect(() => buildTextOverlayDialogue("Box", { ...options, fontFamily: "Arial\\fnOther" }, 320, 180)).toThrow("local font family");
+  });
+  it("preserves pre-wrap spaces, tabs and explicit blank lines", () => {
+    const result = buildTextOverlayDialogue(" A  B\tC \n\nD", { ...options, width: 0.9,
+      measureText: (value) => value.length }, 320, 180);
+    expect(result.split("\n")).toHaveLength(3);
+    expect(result).toContain("\\hA\\h\\hB\\h\\h\\hC\\h");
+    expect(result).toContain("\\fnInter Overlay 800\\i0\\b0");
+  });
+  it("selects actual static Inter weights and rejects unsupported instances", () => {
+    for (const weight of [100, 200, 300, 400, 500, 600, 700, 800, 900]) {
+      const result = buildTextOverlayDialogue("Weight", { ...options, fontFamily: "Inter, system-ui, sans-serif", fontWeight: weight }, 320, 180);
+      expect(result).toContain(`\\fnInter Overlay ${weight}\\i0\\b0`);
+      expect(result).toContain(",Overlay,");
+    }
+    expect(() => buildTextOverlayDialogue("Weight", { ...options, fontFamily: "Inter", fontWeight: 750 }, 320, 180)).toThrow("steps of 100");
   });
 });
 
