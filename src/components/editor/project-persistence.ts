@@ -1,5 +1,6 @@
 import { writeDraftProject } from "./drafts";
 import type { ClipProject } from "@/types/domain";
+import { isActiveClipProject } from "@/lib/clipping/project-visibility";
 
 type SaveMutation = (action: string, payload: ClipProject, options: { rethrow: true; signal: AbortSignal }) => Promise<void>;
 
@@ -10,6 +11,7 @@ export class ClipProjectPersistence {
   constructor(private readonly mutate: SaveMutation) {}
 
   save(project: ClipProject, isCurrent: () => boolean): Promise<boolean> {
+    if (!isActiveClipProject(project)) return Promise.reject(new Error("This clip project was deleted."));
     const snapshot = { ...project, updatedAt: new Date().toISOString() };
     writeDraftProject(snapshot);
     const attempt = this.pending.catch(() => undefined).then(async () => {

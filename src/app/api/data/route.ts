@@ -12,6 +12,8 @@ import { readApiStatus } from "@/lib/apiStatus";
 import { setPublishingEnabled } from "@/lib/publisher/enabled";
 import { AppDataUnreadableError, latestGoodSnapshot, readAppData, resetAppData, restoreLastGoodSnapshot, writeAppData } from "@/lib/storage/store";
 import { projectsWithoutCaptions, stampProjectSignature } from "@/lib/clipping/project-payload";
+import { isActiveClipProject } from "@/lib/clipping/project-visibility";
+import { ManagedEditorDeletedError, ManagedEditorWriteConflictError } from "@/lib/integrations/marketing/editor-state";
 import type { AppData, ClipProject, ExecutionGoal, Holding } from "@/types/domain";
 
 function success(data: AppData) {
@@ -149,7 +151,7 @@ export async function POST(request: NextRequest) {
       const restored = await restoreLastGoodSnapshot();
       return NextResponse.json({
         restoredFrom: restored.snapshot.savedAt,
-        data: restored.data,
+        data: { ...restored.data, clipProjects: projectsWithoutCaptions(restored.data.clipProjects) },
         summary: derivePortfolioSummary(restored.data)
       });
     } catch (error) {
@@ -314,9 +316,14 @@ export async function POST(request: NextRequest) {
       break;
     }
     case "upsertClipProject": {
+      const candidate = clipProjectSchema.parse(payload) as ClipProject;
+      const prior = data.clipProjects.find((item) => item.id === candidate.id);
+      if (prior && !isActiveClipProject(prior)) {
+        return NextResponse.json({ error: "This clip project was deleted.", deleted: true }, { status: 410 });
+      }
       // Straight to disk: an overlay picture must never enter the JSON store.
       const incoming = await externalizeProjectOverlays(
-        clipProjectSchema.parse(payload) as unknown as ClipProject
+        candidate
       );
       const stored = data.clipProjects.find((item) => item.id === incoming.id);
       // Captions are the one field a caller may legitimately not have: the
@@ -611,6 +618,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }
 
-  await writeAppData(data);
+  try { await writeAppData(data); }
+  catch (error) {
+    if (error instanceof ManagedEditorDeletedError) return NextResponse.json({ error: error.message, deleted: true }, { status: 410 });
+    if (error instanceof ManagedEditorWriteConflictError) return NextResponse.json({ error: error.message }, { status: 409 });
+    throw error;
+  }
   return success(data);
 }

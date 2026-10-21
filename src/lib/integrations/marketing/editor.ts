@@ -34,7 +34,8 @@ export const recordEditorExportOutcomeSchema = z.object({
 export const editorCommandSchema = z.discriminatedUnion("operation", [saveEditorCommandSchema, requestEditorExportCommandSchema]);
 export type ClaimEditorExportCommand = z.infer<typeof claimEditorExportCommandSchema>;
 export type RecordEditorExportOutcomeCommand = z.infer<typeof recordEditorExportOutcomeSchema>;
-type AnyCommand = SaveEditorCommand | RequestEditorExportCommand | ClaimEditorExportCommand | RecordEditorExportOutcomeCommand;
+export type AnyEditorCommand = SaveEditorCommand | RequestEditorExportCommand | ClaimEditorExportCommand | RecordEditorExportOutcomeCommand;
+type AnyCommand = AnyEditorCommand;
 
 export class MarketingEditorError extends Error {
   constructor(readonly code: "forbidden" | "not_found" | "conflict" | "invalid" | "unavailable", message: string) {
@@ -222,10 +223,45 @@ export class MarketingEditor {
     if (!result.success) return fail("invalid", "The editor command is invalid or incomplete.");
     return result.data;
   }
+  /**
+   * Receipt lookup precedes live project/media preflight. A committed command
+   * remains known after deletion or source loss, without recreating anything.
+   * This is also the root HTTP composition's idempotency preflight seam.
+   */
+  async replay(principal: Principal, input: AnyEditorCommand): Promise<EditorCommandResult | null> {
+    const schema = input?.operation === "save_editor_project" ? saveEditorCommandSchema
+      : input?.operation === "request_editor_export" ? requestEditorExportCommandSchema
+      : input?.operation === "claim_editor_export" ? claimEditorExportCommandSchema
+      : input?.operation === "record_editor_export_outcome" ? recordEditorExportOutcomeSchema : null;
+    if (!schema) return fail("invalid", "The editor command is invalid or incomplete.");
+    const command = this.parsed(schema as z.ZodType<AnyEditorCommand>, input);
+    const scope = command.operation === "claim_editor_export" || command.operation === "record_editor_export_outcome" ? "worker" : "write";
+    const record = this.authorize(principal, command.target.projectId, scope);
+    const matches = (await this.store.read())?.clipProjects.filter((project) => project.id === record.projectId) ?? [];
+    if (matches.length > 1) return fail("conflict", "The original editor receipt record is not unique.");
+    const project = matches[0];
+    const state = project?.marketingEditor;
+    if (!state) return null;
+    if (state.ownerId !== this.binding.ownerId || state.jobId !== record.jobId || state.clipId !== record.clipId) {
+      return fail("forbidden", "The original editor receipt belongs to a different binding.");
+    }
+    const prior = state.receipts.find((entry) => entry.result.commandId === command.commandId);
+    if (!prior) return null;
+    if (prior.payloadSha256 !== editorDigest(command)) return fail("conflict", "The command UUID was already used for a different editor action.");
+    if (state.deletedAt) return { receipt: prior.result, replayed: true, snapshot: null, reconciliation: { state: "deleted" } };
+    try {
+      const { job, clip } = await this.original(record);
+      return { receipt: prior.result, replayed: true, snapshot: this.snapshot(project, record, job, clip, principal) };
+    } catch {
+      return { receipt: prior.result, replayed: true, snapshot: null, reconciliation: { state: "record_unavailable" } };
+    }
+  }
   private async transact(
     principal: Principal, command: AnyCommand, transition: (project: ClipProject, state: MarketingEditorState) => { project: ClipProject; state: MarketingEditorState; intent?: EditorExportIntent },
     scope: "write" | "worker" = "write"
   ): Promise<EditorCommandResult> {
+    const committed = await this.replay(principal, command);
+    if (committed) return committed;
     const record = this.authorize(principal, command.target.projectId, scope);
     const { job, clip } = await this.original(record);
     const payloadSha256 = editorDigest(command);
@@ -246,7 +282,8 @@ export class MarketingEditor {
       const next = transition(project, state);
       receipt = { commandId: command.commandId, operation: command.operation,
         revision: next.state.revision, digest: next.state.digest, renderSignature: next.state.renderSignature,
-        ...(next.intent ? { requestId: next.intent.requestId, state: next.intent.state } : {}),
+        ...(next.intent ? { requestId: next.intent.requestId, state: next.intent.state,
+          ...(next.intent.attemptId ? { attemptId: next.intent.attemptId } : {}) } : {}),
         reviewInvalidated: true, publicationAuthorized: false };
       next.state.receipts.push({ payloadSha256, result: receipt });
       return { ...next.project, marketingEditor: next.state, renderSignature: next.state.renderSignature, captionCount: next.project.captions.length };
@@ -281,18 +318,10 @@ export class MarketingEditor {
       return { project, state, intent };
     });
   }
-  private async replayWorkerCommand(principal: Principal, command: AnyCommand): Promise<EditorCommandResult | undefined> {
-    this.authorize(principal, command.target.projectId, "worker");
-    const project = (await this.store.read())?.clipProjects.find((candidate) => candidate.id === command.target.projectId);
-    if (!project?.marketingEditor?.receipts.some((entry) => entry.result.commandId === command.commandId)) return undefined;
-    // Replaying a committed receipt must not depend on a renderer/proof service
-    // still being available, and must never rerun its preparation side effects.
-    return this.transact(principal, command, () => fail("conflict", "The original worker receipt changed."), "worker");
-  }
   async claimExport(principal: Principal, input: ClaimEditorExportCommand): Promise<EditorCommandResult & { attemptId: string }> {
     const command = this.parsed(claimEditorExportCommandSchema, input);
     this.authorize(principal, command.target.projectId, "worker");
-    const replay = await this.replayWorkerCommand(principal, command);
+    const replay = await this.replay(principal, command);
     if (!replay && !this.worker) return fail("unavailable", "No preparation-only renderer is bound. The explicit export intent remains pending.");
     if (!replay) this.worker!.assertPreparationOnly();
     const result = replay ?? await this.transact(principal, command, (project, state) => {
@@ -301,15 +330,16 @@ export class MarketingEditor {
       intent.state = "claimed"; intent.attemptId = randomUUID();
       return { project, state, intent };
     }, "worker");
-    const saved = (await this.store.read())?.clipProjects.find((project) => project.id === command.target.projectId);
-    const intent = saved?.marketingEditor?.exports.find((candidate) => candidate.requestId === command.requestId);
-    if (!intent?.attemptId) return fail("conflict", "The claimed export attempt is no longer current.");
-    return { ...result, attemptId: intent.attemptId };
+    const attemptId = result.receipt.attemptId ?? (await this.store.read())?.clipProjects
+      .find((project) => project.id === command.target.projectId)?.marketingEditor?.exports
+      .find((candidate) => candidate.requestId === command.requestId)?.attemptId;
+    if (!attemptId) return fail("conflict", "The original claimed export attempt requires reconciliation.");
+    return { ...result, attemptId };
   }
   async recordExportOutcome(principal: Principal, input: RecordEditorExportOutcomeCommand): Promise<EditorCommandResult> {
     const command = this.parsed(recordEditorExportOutcomeSchema, input);
     this.authorize(principal, command.target.projectId, "worker");
-    const replay = await this.replayWorkerCommand(principal, command);
+    const replay = await this.replay(principal, command);
     if (replay) return replay;
     if (!this.worker) return fail("unavailable", "No preparation-only renderer proof reader is bound.");
     this.worker.assertPreparationOnly();

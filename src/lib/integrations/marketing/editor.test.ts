@@ -57,7 +57,7 @@ async function fixture() {
 }
 function save(snapshot: EditorSnapshot, overrides: Partial<ClipProject> = {}, commandId = randomUUID()) {
   return { operation: "save_editor_project" as const, commandId, target: snapshot.target,
-    project: { ...snapshot.project, ...overrides } };
+    project: { ...snapshot!.project, ...overrides } };
 }
 function request(snapshot: EditorSnapshot, commandId = randomUUID()) {
   return { operation: "request_editor_export" as const, commandId, target: snapshot.target };
@@ -104,8 +104,8 @@ describe("original editor project integration", () => {
     const { editor, project } = await fixture();
     const snapshot = await editor.load(owner, project.id);
     const result = await editor.save(owner, save(snapshot, { trimStart: 0.5,
-      captions: [{ ...snapshot.project.captions[0], text: "Precise edit", words: [{ text: "Precise", start: 1.125, end: 2.375 }] }],
-      captionStyle: { ...snapshot.project.captionStyle, textColor: "#ff0000" } }));
+      captions: [{ ...snapshot!.project.captions[0], text: "Precise edit", words: [{ text: "Precise", start: 1.125, end: 2.375 }] }],
+      captionStyle: { ...snapshot!.project.captionStyle, textColor: "#ff0000" } }));
     const saved = (await disk()).clipProjects[0];
     const { projectSignature } = await import("@/lib/clipping/project-payload");
     expect(saved.captions[0].words[0]).toEqual({ text: "Precise", start: 1.125, end: 2.375 });
@@ -113,10 +113,10 @@ describe("original editor project integration", () => {
     expect(saved.marketingEditor.revision).toBe(1);
     expect(saved.marketingEditor.receipts).toHaveLength(1);
     expect(saved.renderSignature).toBe(projectSignature(saved));
-    expect(result.snapshot.target.digest).not.toBe(snapshot.target.digest);
+    expect(result.snapshot!.target.digest).not.toBe(snapshot.target.digest);
     expect(result.receipt.reviewInvalidated).toBe(true);
-    expect(result.snapshot.reviewRequired).toBe(true);
-    expect(result.snapshot.publicationAuthorized).toBe(false);
+    expect(result.snapshot!.reviewRequired).toBe(true);
+    expect(result.snapshot!.publicationAuthorized).toBe(false);
   });
 
   it("replays the durable command receipt after a restart and rejects UUID reuse with changed payload", async () => {
@@ -156,7 +156,7 @@ describe("original editor project integration", () => {
     const saved = await editor.save(owner, save(initial));
     expect(saved.receipt.revision).toBe(initial.target.revision + 1);
     expect(saved.receipt.digest).toBe(initial.target.digest);
-    const pending = await editor.requestExport(owner, request(saved.snapshot));
+    const pending = await editor.requestExport(owner, request(saved.snapshot!));
     expect(pending.receipt.revision).toBe(saved.receipt.revision);
   });
 
@@ -167,9 +167,9 @@ describe("original editor project integration", () => {
       editedFile: "original-export.mp4", editedSignature: initial.target.renderSignature }] }]));
     expect((await editor.load(owner, "project-1")).media.edited?.current).toBe(true);
     const result = await editor.save(owner, save(initial, { captions: [{ ...initial.project.captions[0], text: "New exact words" }] }));
-    expect(result.snapshot.media.edited?.current).toBe(false);
-    expect(result.snapshot.target.renderSignature).not.toBe(initial.target.renderSignature);
-    expect(result.snapshot.reviewRequired).toBe(true);
+    expect(result.snapshot!.media.edited?.current).toBe(false);
+    expect(result.snapshot!.target.renderSignature).not.toBe(initial.target.renderSignature);
+    expect(result.snapshot!.reviewRequired).toBe(true);
   });
 
   it("rejects private metadata, incomplete captions, foreign media and path injection without writing", async () => {
@@ -206,16 +206,16 @@ describe("original editor project integration", () => {
     const duplicated = JSON.stringify({ ...data, clipProjects: [data.clipProjects[0], data.clipProjects[0]] });
     await writeFile(documentFile(), duplicated);
     await expect(editor.save(owner, save(initial, { title: "Must not replace both rows" })))
-      .rejects.toThrow("uniquely identified");
+      .rejects.toMatchObject({ code: "conflict" });
     expect(await readFile(documentFile(), "utf8")).toBe(duplicated);
   });
 
   it("allows an explicit empty caption array and never silently restores cached source captions", async () => {
     const { editor } = await fixture();
     const result = await editor.save(owner, save(await editor.load(owner, "project-1"), { captions: [] }));
-    expect(result.snapshot.project.captions).toEqual([]);
+    expect(result.snapshot!.project.captions).toEqual([]);
     expect((await disk()).clipProjects[0].captions).toEqual([]);
-    expect(result.snapshot.cachedCaptions.captions).toHaveLength(1);
+    expect(result.snapshot!.cachedCaptions.captions).toHaveLength(1);
   });
 
   it("redacts legacy internal asset references and preserves them while saving audio-level edits", async () => {
@@ -275,15 +275,32 @@ describe("original editor project integration", () => {
 });
 
 describe("explicit export preparation contract", () => {
+  it("replays a durable worker claim after deletion without rebinding a renderer or reading the source", async () => {
+    const { editor: original } = await fixture();
+    const ports = { assertPreparationOnly: vi.fn(), readPreparation: vi.fn(async () => null) };
+    const editor = new api.MarketingEditor({ binding, worker: ports });
+    const pending = await editor.requestExport(owner, request(await original.load(owner, "project-1")));
+    const command = { operation: "claim_editor_export" as const, commandId: randomUUID(),
+      target: pending.snapshot!.target, requestId: pending.receipt.requestId! };
+    const claimed = await editor.claimExport(worker, command);
+    await store.mutateAppData((data) => ({ ...data, clipProjects: [] }));
+    const restarted = new api.MarketingEditor({ binding });
+    const replay = await restarted.claimExport(worker, command);
+    expect(replay.receipt).toEqual(claimed.receipt);
+    expect(replay.attemptId).toBe(claimed.attemptId);
+    expect(replay.snapshot).toBeNull();
+    expect(replay.reconciliation).toEqual({ state: "deleted" });
+    expect(ports.assertPreparationOnly).toHaveBeenCalledTimes(1);
+  });
   it("records and replays only a pending intent with no renderer, enqueue or media write", async () => {
     const { editor } = await fixture();
     const command = request(await editor.load(owner, "project-1"));
     const first = await editor.requestExport(owner, command);
-    expect(first.snapshot.export).toEqual({ state: "pending_dispatch", requestId: command.commandId });
+    expect(first.snapshot!.export).toEqual({ state: "pending_dispatch", requestId: command.commandId });
     expect((await editor.requestExport(owner, command)).receipt).toEqual(first.receipt);
     expect((await disk()).clipProjects[0].marketingEditor.exports).toHaveLength(1);
     await expect(editor.claimExport(worker, { operation: "claim_editor_export", commandId: randomUUID(),
-      target: first.snapshot.target, requestId: command.commandId })).rejects.toMatchObject({ code: "unavailable" });
+      target: first.snapshot!.target, requestId: command.commandId })).rejects.toMatchObject({ code: "unavailable" });
     expect((await disk()).clipProjects[0].marketingEditor.exports[0].state).toBe("pending_dispatch");
     expect(await readdir(root)).not.toContain("publish-queue.json");
     expect(await readdir(path.join(root, "clips"))).toEqual(["jobs.json"]);
@@ -296,20 +313,20 @@ describe("explicit export preparation contract", () => {
     const ports = { assertPreparationOnly: vi.fn(), readPreparation: vi.fn(async () => null as import("./editor").EditorPreparationEvidence | null) };
     const editor = new api.MarketingEditor({ binding, worker: ports });
     const pending = await editor.requestExport(owner, request(await editor.load(owner, "project-1")));
-    const claim = { operation: "claim_editor_export" as const, commandId: randomUUID(), target: pending.snapshot.target, requestId: pending.receipt.requestId! };
+    const claim = { operation: "claim_editor_export" as const, commandId: randomUUID(), target: pending.snapshot!.target, requestId: pending.receipt.requestId! };
     await expect(editor.claimExport(owner, claim)).rejects.toMatchObject({ code: "forbidden" });
     const claimed = await editor.claimExport(worker, claim);
-    expect(claimed.snapshot.export.state).toBe("claimed");
+    expect(claimed.snapshot!.export.state).toBe("claimed");
     expect((await editor.claimExport(worker, claim)).attemptId).toBe(claimed.attemptId);
-    const outcome = { operation: "record_editor_export_outcome" as const, commandId: randomUUID(), target: claimed.snapshot.target,
+    const outcome = { operation: "record_editor_export_outcome" as const, commandId: randomUUID(), target: claimed.snapshot!.target,
       requestId: claim.requestId, attemptId: claimed.attemptId, outcome: "prepared" as const };
     await expect(editor.recordExportOutcome(worker, outcome)).rejects.toMatchObject({ code: "conflict" });
     ports.readPreparation.mockResolvedValue({ requestId: claim.requestId, attemptId: claimed.attemptId,
-      digest: claimed.snapshot.target.digest, renderSignature: claimed.snapshot.target.renderSignature,
+      digest: claimed.snapshot!.target.digest, renderSignature: claimed.snapshot!.target.renderSignature,
       exportId: "fixture-export", artifactSha256: "a".repeat(64), assertCurrent });
     const prepared = await editor.recordExportOutcome(worker, outcome);
-    expect(prepared.snapshot.export.state).toBe("prepared");
-    expect(prepared.snapshot.publicationAuthorized).toBe(false);
+    expect(prepared.snapshot!.export.state).toBe("prepared");
+    expect(prepared.snapshot!.publicationAuthorized).toBe(false);
     expect(assertCurrent).toHaveBeenCalledTimes(1);
     ports.readPreparation.mockResolvedValue(null);
     expect((await editor.recordExportOutcome(worker, outcome)).receipt).toEqual(prepared.receipt);
@@ -321,10 +338,10 @@ describe("explicit export preparation contract", () => {
     const editor = new api.MarketingEditor({ binding, worker: ports });
     const pending = await editor.requestExport(owner, request(await editor.load(owner, "project-1")));
     const claimed = await editor.claimExport(worker, { operation: "claim_editor_export", commandId: randomUUID(),
-      target: pending.snapshot.target, requestId: pending.receipt.requestId! });
+      target: pending.snapshot!.target, requestId: pending.receipt.requestId! });
     await editor.save(owner, save(await editor.load(owner, "project-1"), { captionsVisible: false }));
     await expect(editor.recordExportOutcome(worker, { operation: "record_editor_export_outcome", commandId: randomUUID(),
-      target: claimed.snapshot.target, requestId: pending.receipt.requestId!, attemptId: claimed.attemptId, outcome: "prepared" }))
+      target: claimed.snapshot!.target, requestId: pending.receipt.requestId!, attemptId: claimed.attemptId, outcome: "prepared" }))
       .rejects.toMatchObject({ code: "conflict" });
     expect((await editor.load(owner, "project-1")).export.state).toBe("stale");
   });

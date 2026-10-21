@@ -19,6 +19,7 @@ export const editorReceiptSchema = z.object({
   commandId: z.string().uuid(), operation: editorOperationSchema,
   revision, digest: sha256, renderSignature: z.string(),
   requestId: z.string().uuid().optional(), state: editorExportStateSchema.optional(),
+  attemptId: z.string().uuid().optional(),
   reviewInvalidated: z.literal(true), publicationAuthorized: z.literal(false)
 }).strict();
 export type EditorReceipt = z.infer<typeof editorReceiptSchema>;
@@ -55,4 +56,5 @@ export type EditorSnapshot = {
 };
 export type SaveEditorCommand = { operation: "save_editor_project"; commandId: string; target: EditorTarget; project: ClipProject };
 export type RequestEditorExportCommand = { operation: "request_editor_export"; commandId: string; target: EditorTarget };
-export type EditorCommandResult = { receipt: EditorReceipt; replayed: boolean; snapshot: EditorSnapshot };
+export type EditorCommandResult = { receipt: EditorReceipt; replayed: boolean; snapshot: EditorSnapshot | null;
+  reconciliation?: { state: "deleted" | "record_unavailable" } };

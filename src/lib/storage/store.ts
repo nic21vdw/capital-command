@@ -5,7 +5,7 @@ import { emptyData, seedData } from "@/lib/mockData/seed";
 import { atomicWriteFile } from "@/lib/storage/atomic-json";
 import { withFileLock } from "@/lib/storage/file-lock";
 import { appDataSchema } from "@/lib/storage/schemas";
-import { preserveManagedEditorProjects } from "@/lib/integrations/marketing/editor-state";
+import { ManagedEditorDeletedError, preserveManagedEditorProjects } from "@/lib/integrations/marketing/editor-state";
 import type { AppData, ClipProject } from "@/types/domain";
 
 const dataFilePath = dataPath("capital-command.json");
@@ -296,6 +296,7 @@ export async function mutateExistingClipProject(
     const matches = current?.clipProjects.filter((project) => project.id === id) ?? [];
     const stored = matches[0];
     if (!current || !stored || matches.length !== 1) throw new Error("The existing editor project could not be uniquely identified.");
+    if (stored.marketingEditor?.deletedAt) throw new ManagedEditorDeletedError();
     result = update(structuredClone(stored));
     if (result.id !== id) throw new Error("An editor transaction cannot change project identity.");
     const updated = { ...current, clipProjects: current.clipProjects.map((project) => project.id === id ? result : project) };

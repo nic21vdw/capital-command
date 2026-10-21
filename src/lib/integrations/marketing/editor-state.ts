@@ -23,6 +23,9 @@ export function editorRenderSignature(project: ClipProject): string {
 export class ManagedEditorWriteConflictError extends Error {
   constructor() { super("The editor project changed since this copy was loaded. Reload it before saving."); this.name = "ManagedEditorWriteConflictError"; }
 }
+export class ManagedEditorDeletedError extends Error {
+  constructor() { super("This clip project was deleted. Its command receipts are retained, and it cannot be saved again."); this.name = "ManagedEditorDeletedError"; }
+}
 /** Pure: reads may report legacy edits without writing a repair. */
 export function currentEditorState(project: ClipProject, previous: MarketingEditorState): MarketingEditorState {
   const digest = editorProjectDigest(project);
@@ -49,6 +52,11 @@ export function preserveManagedEditorProjects(
     if (!original?.marketingEditor) {
       const { marketingEditor: _untrusted, ...original } = project;
       void _untrusted;
+      return original;
+    }
+    if (original.marketingEditor.deletedAt) {
+      if (project.marketingEditor?.deletedAt !== original.marketingEditor.deletedAt
+        || editorProjectDigest(project) !== editorProjectDigest(original)) throw new ManagedEditorDeletedError();
       return original;
     }
     const state = currentEditorState(original, original.marketingEditor);
