@@ -137,7 +137,18 @@ async function readSaved(): Promise<{ raw: Record<string, unknown>; modifiedAt: 
     const before = await handle.stat();
     if (!before.isFile()) throw new StoreError("unreadable");
     if (before.size > MAX_BYTES) throw new StoreError("too_large");
-    const text = await handle.readFile("utf8");
+    // A writer can grow the file after stat. Bound both individual allocations
+    // and actual descriptor bytes, including only one byte beyond the limit.
+    const chunks: Buffer[] = [];
+    let count = 0;
+    for (;;) {
+      const buffer = Buffer.allocUnsafe(Math.min(256 * 1024, MAX_BYTES + 1 - count));
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+      if (!bytesRead) break;
+      count += bytesRead;
+      if (count > MAX_BYTES) throw new StoreError("too_large");
+      chunks.push(buffer.subarray(0, bytesRead));
+    }
     const after = await handle.stat();
     const current = await stat(file);
     const signature = (info: typeof before) => `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`;
@@ -145,7 +156,7 @@ async function readSaved(): Promise<{ raw: Record<string, unknown>; modifiedAt: 
       throw new StoreError("changed");
     }
     let raw: unknown;
-    try { raw = JSON.parse(text); } catch { return malformed(); }
+    try { raw = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return malformed(); }
     if (!object(raw) || raw.version !== 1 || !object(raw.posts) || !object(raw.accounts) || !object(raw.sync) ||
         Object.keys(raw.posts).length > MAX_ROWS || Object.keys(raw.accounts).length > MAX_ROWS) return malformed();
     return { raw, modifiedAt: before.mtime.toISOString() };

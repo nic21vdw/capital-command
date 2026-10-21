@@ -177,6 +177,32 @@ describe("owner-scoped passive saved analytics", () => {
     expect(JSON.stringify(result)).not.toMatch(/C:\\private|PRIVATE/);
   });
 
+  it("bounds actual descriptor bytes when a file grows beyond its initial stat size", async () => {
+    const cap = 128 * 1024 * 1024;
+    const info = await fs.stat(file);
+    let actualBytesRead = 0;
+    const growingRead = vi.fn(async (buffer: Buffer, offset: number, length: number, position: null) => {
+      expect(offset).toBe(0);
+      expect(position).toBeNull();
+      expect(length).toBeGreaterThan(0);
+      expect(length).toBeLessThanOrEqual(256 * 1024);
+      actualBytesRead += length;
+      return { bytesRead: length, buffer };
+    });
+    const close = vi.fn(async () => undefined);
+    const initialStat = vi.fn(async () => ({ ...info, size: 1, isFile: () => true }));
+    const unboundedRead = vi.fn(async () => { throw new Error("unbounded read forbidden"); });
+    vi.mocked(fs.open).mockResolvedValueOnce({ stat: initialStat, read: growingRead, readFile: unboundedRead, close } as never);
+    const result = await read().snapshot("owner-a");
+    expect(result).toMatchObject({ store: { state: "unavailable", reason: "too_large" }, posts: null, totals: null });
+    expect(actualBytesRead).toBe(cap + 1);
+    expect(growingRead).toHaveBeenCalledTimes(513);
+    expect(growingRead.mock.calls.at(-1)?.[2]).toBe(1);
+    expect(initialStat).toHaveBeenCalledTimes(1);
+    expect(unboundedRead).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
   it("distinguishes a valid empty store and unmeasured posts from unavailable data", async () => {
     await fs.writeFile(file, JSON.stringify(emptyStore()));
     const empty = await read().snapshot("owner-a");
