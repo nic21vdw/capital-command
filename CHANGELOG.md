@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Text overlays export with their chosen width, font and background.** Narrow text wraps, scaled boxes stay centered, and standard Inter weights use bundled licensed fonts. Existing files remain unchanged until an explicit rerender.
+
 - **Incomplete Site asset previews are clearly unavailable.** Projects with an unsupported original image or audio reference wait for the asset connection instead of showing a preview with that content silently missing.
 
 - **Scoped editor projects can be deleted even when their source is gone.** Revision checks protect newer edits, deleted projects stay out of the library, and retrying the same request preserves its confirmed receipt. Source files and posting schedules are kept intact.
