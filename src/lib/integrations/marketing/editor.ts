@@ -11,7 +11,8 @@ import { ManagedEditorDeletedError, canonicalEditorJson, currentEditorState, edi
 import { editorTargetSchema, type EditorBinding, type EditorCommandResult, type EditorExportIntent,
   type EditorRecordBinding, type EditorReceipt, type EditorSnapshot, type EditorTarget,
   type MarketingEditorState, type RequestEditorExportCommand, type SaveEditorCommand, type DeleteEditorCommand,
-  type EditorProjectSummary } from "./editor-types";
+  type EditorProjectSummary, type EditorOverlayAssetIdentity } from "./editor-types";
+import type { createStoredEditorOverlayResolver, StoredEditorOverlayAsset } from "./editor-overlay-assets";
 export * from "./editor-types";
 
 const commandFields = { commandId: z.string().uuid(), target: editorTargetSchema };
@@ -53,6 +54,7 @@ export type EditorStore = {
 export type EditorPreparationEvidence = {
   requestId: string; attemptId: string; digest: string; renderSignature: string;
   exportId: string; artifactSha256: string;
+  overlayAssets?: EditorOverlayAssetIdentity[];
   /** Recheck the trusted artifact identity immediately before locked commit. */
   assertCurrent(): void;
 };
@@ -81,19 +83,17 @@ const originalStore: EditorStore = { read: readExistingAppData, mutate: mutateEx
 const safeId = (value: string): boolean => /^[A-Za-z0-9_-]{1,128}$/.test(value);
 export const isEditorMediaFileName = (value: unknown): value is string => typeof value === "string"
   && value.length > 0 && value.length <= 255 && !value.startsWith(".") && !/[\\/:\u0000-\u001f\u007f]/.test(value);
-const safeAsset = (value: string | undefined): string | undefined => value && (
-  /^\/api\/clips\/overlay-images\/[a-f0-9]+\.(?:png|jpg|jpeg|webp|gif)$/.test(value)
-  || /^data:(?:image\/(?:png|jpeg|webp|gif)|audio\/[A-Za-z0-9.+-]+);base64,[A-Za-z0-9+/=\r\n]+$/.test(value)
-) ? value : undefined;
+const storedImageRef = (value: string | undefined): boolean => Boolean(value
+  && /^\/api\/clips\/overlay-images\/[a-f0-9]{40}\.(?:png|jpg|webp)$/.test(value));
 function publicProject(project: ClipProject): ClipProject {
   const { marketingEditor: _private, ...original } = structuredClone(project);
   void _private;
   return { ...original, sourceUrl: "", posterFile: isEditorMediaFileName(original.posterFile) ? original.posterFile : undefined,
-    audio: { ...original.audio, musicSrc: safeAsset(original.audio.musicSrc),
+    audio: { ...original.audio, musicSrc: undefined,
       musicName: original.audio.musicName && !/[\\/:]/.test(original.audio.musicName) ? original.audio.musicName : undefined },
     exportSettings: { ...original.exportSettings,
       filename: isEditorMediaFileName(original.exportSettings.filename) ? original.exportSettings.filename : "clip" },
-    overlays: original.overlays.map((overlay) => ({ ...overlay, src: safeAsset(overlay.src) })),
+    overlays: original.overlays.map((overlay) => ({ ...overlay, src: undefined })),
     renderSignature: editorRenderSignature(project), captionCount: project.captions.length };
 }
 const equal = (a: unknown, b: unknown): boolean => canonicalEditorJson(a) === canonicalEditorJson(b);
@@ -126,8 +126,9 @@ function validateEdit(project: ClipProject, stored: ClipProject): ClipProject {
   if (project.audio.musicSrc !== visible.audio.musicSrc) fail("invalid", "Music assets require the original asset selector.");
   const overlays = project.overlays.map((overlay) => {
     const prior = stored.overlays.find((candidate) => candidate.id === overlay.id);
-    if (overlay.src !== safeAsset(prior?.src)) fail("invalid", "Image assets require the original asset selector.");
+    if (overlay.src !== undefined) fail("invalid", "Image assets require the original asset selector.");
     if (!prior && overlay.kind !== "text") fail("invalid", "New image assets require the original asset selector.");
+    if (prior && prior.kind !== overlay.kind) fail("invalid", "An existing overlay's kind cannot be substituted.");
     return { ...overlay, src: prior?.src };
   });
   return { ...project, sourceUrl: stored.sourceUrl, posterFile: stored.posterFile, overlays,
@@ -140,10 +141,13 @@ export class MarketingEditor {
   private readonly binding: EditorBinding;
   private readonly store: EditorStore;
   private readonly worker?: EditorWorkerPorts;
-  constructor(options: { binding: EditorBinding; store?: EditorStore; worker?: EditorWorkerPorts }) {
+  private readonly overlayAssets?: Pick<ReturnType<typeof createStoredEditorOverlayResolver>, "resolveMany">;
+  constructor(options: { binding: EditorBinding; store?: EditorStore; worker?: EditorWorkerPorts;
+    overlayAssets?: Pick<ReturnType<typeof createStoredEditorOverlayResolver>, "resolveMany"> }) {
     this.binding = structuredClone(options.binding);
     this.store = options.store ?? originalStore;
     this.worker = options.worker;
+    this.overlayAssets = options.overlayAssets;
     if (!this.binding.ownerId?.trim() || this.binding.ownerId.length > 128) fail("invalid", "An explicit owner binding is required.");
     const records = this.binding.records;
     if (!Array.isArray(records) || records.some((row) => ![row.projectId, row.jobId, row.clipId].every(safeId)
@@ -192,12 +196,14 @@ export class MarketingEditor {
       cachedCaptions: { captions: captions.success ? captions.data : [],
         fetchedAt: typeof job.captionsFetchedAt === "string" && Number.isFinite(Date.parse(job.captionsFetchedAt)) ? job.captionsFetchedAt : null },
       media: { source: { jobId: record.jobId, fileName: record.sourceFile },
+        ...(project.overlays.some((row) => row.kind !== "text" && storedImageRef(row.src))
+          ? { overlays: project.overlays.filter((row) => row.kind !== "text" && storedImageRef(row.src)).map((row) => ({ overlayId: row.id })) } : {}),
         ...(isEditorMediaFileName(project.posterFile) ? { poster: { jobId: record.jobId, fileName: project.posterFile } } : {}),
         ...(isEditorMediaFileName(clip.editedFile) ? { edited: { jobId: record.jobId, fileName: clip.editedFile,
           renderSignature: typeof clip.editedSignature === "string" && /^[a-z0-9]{1,64}$/.test(clip.editedSignature) ? clip.editedSignature : undefined, current } } : {}) },
       export: latest ? { state: latest.state, requestId: latest.requestId } : { state: "not_requested" },
-      requiresAssetConnection: project.overlays.some((overlay) => Boolean(overlay.src) && safeAsset(overlay.src) !== overlay.src)
-        || Boolean(project.audio.musicSrc && safeAsset(project.audio.musicSrc) !== project.audio.musicSrc),
+      requiresAssetConnection: project.overlays.some((overlay) => overlay.kind === "text" ? Boolean(overlay.src) : !storedImageRef(overlay.src))
+        || Boolean(project.audio.musicSrc),
       capabilities: { save: principal.scopes.includes("write"), deleteProject: principal.scopes.includes("write"), requestExport: principal.scopes.includes("write"), dispatchExport: false },
       reviewRequired: true, publicationAuthorized: false
     };
@@ -326,11 +332,17 @@ export class MarketingEditor {
   }
   async requestExport(principal: Principal, input: RequestEditorExportCommand): Promise<EditorCommandResult> {
     const command = this.parsed(requestEditorExportCommandSchema, input);
+    this.authorize(principal, command.target.projectId, "write");
+    const replay = await this.replay(principal, command);
+    if (replay) return replay;
+    const assets = await this.exportAssets(command.target);
     return this.transact(principal, command, (project, state) => {
       if (state.exports.some((intent) => ["pending_dispatch", "claimed", "uncertain"].includes(intent.state))) fail("conflict", "An export is pending, claimed, or uncertain and must be reconciled before another request.");
       if (state.exports.length >= 256) fail("unavailable", "The editor export history is full and requires reconciliation.");
       const intent: EditorExportIntent = { requestId: command.commandId, revision: state.revision,
-        digest: state.digest, renderSignature: state.renderSignature, state: "pending_dispatch" };
+        digest: state.digest, renderSignature: state.renderSignature, state: "pending_dispatch",
+        ...(assets.length ? { overlayAssets: this.assetIdentities(assets) } : {}) };
+      assets.forEach((asset) => asset.assertCurrentFile());
       state.exports.push(intent);
       return { project, state, intent };
     });
@@ -359,9 +371,12 @@ export class MarketingEditor {
     const replay = await this.replay(principal, command);
     if (!replay && !this.worker) return fail("unavailable", "No preparation-only renderer is bound. The explicit export intent remains pending.");
     if (!replay) this.worker!.assertPreparationOnly();
+    const assets = replay ? [] : await this.exportAssets(command.target);
     const result = replay ?? await this.transact(principal, command, (project, state) => {
       const intent = state.exports.find((candidate) => candidate.requestId === command.requestId);
       if (!intent || intent.state !== "pending_dispatch" || intent.digest !== state.digest || intent.revision !== state.revision) return fail("conflict", "The export request is not pending for this exact editor revision.");
+      if (!equal(intent.overlayAssets ?? [], this.assetIdentities(assets))) return fail("conflict", "The requested image bytes changed before this export was claimed.");
+      assets.forEach((asset) => asset.assertCurrentFile());
       intent.state = "claimed"; intent.attemptId = randomUUID();
       return { project, state, intent };
     }, "worker");
@@ -386,16 +401,34 @@ export class MarketingEditor {
       ? await this.worker.verifyFailureBeforeDispatch?.(project, intent) : false;
     if (command.outcome === "prepared" && (!evidence || evidence.requestId !== intent.requestId || evidence.attemptId !== intent.attemptId
       || evidence.digest !== intent.digest || evidence.renderSignature !== intent.renderSignature
+      || !equal(evidence.overlayAssets ?? [], intent.overlayAssets ?? [])
       || !safeId(evidence.exportId) || !/^[a-f0-9]{64}$/.test(evidence.artifactSha256))) fail("conflict", "Independent preparation proof does not match this export attempt.");
     if (command.outcome === "failed_before_dispatch" && !failureVerified) fail("conflict", "The worker has not independently verified failure before dispatch.");
     return this.transact(principal, command, (current, state) => {
       const active = state.exports.find((candidate) => candidate.requestId === command.requestId);
       if (!active || active.state !== "claimed" || active.attemptId !== command.attemptId || active.digest !== state.digest
-        || active.revision !== state.revision) return fail("conflict", "The export attempt is stale or no longer claimed.");
+        || active.revision !== state.revision || (evidence && !equal(active.overlayAssets ?? [], evidence.overlayAssets ?? []))) return fail("conflict", "The export attempt is stale or no longer claimed.");
       evidence?.assertCurrent();
       active.state = command.outcome;
       if (evidence) { active.artifactSha256 = evidence.artifactSha256; active.exportId = evidence.exportId; }
       return { project: current, state, intent: active };
     }, "worker");
+  }
+  private assetIdentities(assets: readonly StoredEditorOverlayAsset[]): EditorOverlayAssetIdentity[] {
+    return assets.map(({ overlayId, src, sha256, format, byteLength, width, height }) => ({ overlayId, src, sha256, format, byteLength, width, height }));
+  }
+  private async exportAssets(target: EditorTarget): Promise<readonly StoredEditorOverlayAsset[]> {
+    const record = this.binding.records.find((row) => row.projectId === target.projectId)!;
+    const projects = (await this.store.read())?.clipProjects.filter((row) => row.id === target.projectId) ?? [];
+    if (projects.length !== 1) return fail("conflict", "The original editor project is missing or ambiguous.");
+    const project = projects[0];
+    if (!sameTarget(target, stateTarget(project, record, this.state(project, record)))) return fail("conflict", "The editor revision changed before its image bytes were verified.");
+    if (project.audio.musicSrc || project.sfx?.enabled || project.overlays.some((row) => row.kind === "text" ? Boolean(row.src) : !storedImageRef(row.src))) {
+      return fail("unavailable", "This export requires an unsupported original asset capability.");
+    }
+    const ids = project.overlays.filter((row) => row.kind !== "text").map((row) => row.id);
+    if (!ids.length) return [];
+    if (!this.overlayAssets) return fail("unavailable", "The existing image asset resolver is not configured.");
+    return this.overlayAssets.resolveMany(target, ids);
   }
 }

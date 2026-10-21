@@ -16,7 +16,7 @@ beforeEach(async () => {
 });
 afterEach(() => { dispose?.(); dispose = undefined; vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
-async function fixture(realRender = false) {
+async function fixture(realRender = false, imageFormat?: "png" | "jpeg" | "webp") {
   const { clipProjectSchema, appDataSchema } = await import("@/lib/storage/schemas");
   const { emptyData } = await import("@/lib/mockData/seed");
   const project = clipProjectSchema.parse({ id: "project-a", name: "Synthetic corrected clip", jobId: "job-a", sourceFile: "master.mp4",
@@ -29,6 +29,18 @@ async function fixture(realRender = false) {
     project.captions = [{ id: "caption-a", start: 0.2, end: 1.2, text: "SYNTHETIC EDITOR", words: [], enabled: true }];
     project.exportSettings = { ...project.exportSettings, width: 160, height: 160, fps: 10, filename: "synthetic-proof" };
   }
+  let image: { bytes: Buffer; file: string } | undefined;
+  if (imageFormat) {
+    const { createCanvas } = await import("@napi-rs/canvas");
+    const canvas = createCanvas(32, 16); const context = canvas.getContext("2d");
+    context.fillStyle = "#ff0000"; context.fillRect(0, 0, 32, 16);
+    const bytes = canvas.toBuffer(`image/${imageFormat}` as "image/png");
+    const fileName = `${createHash("sha1").update(bytes).digest("hex")}.${imageFormat === "jpeg" ? "jpg" : imageFormat}`;
+    image = { bytes, file: path.join(root, "overlay-images", fileName) };
+    await mkdir(path.dirname(image.file), { recursive: true }); await writeFile(image.file, bytes);
+    project.overlays = [{ id: "stored-image", kind: "image", src: `/api/clips/overlay-images/${fileName}`,
+      x: 0.25, y: 0.5, scale: 1, rotation: 0, opacity: 1, z: 0, locked: false, start: 0.3, end: 0.9 }];
+  }
   const document = path.join(root, "capital-command.json");
   const jobs = path.join(root, "clips", "jobs.json");
   const output = path.join(root, "clips", "outputs", "job-a");
@@ -40,17 +52,21 @@ async function fixture(realRender = false) {
     sourceCaptions: [{ id: "cached", start: 21, end: 23, text: "Cached source", words: [], enabled: true }] }]));
   await writeFile(path.join(output, "master.mp4"), "0123456789");
   const { MarketingEditor, readOriginalEditorJob } = await import("./editor");
+  const editorBinding = { ownerId: owner.ownerId, records: [{ projectId: project.id, jobId: project.jobId,
+    clipId: "clip-a", sourceFile: project.sourceFile }] };
+  const { readExistingAppData } = await import("@/lib/storage/store");
+  const overlayAssets = imageFormat ? (await import("./editor-overlay-assets")).createStoredEditorOverlayResolver({
+    binding: editorBinding, store: { read: readExistingAppData } }) : undefined;
   let worker: ReturnType<typeof import("./editor-renderer").createEditorPreparationWorker> | undefined;
   if (realRender) {
     const { runFfmpeg } = await import("@/lib/clipping/ffmpeg");
     await runFfmpeg(["-y", "-f", "lavfi", "-i", "color=c=navy:s=160x90:r=10:d=1.6", "-f", "lavfi", "-i",
       "sine=frequency=440:sample_rate=48000:duration=1.6", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", path.join(output, "master.mp4")]);
     const { createEditorPreparationWorker } = await import("./editor-renderer");
-    const { readExistingAppData } = await import("@/lib/storage/store");
     worker = createEditorPreparationWorker({ binding: { ownerId: owner.ownerId, records: [{ projectId: project.id,
       jobId: project.jobId, clipId: "clip-a", sourceFile: project.sourceFile,
       sourceSha256: createHash("sha256").update(await readFile(path.join(output, "master.mp4"))).digest("hex") }] },
-      store: { read: readExistingAppData, readJob: readOriginalEditorJob } });
+      store: { read: readExistingAppData, readJob: readOriginalEditorJob }, overlayAssets });
   }
   const { createExistingRecordReader } = await import("./records");
   const { composeMarketingParity } = await import("./composition");
@@ -60,13 +76,12 @@ async function fixture(realRender = false) {
   const records = createExistingRecordReader({ resolveScope: (id) => id === owner.ownerId ? {
     ownerId: id, sourceIds: [], runIds: [], clipJobIds: ["job-a"], queueIds: [], accountIds: {},
   } : null });
-  const editor = new MarketingEditor({ worker, binding: { ownerId: owner.ownerId,
-    records: [{ projectId: project.id, jobId: project.jobId, clipId: "clip-a", sourceFile: project.sourceFile }] } });
-  const composed = composeMarketingParity({ ownerId: owner.ownerId, base, records, editor, preparedEditorMedia: worker });
+  const editor = new MarketingEditor({ worker, binding: editorBinding, overlayAssets });
+  const composed = composeMarketingParity({ ownerId: owner.ownerId, base, records, editor, preparedEditorMedia: worker, overlayAssets });
   dispose = installMarketingRuntime({ ...composed, originAllowed: isSameOriginLoopbackMutation,
     authenticate: (req) => req.headers.get("x-fixture-user") === "owner" ? owner
       : req.headers.get("x-fixture-user") === "other" ? { ...owner, ownerId: "other-owner" } : null });
-  return { project, document, jobs, base, records, editor, worker, handlers: marketingRuntime()! };
+  return { project, document, jobs, base, records, editor, worker, image, overlayAssets, handlers: marketingRuntime()! };
 }
 const request = (pathName = "workspace", user = "owner") => new Request(`http://127.0.0.1:3100/api/integrations/marketing/${pathName}`, { headers: { "x-fixture-user": user } });
 const command = (body: unknown, user = "owner") => new Request("http://127.0.0.1:3100/api/integrations/marketing/operations", {
@@ -74,6 +89,50 @@ const command = (body: unknown, user = "owner") => new Request("http://127.0.0.1
 });
 
 describe("composed original records/editor/media HTTP boundary", () => {
+  it.each(["png", "jpeg", "webp"] as const)("previews, saves and prepares an original-store %s through scoped opaque media without replacing asset refs", async (format) => {
+    vi.stubEnv("PUBLISH_ENABLED", "true"); vi.stubEnv("PUBLISH_AUTO_ENQUEUE", "true");
+    const f = await fixture(true, format);
+    const jobsBefore = await readFile(f.jobs, "utf8");
+    const initial = await (await f.handlers.editor(request("editor/project-a"), "project-a")).json();
+    expect(initial.project.overlays[0].src).toBeUndefined(); expect(initial.media.overlays).toHaveLength(1);
+    expect(JSON.stringify(initial)).not.toContain("/api/clips/overlay-images/");
+    const imageId = initial.media.overlays[0].mediaId;
+    const image = await f.handlers.media(request("media/opaque"), imageId);
+    expect(image.status).toBe(200); expect(Buffer.from(await image.arrayBuffer())).toEqual(f.image!.bytes);
+    const rangeRequest = request("media/opaque"); rangeRequest.headers.set("range", "bytes=2-8");
+    const head = await f.handlers.media(new Request(rangeRequest, { method: "HEAD" }), imageId);
+    expect(head.status).toBe(206); expect(head.headers.get("content-length")).toBe("7"); expect(await head.text()).toBe("");
+    const range = await f.handlers.media(rangeRequest, imageId);
+    expect(range.status).toBe(206); expect(Buffer.from(await range.arrayBuffer())).toEqual(f.image!.bytes.subarray(2, 9));
+    const saveResponse = await f.handlers.operations(command({ operation: "save_editor_project", commandId: randomUUID(), target: initial.target,
+      project: { ...initial.project, overlays: [{ ...initial.project.overlays[0], x: 0.3 }] } }));
+    expect(saveResponse.status).toBe(200); const saved = await saveResponse.json();
+    const stored = JSON.parse(await readFile(f.document, "utf8")).clipProjects[0];
+    expect(stored.overlays[0].src).toBe(f.project.overlays[0].src);
+    expect((await f.handlers.media(request("media/opaque"), imageId)).status).toBe(404);
+    const exported = await (await f.handlers.operations(command({ operation: "request_editor_export", commandId: randomUUID(), target: saved.snapshot.target }))).json();
+    const workerPrincipal: Principal = { ownerId: owner.ownerId, scopes: ["worker"] };
+    const claimed = await f.editor.claimExport(workerPrincipal, { operation: "claim_editor_export", commandId: randomUUID(), target: saved.snapshot.target,
+      requestId: exported.receipt.requestId });
+    const proof = await f.worker!.prepare(f.project.id, exported.receipt.requestId, claimed.attemptId);
+    await f.editor.recordExportOutcome(workerPrincipal, { operation: "record_editor_export_outcome", commandId: randomUUID(), target: saved.snapshot.target,
+      requestId: exported.receipt.requestId, attemptId: claimed.attemptId, outcome: "prepared" });
+    const final = await (await f.handlers.editor(request("editor/project-a"), "project-a")).json();
+    expect(final.export.state).toBe("prepared");
+    const video = await f.handlers.media(request("media/opaque"), final.media.edited.mediaId);
+    expect(video.status).toBe(200);
+    expect(createHash("sha256").update(new Uint8Array(await video.arrayBuffer())).digest("hex")).toBe(proof.artifactSha256);
+    const { runFfmpeg } = await import("@/lib/clipping/ffmpeg");
+    const decoded = path.join(path.dirname(proof.file), "image-frame.rgb");
+    await runFfmpeg(["-y", "-ss", "0.3", "-i", proof.file, "-frames:v", "1", "-an", "-f", "rawvideo", "-pix_fmt", "rgb24", decoded]);
+    const pixels = await readFile(decoded); const center = (80 * 160 + 48) * 3;
+    expect(pixels[center]).toBeGreaterThan(220); expect(pixels[center + 1]).toBeLessThan(40);
+    await writeFile(f.image!.file, Buffer.alloc(f.image!.bytes.length));
+    expect((await f.handlers.media(request("media/opaque"), final.media.overlays[0].mediaId)).status).toBe(404);
+    expect((await f.handlers.media(request("media/opaque"), final.media.edited.mediaId)).status).toBe(404);
+    expect(await readFile(f.jobs, "utf8")).toBe(jobsBefore); expect(await readdir(root)).not.toContain("publish-queue.json");
+    expect(fetch).not.toHaveBeenCalled();
+  }, 60_000);
   it.each(["svg", "local_audio"] as const)("refuses an incomplete %s asset preview without mutating the original project", async (kind) => {
     const f = await fixture();
     const data = JSON.parse(await readFile(f.document, "utf8"));

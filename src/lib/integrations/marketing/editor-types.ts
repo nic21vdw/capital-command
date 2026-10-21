@@ -23,11 +23,19 @@ export const editorReceiptSchema = z.object({
   reviewInvalidated: z.literal(true), publicationAuthorized: z.literal(false)
 }).strict();
 export type EditorReceipt = z.infer<typeof editorReceiptSchema>;
+export const editorOverlayAssetIdentitySchema = z.object({
+  overlayId: z.string().min(1).max(128), src: z.string().max(128),
+  sha256, format: z.enum(["png", "jpeg", "webp"]), byteLength: z.number().int().positive().max(8 * 1024 * 1024),
+  width: z.number().int().positive().max(8192), height: z.number().int().positive().max(8192)
+}).strict();
+export type EditorOverlayAssetIdentity = z.infer<typeof editorOverlayAssetIdentitySchema>;
 export const editorExportIntentSchema = z.object({
   requestId: z.string().uuid(), revision, digest: sha256, renderSignature: z.string(),
   state: editorExportStateSchema, attemptId: z.string().uuid().optional(),
   // Internal proof only; media is independently resolved from the original job.
-  artifactSha256: sha256.optional(), exportId: id.optional()
+  artifactSha256: sha256.optional(), exportId: id.optional(),
+  /** Exact existing image bytes approved by this explicit export request. */
+  overlayAssets: z.array(editorOverlayAssetIdentitySchema).max(32).optional()
 }).strict();
 export type EditorExportIntent = z.infer<typeof editorExportIntentSchema>;
 export const marketingEditorStateSchema = z.object({
@@ -56,6 +64,8 @@ export type EditorSnapshot = {
   media: {
     source: EditorMediaDescriptor; poster?: EditorMediaDescriptor;
     edited?: EditorMediaDescriptor & { renderSignature?: string; current: boolean };
+    /** Private projection resolves these IDs to opaque protected image references. */
+    overlays?: { overlayId: string }[];
   };
   export: { state: "not_requested" | EditorExportIntent["state"]; requestId?: string };
   capabilities: { save: boolean; deleteProject: boolean; requestExport: boolean; dispatchExport: false };

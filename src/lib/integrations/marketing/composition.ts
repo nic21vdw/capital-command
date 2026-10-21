@@ -8,6 +8,8 @@ import type { PreparationSourceAccess } from "@/lib/pipeline/marketing-preparati
 import path from "node:path";
 import { dataRoot } from "@/lib/paths";
 import type { createMarketingAnalyticsReader } from "./analytics";
+import { createHash } from "node:crypto";
+import type { createStoredEditorOverlayResolver, StoredEditorOverlayStreamingRead } from "./editor-overlay-assets";
 
 type RecordReader = ReturnType<typeof createExistingRecordReader>;
 export type PreparedEditorMedia = {
@@ -28,8 +30,19 @@ export function composeMarketingParity(options: {
   editor: MarketingEditor;
   preparationAccess?: PreparationSourceAccess;
   preparedEditorMedia?: PreparedEditorMedia;
+  overlayAssets?: Pick<ReturnType<typeof createStoredEditorOverlayResolver>, "resolve" | "resolveMany">;
   analytics?: ReturnType<typeof createMarketingAnalyticsReader>;
 }): { service: MarketingHttpService; resources: MarketingResourceService } {
+  const imageReads = new Map<string, { dataRoot: string; relativePath: string; guard: StoredEditorOverlayStreamingRead }>();
+  const imageGrant = (entry: { dataRoot: string; relativePath: string; guard: StoredEditorOverlayStreamingRead }) => {
+    const assertCurrent = () => {
+      if (dataRoot() !== entry.dataRoot) throw new Error("The verified image data root changed.");
+      entry.guard.assertCurrentFile();
+    };
+    assertCurrent();
+    return { dataRoot: entry.dataRoot, relativePath: entry.relativePath, sourceType: "clip_export" as const, assertCurrent };
+  };
+  const imageKey = (snapshot: EditorSnapshot, overlayId: string, sha256: string) => `overlay:${snapshot.target.projectId}:${snapshot.target.revision}:${snapshot.target.digest}:${sha256}:${createHash("sha256").update(overlayId).digest("hex")}`;
   function authorize(principal: Principal, scope: "read" | "write") {
     if (principal.ownerId !== options.ownerId || !principal.scopes.includes(scope)) {
       throw new MarketingHttpError(403, "forbidden", "This operation is outside the verified owner scope.");
@@ -53,11 +66,20 @@ export function composeMarketingParity(options: {
       if (!mediaId) throw new MarketingHttpError(503, "unavailable", "The original editor media is not in this owner's approved media scope.");
       return { mediaId, url: `/api/marketing/media/${encodeURIComponent(mediaId)}` };
     }
-    // Original asset selectors need their own scoped transport. Do not hand the
-    // browser original file routes or silently discard assets from a project.
-    if (snapshot.requiresAssetConnection || snapshot.project.overlays.some((row) => row.src?.startsWith("/api/clips/"))) {
+    // Unsupported refs (including music mixed with supported images) stay closed.
+    const imageRows = snapshot.media.overlays ?? [];
+    if (snapshot.requiresAssetConnection || (imageRows.length && !options.overlayAssets)) {
       throw new MarketingHttpError(503, "unavailable", "This project requires the original image or audio asset connection before it can be edited here.");
     }
+    let overlayMedia: { overlayId: string; mediaId: string; url: string }[];
+    try {
+      const images = imageRows.length ? await options.overlayAssets!.resolveMany(snapshot.target, imageRows.map((row) => row.overlayId)) : [];
+      overlayMedia = images.map((asset) => {
+        asset.assertCurrentFile();
+        const mediaId = imageKey(snapshot, asset.overlayId, asset.sha256);
+        return { overlayId: asset.overlayId, mediaId, url: `/api/marketing/media/${encodeURIComponent(mediaId)}` };
+      });
+    } catch { throw new MarketingHttpError(503, "unavailable", "The existing stored images could not be verified for this editor revision."); }
     let prepared;
     if (snapshot.export.state === "prepared" && snapshot.export.requestId && options.preparedEditorMedia) {
       const proof = await options.preparedEditorMedia.readCurrentArtifact(snapshot.target.projectId, snapshot.export.requestId);
@@ -70,12 +92,43 @@ export function composeMarketingParity(options: {
     }
     return { ...snapshot, media: {
       source: await reference(snapshot.media.source),
+      ...(overlayMedia.length ? { overlays: overlayMedia } : {}),
       ...(snapshot.media.poster ? { poster: await reference(snapshot.media.poster) } : {}),
       ...(prepared ? { edited: prepared } : snapshot.media.edited ? { edited: { ...await reference(snapshot.media.edited),
         current: snapshot.media.edited.current, renderSignature: snapshot.media.edited.renderSignature } } : {}),
     } };
   }
   const readMedia = createProtectedMediaReader({ resolveMedia: async (ownerId, mediaId) => {
+    if (mediaId.startsWith("overlay:")) {
+      if (ownerId !== options.ownerId || !options.overlayAssets) return null;
+      try {
+        const match = /^overlay:([A-Za-z0-9_-]{1,128}):(\d{1,16}):([a-f0-9]{64}):([a-f0-9]{64}):([a-f0-9]{64})$/.exec(mediaId);
+        if (!match) return null;
+        const snapshot = await options.editor.load({ ownerId, scopes: ["read"] }, match[1]);
+        if (snapshot.requiresAssetConnection || String(snapshot.target.revision) !== match[2] || snapshot.target.digest !== match[3]) return null;
+        const rows = (snapshot.media.overlays ?? []).filter((row) => createHash("sha256").update(row.overlayId).digest("hex") === match[5]);
+        if (rows.length !== 1 || imageKey(snapshot, rows[0].overlayId, match[4]) !== mediaId) return null;
+        const cached = imageReads.get(mediaId);
+        if (cached) {
+          try {
+            const grant = imageGrant(cached);
+            imageReads.delete(mediaId); imageReads.set(mediaId, cached);
+            return grant;
+          } catch { imageReads.delete(mediaId); }
+        }
+        const assetRoot = dataRoot();
+        const asset = await options.overlayAssets.resolve(snapshot.target, rows[0].overlayId);
+        if (dataRoot() !== assetRoot) return null;
+        if (asset.sha256 !== match[4]) return null;
+        const file = /^\/api\/clips\/overlay-images\/([a-f0-9]{40}\.(?:png|jpg|webp))$/.exec(asset.src)?.[1];
+        if (!file) return null;
+        const entry = { dataRoot: assetRoot, relativePath: path.join("overlay-images", file), guard: asset.streamingRead() };
+        const grant = imageGrant(entry);
+        imageReads.set(mediaId, entry);
+        if (imageReads.size > 128) imageReads.delete(imageReads.keys().next().value!);
+        return grant;
+      } catch { imageReads.delete(mediaId); return null; }
+    }
     if (!mediaId.startsWith("prepared:")) return options.records.resolveMedia(ownerId, mediaId);
     if (ownerId !== options.ownerId || !options.preparedEditorMedia) return null;
     const match = /^prepared:([A-Za-z0-9_-]{1,128}):([0-9a-f-]{36})$/i.exec(mediaId);

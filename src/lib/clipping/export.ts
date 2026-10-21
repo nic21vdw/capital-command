@@ -152,9 +152,25 @@ function selectExpression(spec: ExportSpec): string {
     : `gte(t,${range.start.toFixed(3)})*lt(t,${range.end.toFixed(3)})`).join("+");
 }
 
-async function writeOverlayImages(spec: ExportSpec, dir: string) {
-  const images: { overlay: Overlay; file: string }[] = [];
+async function writeOverlayImages(spec: ExportSpec, dir: string,
+  preparedImages?: ReadonlyMap<string, { bytes: Buffer; format: "png" | "jpeg" | "webp" }>) {
+  const images: { overlay: Overlay; file: string; intervals?: { start: number; end: number }[] }[] = [];
   let i = 0;
+  if (preparedImages) {
+    let intervalCount = 0;
+    for (const original of spec.overlays.filter((row) => row.kind !== "text")) {
+      const intervals = remapClipOverlays([original], editRanges(spec), spec.baseDurationSec);
+      if (!intervals.length) continue;
+      intervalCount += intervals.length;
+      if (intervalCount > 512) throw new Error("The prepared image timeline has too many active intervals.");
+      const prepared = preparedImages.get(original.id);
+      if (!prepared) throw new Error("A prepared image has no verified copied bytes.");
+      const file = path.join(dir, `ov-${i++}.${prepared.format === "jpeg" ? "jpg" : prepared.format}`);
+      await writeFile(file, prepared.bytes);
+      images.push({ overlay: original, file, intervals });
+    }
+    return images;
+  }
   for (const overlay of shiftedOverlays(spec)) {
     if (overlay.kind === "text" && !overlay.src) continue;
     if (!overlay.src) continue;
@@ -286,7 +302,8 @@ function sourceCompositionChain(spec: ExportSpec, w: number, h: number): string 
   return centerBlurChain("0:v", "v0", w, h, spec.reframe.scale, spec.reframe.offsetX, spec.reframe.offsetY);
 }
 
-async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePath: string; outFile: string }): Promise<{ args: string[]; outFile: string }> {
+async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePath: string; outFile: string;
+  images?: ReadonlyMap<string, { bytes: Buffer; format: "png" | "jpeg" | "webp" }> }): Promise<{ args: string[]; outFile: string }> {
   const { settings } = spec;
   const w = settings.width;
   const h = settings.height;
@@ -297,7 +314,7 @@ async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePa
   const hasAudio = preparation ? (await probePreparationMedia(basePath)).hasAudio
     : await hasAudioStream(basePath).catch(() => false);
 
-  const images = await writeOverlayImages(spec, dir);
+  const images = await writeOverlayImages(spec, dir, preparation?.images);
   const assPath = path.join(dir, "subs.ass");
   await writeFile(assPath, await buildExportAss(spec, w, h), "utf8");
 
@@ -357,7 +374,8 @@ async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePa
     parts.push(
       `[${inputIdx}:v]format=rgba,colorchannelmixer=aa=${o.opacity.toFixed(3)},${scaleFilter(targetW, -1)}${rotate}[ov${k}]`
     );
-    const enable = `:enable='between(t,${o.start},${o.end > o.start ? o.end : dur})'`;
+    const enable = img.intervals ? `:enable='${img.intervals.map((range) => `between(t,${range.start},${range.end})`).join("+")}'`
+      : `:enable='between(t,${o.start},${o.end > o.start ? o.end : dur})'`;
     const next = `vov${k}`;
     parts.push(`[${last}][ov${k}]overlay=x=W*${o.x.toFixed(4)}-w/2:y=H*${o.y.toFixed(4)}-h/2${enable}[${next}]`);
     last = next;
@@ -438,6 +456,9 @@ async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePa
     args.push("-movflags", "+faststart");
   }
   args.push(outFile);
+  if (preparation?.images?.size && args.reduce((size, arg) => size + arg.length + 3, 0) > 24_000) {
+    throw new Error("The prepared image timeline exceeds the bounded render command size.");
+  }
   return { args, outFile };
 }
 
@@ -446,8 +467,19 @@ export type PreparationExportBinding = {
   ownerId: string; projectId: string; jobId: string; clipId: string; sourceFile: string;
   sourceSha256: string; projectDigest: string; specSha256: string; renderSignature: string;
   requestId: string; attemptId: string;
+  overlayAssets?: PreparationOverlayAssetIdentity[];
 };
-export type PreparationExportCurrent = { binding: PreparationExportBinding; spec: ExportSpec };
+export type PreparationOverlayAssetIdentity = {
+  overlayId: string; src: string; sha256: string; format: "png" | "jpeg" | "webp";
+  byteLength: number; width: number; height: number;
+};
+export type PreparationOverlayAsset = PreparationOverlayAssetIdentity & {
+  copyBytes(): Buffer;
+  assertCurrentFile(): void;
+  streamingRead(): { purpose: "streaming"; assertCurrentFile(): void };
+};
+export type PreparationExportCurrent = { binding: PreparationExportBinding; spec: ExportSpec;
+  overlayAssets?: readonly PreparationOverlayAsset[] };
 /** Streaming-only identity guard; never accepted as an export-outcome proof. */
 export type PreparationArtifactRead = PreparationExportBinding & {
   exportId: string; file: string; durationSec: number; bytes: number; artifactSha256: string;
@@ -480,6 +512,21 @@ const preparationId = (value: string): boolean => /^[A-Za-z0-9_-]{1,128}$/.test(
 const preparationUuid = (value: string): boolean => /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
 const preparationFile = (value: string): boolean => typeof value === "string" && value.length <= 255
   && /^[A-Za-z0-9][A-Za-z0-9_. -]*\.(?:mp4|webm|mov|mkv)$/i.test(value) && !value.endsWith(".");
+
+function assetIdentity(asset: PreparationOverlayAssetIdentity): PreparationOverlayAssetIdentity {
+  const { overlayId, src, sha256, format, byteLength, width, height } = asset;
+  return { overlayId, src, sha256, format, byteLength, width, height };
+}
+function validAssetManifest(assets: readonly PreparationOverlayAssetIdentity[]): boolean {
+  return assets.length <= 32 && new Set(assets.map((asset) => asset.overlayId)).size === assets.length
+    && assets.every((asset) => preparationId(asset.overlayId) && /^[a-f0-9]{64}$/.test(asset.sha256)
+      && /^\/api\/clips\/overlay-images\/[a-f0-9]{40}\.(?:png|jpg|webp)$/.test(asset.src)
+      && asset.format === (asset.src.endsWith(".jpg") ? "jpeg" : asset.src.endsWith(".png") ? "png" : "webp")
+      && [asset.byteLength, asset.width, asset.height].every((value) => Number.isSafeInteger(value) && value > 0)
+      && asset.byteLength <= 8 * 1024 * 1024 && asset.width <= 8192 && asset.height <= 8192)
+    && assets.reduce((sum, asset) => sum + asset.byteLength, 0) <= 32 * 1024 * 1024
+    && assets.reduce((sum, asset) => sum + asset.width * asset.height, 0) <= 16 * 1024 * 1024;
+}
 
 /** Checks every ancestor, including Windows junctions, before using a derived path. */
 function assertPreparationPath(target: string, allowMissing = false): void {
@@ -542,7 +589,13 @@ async function preparationContext(
     || ![binding.projectId, binding.jobId, binding.clipId].every(preparationId)
     || !preparationFile(binding.sourceFile) || ![binding.requestId, binding.attemptId].every(preparationUuid)
     || ![binding.sourceSha256, binding.projectDigest, binding.specSha256].every((hash) => /^[a-f0-9]{64}$/.test(hash))
-    || !/^[a-z0-9]{1,64}$/.test(binding.renderSignature)) throw new Error("An explicit trusted preparation binding is required.");
+    || !/^[a-z0-9]{1,64}$/.test(binding.renderSignature)
+    || !validAssetManifest(binding.overlayAssets ?? [])) throw new Error("An explicit trusted preparation binding is required.");
+  if (binding.overlayAssets) {
+    binding.overlayAssets.forEach((asset) => Object.freeze(asset));
+    Object.freeze(binding.overlayAssets);
+  }
+  Object.freeze(binding);
   const root = path.resolve(dataPath("clips"));
   const sourcePath = path.join(root, "outputs", binding.jobId, binding.sourceFile);
   // Keep libass paths below Windows' legacy MAX_PATH limit, including under a
@@ -555,15 +608,24 @@ async function preparationContext(
     if (path.resolve(dataPath("clips")) !== root) throw new Error("The preparation data root changed.");
     assertPreparationPath(root);
   };
-  const checkCurrent = async (): Promise<ExportSpec> => {
+  const checkCurrent = async () => {
     const current = await readCurrent();
     if (canonicalPreparationJson(current.binding) !== canonicalPreparationJson(binding)) throw new Error("The preparation source, project or attempt changed.");
     const parsed = preparationSpecSchema.parse(current.spec) as ExportSpec;
     if (canonicalPreparationJson(parsed).length > 4_000_000 || preparationSpecDigest(parsed) !== binding.specSha256
       || preparationSpecDigest(current.spec) !== binding.specSha256 || renderSignature(parsed) !== binding.renderSignature
       || parsed.jobId !== binding.jobId || parsed.sourceFile !== binding.sourceFile) throw new Error("The preparation render spec changed.");
-    if (parsed.audio.musicSrc || parsed.overlays.some((overlay) => overlay.kind !== "text" || overlay.src)
+    if (parsed.audio.musicSrc || parsed.overlays.some((overlay) => overlay.kind === "text" && overlay.src)
       || parsed.sfx?.enabled || parsed.settings.separateSubtitle) throw new Error("This preparation requires an unsupported asset or subtitle capability.");
+    const images = parsed.overlays.filter((overlay) => overlay.kind !== "text");
+    const assets = current.overlayAssets ?? [];
+    const manifest = binding.overlayAssets ?? [];
+    if (images.length !== manifest.length || assets.length !== manifest.length
+      || canonicalPreparationJson(assets.map(assetIdentity)) !== canonicalPreparationJson(manifest)
+      || images.some((overlay, index) => overlay.id !== manifest[index].overlayId || overlay.src !== manifest[index].src)) {
+      throw new Error("This preparation has an unsupported or unverified existing image manifest.");
+    }
+    assets.forEach((asset) => asset.assertCurrentFile());
     if (!/^[A-Za-z0-9][A-Za-z0-9_. -]{0,127}$/.test(parsed.settings.filename)
       || parsed.settings.width % 2 || parsed.settings.height % 2) throw new Error("The preparation export settings are unsupported.");
     const end = parsed.trimEnd || parsed.baseDurationSec;
@@ -574,16 +636,18 @@ async function preparationContext(
     }
     assertRoot();
     if (preparationFileHash(sourcePath).sha256 !== binding.sourceSha256) throw new Error("The preparation source bytes changed.");
-    return structuredClone(parsed);
+    return { spec: structuredClone(parsed), assets };
   };
-  const spec = await checkCurrent();
+  const { spec, assets } = await checkCurrent();
   const source = preparationFileHash(sourcePath);
-  return { binding, spec, source, sourcePath, dir, scratch, assertRoot, checkCurrent,
+  return { binding, spec, assets, source, sourcePath, dir, scratch, assertRoot, checkCurrent,
     file: path.join(dir, `prepared.${spec.settings.format}`) };
 }
 
 async function readPreparationProof(context: Awaited<ReturnType<typeof preparationContext>>): Promise<PreparationExportProof> {
-  const { binding, spec, source, sourcePath, file, assertRoot, checkCurrent } = context;
+  const { binding, spec, assets, source, sourcePath, file, assertRoot, checkCurrent } = context;
+  // Guard functions retain file identities, never decoded/copy buffers in proofs.
+  const assetGuards = assets.map((asset) => ({ assertCurrentFile: asset.assertCurrentFile, streamingRead: asset.streamingRead }));
   const output = preparationFileHash(file);
   if (output.bytes < 1024) throw new Error("Preparation produced no usable video file.");
   const media = await probePreparationMedia(file);
@@ -592,6 +656,7 @@ async function readPreparationProof(context: Awaited<ReturnType<typeof preparati
   if (media.width !== spec.settings.width || media.height !== spec.settings.height) throw new Error("The preparation output dimensions do not match its render spec.");
   const assertCurrent = () => {
     assertRoot();
+    assetGuards.forEach((asset) => asset.assertCurrentFile());
     const currentSource = preparationFileHash(sourcePath);
     const currentOutput = preparationFileHash(file);
     if (currentSource.sha256 !== binding.sourceSha256 || currentSource.identity !== source.identity
@@ -602,8 +667,10 @@ async function readPreparationProof(context: Awaited<ReturnType<typeof preparati
   const artifact = { ...binding, exportId: `preparation-${binding.attemptId}`, file, durationSec,
     bytes: output.bytes, artifactSha256: output.sha256 };
   const streamingRead = (): PreparationArtifactRead => {
+    const assetReads = assetGuards.map((asset) => asset.streamingRead());
     const assertStreamingCurrent = () => {
       assertRoot();
+      assetReads.forEach((asset) => asset.assertCurrentFile());
       if (preparationFileIdentity(sourcePath).identity !== source.identity
         || preparationFileIdentity(file).identity !== output.identity) throw new Error("The streaming preparation media identity changed.");
     };
@@ -637,7 +704,7 @@ export async function prepareClipExport(
   options: { signal?: AbortSignal; onProgress?: (percent: number) => void } = {}
 ): Promise<PreparationExportProof> {
   const context = await preparationContext(trusted, readCurrent);
-  const { spec, sourcePath, dir, scratch, file, checkCurrent } = context;
+  const { spec, assets, sourcePath, dir, scratch, file, checkCurrent } = context;
   assertPreparationPath(dir, true);
   // Exclusive attempt directory: retries never overwrite an uncertain artifact.
   await mkdir(path.dirname(dir), { recursive: true });
@@ -647,7 +714,14 @@ export async function prepareClipExport(
   await mkdir(scratch);
   try {
     assertPreparationPath(path.join(process.cwd(), "public", "fonts", "captions"), true);
-    const { args } = await buildArgs(spec, scratch, { sourcePath, outFile: file });
+    const images = new Map(assets.map((asset) => {
+      const bytes = asset.copyBytes();
+      if (bytes.length !== asset.byteLength || createHash("sha256").update(bytes).digest("hex") !== asset.sha256) {
+        throw new Error("The verified image copy does not match its immutable manifest.");
+      }
+      return [asset.overlayId, { bytes, format: asset.format }] as const;
+    }));
+    const { args } = await buildArgs(spec, scratch, { sourcePath, outFile: file, images });
     await checkCurrent();
     assertPreparationPath(scratch);
     assertPreparationPath(file, true);

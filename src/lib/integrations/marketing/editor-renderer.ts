@@ -1,15 +1,17 @@
 import { createHash } from "node:crypto";
 import { prepareClipExport, preparationSpecDigest, verifyPreparedClipExport, type ExportSpec, type PreparationExportBinding,
-  type PreparationArtifactRead, type PreparationExportCurrent, type PreparationExportProof } from "@/lib/clipping/export";
+  type PreparationArtifactRead, type PreparationExportCurrent, type PreparationExportProof,
+  type PreparationOverlayAssetIdentity } from "@/lib/clipping/export";
 import { renderSignature } from "@/lib/clipping/export-signature";
 import { clipProjectSchema } from "@/lib/storage/schemas";
 import type { ClipJob } from "@/lib/clipping/types";
 import type { ClipProject } from "@/types/domain";
+import type { createStoredEditorOverlayResolver } from "./editor-overlay-assets";
 
 // Structural types keep this internal adapter independent of HTTP composition.
 // They intentionally satisfy MarketingEditor's EditorWorkerPorts contract.
 type Intent = { requestId: string; attemptId?: string; revision: number; digest: string;
-  renderSignature: string; state: string; exportId?: string; artifactSha256?: string };
+  renderSignature: string; state: string; exportId?: string; artifactSha256?: string; overlayAssets?: PreparationOverlayAssetIdentity[] };
 type ManagedProject = ClipProject & { marketingEditor?: { ownerId: string; jobId: string; clipId: string;
   revision: number; digest: string; renderSignature: string; deletedAt?: string; exports: Intent[] } };
 type RecordBinding = { projectId: string; jobId: string; clipId: string; sourceFile: string; sourceSha256: string };
@@ -44,6 +46,7 @@ export function editorPreparationSpec(project: ClipProject): ExportSpec {
  */
 export function createEditorPreparationWorker(options: {
   binding: { ownerId: string; records: readonly RecordBinding[] }; store: Store;
+  overlayAssets?: Pick<ReturnType<typeof createStoredEditorOverlayResolver>, "resolveMany">;
 }) {
   const binding = structuredClone(options.binding);
   const id = (value: string) => /^[A-Za-z0-9_-]{1,128}$/.test(value);
@@ -57,7 +60,7 @@ export function createEditorPreparationWorker(options: {
   const proofs = new Map<string, PreparationExportProof>();
   const inFlight = new Set<string>();
   const streamReads = new Map<string, { key: string; artifact: PreparationArtifactRead }>();
-  async function current(projectId: string, requestId: string, attemptId: string, phase: "claimed" | "prepared" = "claimed"):
+  async function current(projectId: string, requestId: string, attemptId: string, phase: "claimed" | "prepared" = "claimed", verifyAssets = true):
     Promise<PreparationExportCurrent & { evidence?: { exportId: string; artifactSha256: string } }> {
     const record = binding.records.find((candidate) => candidate.projectId === projectId);
     if (!record) throw new Error("The editor project is outside the trusted render allowlist.");
@@ -87,9 +90,22 @@ export function createEditorPreparationWorker(options: {
       || clip.variants?.some((variant) => variant.file === record.sourceFile))) ?? [];
     if (!job || job.id !== record.jobId || clips.length !== 1 || Math.abs(project.clipStart - clips[0].start) > 0.001
       || Math.abs(project.clipEnd - clips[0].end) > 0.001) throw new Error("The original clip media binding changed.");
+    const imageRows = project.overlays.filter((row) => row.kind !== "text");
+    const manifest = intent.overlayAssets ?? [];
+    if (imageRows.length !== manifest.length || imageRows.some((row, index) => row.id !== manifest[index].overlayId || row.src !== manifest[index].src)) {
+      throw new Error("The persisted image asset manifest does not match this exact project.");
+    }
+    if (imageRows.length && !options.overlayAssets) throw new Error("The existing image asset resolver is not configured.");
+    const assets = verifyAssets && imageRows.length ? await options.overlayAssets!.resolveMany({ projectId,
+      jobId: record.jobId, clipId: record.clipId, revision: state.revision, digest, renderSignature: signature }, imageRows.map((row) => row.id)) : [];
+    if (verifyAssets && canonical(assets.map(({ overlayId, src, sha256, format, byteLength, width, height }) =>
+      ({ overlayId, src, sha256, format, byteLength, width, height }))) !== canonical(manifest)) {
+      throw new Error("The existing image bytes do not match the explicit export request.");
+    }
     const identity: PreparationExportBinding = { ownerId: binding.ownerId, projectId, jobId: record.jobId,
       clipId: record.clipId, sourceFile: record.sourceFile, sourceSha256: record.sourceSha256,
-      projectDigest: digest, specSha256: preparationSpecDigest(spec), renderSignature: signature, requestId, attemptId };
+      projectDigest: digest, specSha256: preparationSpecDigest(spec), renderSignature: signature, requestId, attemptId,
+      ...(manifest.length ? { overlayAssets: structuredClone(manifest) } : {}) };
     let evidence: { exportId: string; artifactSha256: string } | undefined;
     if (phase === "prepared") {
       if (intent.exportId !== `preparation-${attemptId}` || !intent.artifactSha256 || !/^[a-f0-9]{64}$/.test(intent.artifactSha256)) {
@@ -97,7 +113,7 @@ export function createEditorPreparationWorker(options: {
       }
       evidence = { exportId: intent.exportId, artifactSha256: intent.artifactSha256 };
     }
-    return { binding: identity, spec, evidence };
+    return { binding: identity, spec, evidence, ...(assets.length ? { overlayAssets: assets } : {}) };
   }
   async function readArtifact(projectId: string, requestId: string, attemptId: string): Promise<PreparationExportProof> {
     const snapshot = await current(projectId, requestId, attemptId, "prepared");
@@ -136,7 +152,7 @@ export function createEditorPreparationWorker(options: {
         }
         // Every hit re-reads original project/job/claim identity. Only streaming
         // avoids repeated whole-media hashes, never render/approval verification.
-        const snapshot = await current(projectId, requestId, intents[0].attemptId, "prepared");
+        const snapshot = await current(projectId, requestId, intents[0].attemptId, "prepared", false);
         const key = canonical({ binding: snapshot.binding, evidence: snapshot.evidence });
         const cached = streamReads.get(cacheId);
         if (cached?.key === key) {
@@ -166,6 +182,7 @@ export function createEditorPreparationWorker(options: {
       await proof.verifyCurrent();
       return { requestId: proof.requestId, attemptId: proof.attemptId, digest: proof.projectDigest,
         renderSignature: proof.renderSignature, exportId: proof.exportId, artifactSha256: proof.artifactSha256,
+        ...(proof.overlayAssets?.length ? { overlayAssets: structuredClone(proof.overlayAssets) } : {}),
         assertCurrent: proof.assertCurrent };
     }
   };
