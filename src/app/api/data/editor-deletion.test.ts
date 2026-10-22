@@ -124,7 +124,8 @@ describe("original editor managed deletion", () => {
   it("returns a known receipt with record_unavailable when the original source disappears", async () => {
     const { editor, command, saved } = await fixture();
     expect(saved.snapshot).not.toBeNull();
-    const current = saved.snapshot!;
+    // Match the public HTTP payload, which omits internal undefined fields.
+    const current = JSON.parse(JSON.stringify(saved.snapshot)) as NonNullable<typeof saved.snapshot>;
     expect(current.target.revision).toBe(command.target.revision + 1);
     await unlink(jobsFile());
     const unchanged = await readFile(file(), "utf8");
