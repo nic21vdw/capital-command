@@ -123,12 +123,19 @@ describe("original editor managed deletion", () => {
 
   it("returns a known receipt with record_unavailable when the original source disappears", async () => {
     const { editor, command, saved } = await fixture();
+    expect(saved.snapshot).not.toBeNull();
+    const current = saved.snapshot!;
+    expect(current.target.revision).toBe(command.target.revision + 1);
     await unlink(jobsFile());
     const unchanged = await readFile(file(), "utf8");
     expect(await editor.replay(owner, command)).toEqual({ receipt: saved.receipt, replayed: true, snapshot: null,
       reconciliation: { state: "record_unavailable" } });
     expect((await editor.save(owner, command)).receipt).toEqual(saved.receipt);
-    await expect(editor.save(owner, { ...command, commandId: randomUUID() })).rejects.toMatchObject({ code: "not_found" });
+    // A new UUID does not make the pre-save revision current. Preserve the
+    // revision fence, then test source loss with the actual saved snapshot.
+    await expect(editor.save(owner, { ...command, commandId: randomUUID() })).rejects.toMatchObject({ code: "conflict" });
+    await expect(editor.save(owner, { ...command, commandId: randomUUID(), target: current.target, project: current.project }))
+      .rejects.toMatchObject({ code: "not_found" });
     expect(await readFile(file(), "utf8")).toBe(unchanged);
   });
 });
