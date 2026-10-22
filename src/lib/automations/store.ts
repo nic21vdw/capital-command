@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { dataPath } from "@/lib/paths";
 import { atomicWriteJson } from "@/lib/storage/atomic-json";
+import { withFileLock } from "@/lib/storage/file-lock";
 import { historyDetail, recordAutomationEventSafely } from "@/lib/automations/history";
 import { AUTOMATION_IDS, type AutomationControl, type AutomationId, type AutomationOutcome } from "@/lib/automations/types";
 
@@ -15,7 +16,18 @@ const outcomeSchema = z.object({
   status: z.enum(["completed", "failed", "paused"]),
   detail: z.string().max(1200)
 });
-let writes = Promise.resolve();
+
+/**
+ * Serialize control changes with operations that require a saved pause.
+ * Callers must read controls inside the lock and must not nest control writes.
+ * A live holder is never evicted just because a credential disk write is slow.
+ */
+export function withAutomationControlsLock<T>(work: () => Promise<T>): Promise<T> {
+  return withFileLock(dataPath("automations", "control.json"), work, {
+    staleMs: Number.POSITIVE_INFINITY,
+    timeoutMs: 5_000
+  });
+}
 
 export async function readAutomationControls(): Promise<Partial<Record<AutomationId, AutomationControl>>> {
   try {
@@ -37,13 +49,11 @@ export async function isAutomationPaused(id: AutomationId): Promise<boolean> {
 export async function setAutomationPaused(id: AutomationId, paused: boolean): Promise<AutomationControl> {
   const control = controlSchema.parse({ paused, changedAt: new Date().toISOString() });
   let changed = false;
-  const pending = writes.then(async () => {
+  await withAutomationControlsLock(async () => {
     const controls = await readAutomationControls();
     changed = (controls[id]?.paused ?? false) !== paused;
     await atomicWriteJson(dataPath("automations", "control.json"), { ...controls, [id]: control });
   });
-  writes = pending.catch(() => undefined);
-  await pending;
   if (changed) await recordAutomationEventSafely({ automationId: id, scope: "control", kind: paused ? "paused" : "resumed", at: control.changedAt!, detail: paused ? "Automatic work paused." : "Automatic work resumed." });
   return control;
 }
