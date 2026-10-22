@@ -1,4 +1,5 @@
 import { renderSignature } from "@/lib/clipping/export-signature";
+import { activeClipProjects } from "@/lib/clipping/project-visibility";
 import { writeAppData } from "@/lib/storage/store";
 import type { AppData, ClipProject } from "@/types/domain";
 
@@ -64,5 +65,5 @@ export function projectWithoutCaptions(project: ClipProject): ClipProject {
 }
 
 export function projectsWithoutCaptions(projects: ClipProject[]): ClipProject[] {
-  return projects.map(projectWithoutCaptions);
+  return activeClipProjects(projects).map(projectWithoutCaptions);
 }

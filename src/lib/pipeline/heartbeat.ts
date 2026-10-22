@@ -39,7 +39,7 @@ async function advanceMusicOnce(): Promise<number> {
 export async function advancePipelineOnce(): Promise<number> {
   if (await isAutomationPaused("pipeline")) return 0;
   const runs = await listRuns();
-  const live = runs.filter((run) => run.status === "running" || run.status === "ingesting");
+  const live = runs.filter((run) => !run.marketingSource && (run.status === "running" || run.status === "ingesting"));
   if (live.length === 0) return 0;
   const context = overviewContext();
   const settledNow: string[] = [];

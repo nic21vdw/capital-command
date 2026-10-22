@@ -1,8 +1,9 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import { RenderCanceledError, parseVideoStreamInfo, probeVideoStream } from "@/lib/clipping/ffmpeg";
+import { RenderCanceledError, parseVideoStreamInfo, probeVideoStream, runFfmpeg } from "@/lib/clipping/ffmpeg";
 
-const spawned = vi.hoisted(() => ({ calls: 0, kills: 0, child: null as null | { emit: (event: string, ...args: unknown[]) => boolean } }));
+const spawned = vi.hoisted(() => ({ calls: 0, kills: 0, killMode: "close" as "close" | "error" | "false",
+  onSpawn: undefined as (() => void) | undefined, child: null as null | { emit: (event: string, ...args: unknown[]) => boolean } }));
 
 vi.mock("node:child_process", () => ({
   spawn: () => {
@@ -12,11 +13,13 @@ vi.mock("node:child_process", () => ({
       stderr: new EventEmitter(),
       kill: () => {
         spawned.kills += 1;
-        child.emit("close", null);
-        return true;
+        if (spawned.killMode === "close") child.emit("close", null);
+        if (spawned.killMode === "error") child.emit("error", new Error("Synthetic kill failure"));
+        return spawned.killMode === "close";
       }
     });
     spawned.child = child;
+    spawned.onSpawn?.();
     return child;
   }
 }));
@@ -62,6 +65,38 @@ describe("parseVideoStreamInfo", () => {
   it("reads fractional source cadence rather than the nominal tbr", () => {
     const info = parseVideoStreamInfo(LANDSCAPE.replace("30 fps, 30 tbr", "59.94 fps, 60 tbr"));
     expect(info?.fps).toBe(59.94);
+  });
+});
+
+describe("runFfmpeg process settlement", () => {
+  it.each(["error", "false"] as const)("does not settle an aborted child on kill %s before its actual close", async (mode) => {
+    spawned.killMode = mode;
+    const controller = new AbortController();
+    const running = runFfmpeg(["-version"], { signal: controller.signal });
+    let settled = false; void running.then(() => { settled = true; }, () => { settled = true; });
+    try {
+      controller.abort();
+      await Promise.resolve(); await Promise.resolve();
+      expect(settled).toBe(false);
+    } finally { spawned.child?.emit("close", null); spawned.killMode = "close"; }
+    await expect(running).rejects.toBeInstanceOf(RenderCanceledError);
+  });
+  it("waits for close after an error even when no cancellation signal was supplied", async () => {
+    const running = runFfmpeg(["-version"]);
+    let settled = false; void running.then(() => { settled = true; }, () => { settled = true; });
+    spawned.child?.emit("error", new Error("Synthetic child error"));
+    await Promise.resolve(); expect(settled).toBe(false);
+    spawned.child?.emit("close", 1);
+    await expect(running).rejects.toThrow("Synthetic child error");
+  });
+  it("catches an abort during spawn registration and still waits for close", async () => {
+    const controller = new AbortController();
+    const priorKills = spawned.kills;
+    spawned.onSpawn = () => controller.abort();
+    const running = runFfmpeg(["-version"], { signal: controller.signal });
+    spawned.onSpawn = undefined;
+    await expect(running).rejects.toBeInstanceOf(RenderCanceledError);
+    expect(spawned.kills).toBe(priorKills + 1);
   });
 });
 

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { COLATERAL_DESCRIPTION } from "@/lib/clipping/keywords";
+import { marketingEditorStateSchema } from "@/lib/integrations/marketing/editor-types";
 
 export const holdingSchema = z.object({
   id: z.string(),
@@ -885,6 +886,7 @@ const clipEditSegmentSchema = z.object({
 });
 
 export const clipProjectSchema = z.object({
+  marketingEditor: marketingEditorStateSchema.optional(),
   id: z.string(),
   name: z.string().trim().min(1).default("Untitled clip"),
   jobId: z.string(),

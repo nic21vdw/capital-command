@@ -2,6 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataPath } from "@/lib/paths";
 import { atomicWriteJson } from "@/lib/storage/atomic-json";
+import { draftOverview, retainedRuns, validateDraftSource, type DraftSourceCommand, type DraftSourceReceipt } from "@/lib/pipeline/marketing-drafts";
 import { runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { createJobFromUpload, getJob } from "@/lib/clipping/jobs";
 import { readSourceMeta, saveSourceFromUrl } from "@/lib/clipping/sources";
@@ -61,11 +62,12 @@ import { DEFAULT_SLIDE_COUNT, generateCarousel, illustrateFromRecording } from "
 const pipelineRoot = dataPath("pipeline");
 const runsFile = path.join(pipelineRoot, "runs.json");
 const MAX_RUNS = 30;
-let persistQueue = Promise.resolve();
 
 type PipelineGlobal = typeof globalThis & {
   __pipelineRuns?: Map<string, PipelineRun>;
   __pipelineRunsLoaded?: boolean;
+  __pipelineRunsLoading?: Promise<void>;
+  __pipelinePersistQueue?: Promise<void>;
   /** `${runId}:${step}` keys for advance steps currently in flight. */
   __pipelineInflight?: Set<string>;
 };
@@ -86,12 +88,13 @@ async function readRunsFile(): Promise<PipelineRun[] | null> {
     let raw: string;
     try {
       raw = await readFile(runsFile, "utf8");
-    } catch {
-      return []; // First run — no file yet.
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error; // An unreadable ledger must never become an empty writable ledger.
     }
     try {
       const parsed = JSON.parse(raw) as PipelineRun[];
-      return Array.isArray(parsed) ? parsed : [];
+      if (Array.isArray(parsed) && parsed.every((run) => run && typeof run.id === "string")) return parsed;
     } catch {
       await delay(40 * (attempt + 1));
     }
@@ -100,6 +103,14 @@ async function readRunsFile(): Promise<PipelineRun[] | null> {
 }
 
 async function loadRuns() {
+  if (g.__pipelineRunsLoaded) return;
+  if (g.__pipelineRunsLoading) return g.__pipelineRunsLoading;
+  const loading = loadRunRecords();
+  g.__pipelineRunsLoading = loading;
+  try { await loading; } finally { if (g.__pipelineRunsLoading === loading) delete g.__pipelineRunsLoading; }
+}
+
+async function loadRunRecords() {
   if (g.__pipelineRunsLoaded) return;
   const stored = await readRunsFile();
   // Leaving `__pipelineRunsLoaded` false on a torn read is the point: marking
@@ -122,11 +133,11 @@ async function loadRuns() {
 
 async function persistRuns() {
   const write = async () => {
-    const list = [...runs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, MAX_RUNS);
+    const list = retainedRuns(runs.values(), MAX_RUNS);
     await atomicWriteJson(runsFile, list);
   };
-  persistQueue = persistQueue.then(write, write);
-  await persistQueue;
+  g.__pipelinePersistQueue = (g.__pipelinePersistQueue ?? Promise.resolve()).then(write, write);
+  await g.__pipelinePersistQueue;
 }
 
 async function update(run: PipelineRun, patch: Partial<PipelineRun>) {
@@ -136,22 +147,104 @@ async function update(run: PipelineRun, patch: Partial<PipelineRun>) {
 
 /** Patches a run and flushes it. Exported for `repair.ts`, which un-sticks stages. */
 export async function updateRun(run: PipelineRun, patch: Partial<PipelineRun>) {
+  if (run.marketingSource) throw new Error("Managed source changes require the authenticated marketing adapter.");
   await update(run, patch);
 }
 
 export async function listRuns(): Promise<PipelineRun[]> {
   await loadRuns();
-  return [...runs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return [...runs.values()].filter((run) => !run.marketingSource?.archivedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function getRun(id: string): Promise<PipelineRun | undefined> {
   await loadRuns();
-  return runs.get(id);
+  const run = runs.get(id);
+  return run?.marketingSource?.archivedAt ? undefined : run;
+}
+
+/** Side-effect-free owner snapshot; an unreadable ledger is never an empty success. */
+export async function listMarketingDrafts(ownerId: string): Promise<PipelineRun[]> {
+  await loadRuns();
+  if (!g.__pipelineRunsLoaded) throw new Error("The source ledger could not be read safely.");
+  return structuredClone([...runs.values()].filter((run) => run.marketingSource?.ownerId === ownerId && !run.marketingSource.archivedAt));
+}
+
+/**
+ * Internal preparation ledger transaction in the ORIGINAL owning Node process.
+ * The callback only changes preparation state; run status, references and every
+ * scheduling flag stay outside its write surface. Save before replacing memory.
+ */
+export async function transactMarketingPreparation<T>(
+  ownerId: string,
+  runId: string,
+  transition: (source: import("./marketing-drafts").MarketingSourceState, owned: readonly PipelineRun[]) => Promise<{
+    result: T;
+    next?: Pick<import("./marketing-drafts").MarketingSourceState, "revision" | "preparations">;
+  }>
+): Promise<T> {
+  await loadRuns();
+  if (!g.__pipelineRunsLoaded) throw new Error("The source ledger could not be read safely.");
+  const execute = async () => {
+    const run = runs.get(runId);
+    if (!run?.marketingSource || run.marketingSource.ownerId !== ownerId || run.marketingSource.archivedAt) {
+      throw new Error("That source is not available to this owner.");
+    }
+    if (run.status !== "draft") throw new Error("Managed preparation requires an isolated draft.");
+    const owned = [...runs.values()].filter((row) => row.marketingSource?.ownerId === ownerId);
+    const { result, next } = await transition(structuredClone(run.marketingSource), structuredClone(owned));
+    if (!next) return result;
+    const replacement: PipelineRun = {
+      ...run, updatedAt: new Date().toISOString(),
+      marketingSource: { ...run.marketingSource, revision: next.revision, preparations: next.preparations }
+    };
+    const list = [...runs.values()].map((row) => row.id === runId ? replacement : row);
+    await atomicWriteJson(runsFile, retainedRuns(list, MAX_RUNS));
+    runs.set(runId, replacement);
+    return result;
+  };
+  const result = (g.__pipelinePersistQueue ?? Promise.resolve()).then(execute, execute);
+  g.__pipelinePersistQueue = result.then(() => undefined, () => undefined);
+  return result;
+}
+
+/**
+ * Runs only in the owning Next process. It shares the existing persistence chain
+ * with every legacy run write. Nothing enters the live map before the atomic save.
+ */
+export async function createMarketingDraft(ownerId: string, command: DraftSourceCommand): Promise<DraftSourceReceipt & { replayed: boolean }> {
+  const digest = validateDraftSource(ownerId, command);
+  await loadRuns();
+  if (!g.__pipelineRunsLoaded) throw new Error("The source ledger could not be read safely.");
+  const execute = async () => {
+    for (const run of runs.values()) {
+      const saved = run.marketingSource;
+      if (saved?.ownerId !== ownerId || saved.commandId !== command.commandId) continue;
+      if (saved.requestDigest !== digest) throw new Error("Command id was already used with different arguments.");
+      return { ...saved.receipt, replayed: true };
+    }
+    const id = `site-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    const receipt: DraftSourceReceipt = { id, revision: 1, status: "draft", persisted: true };
+    const run: PipelineRun = {
+      id, name: command.title, sourceUrl: command.sourceUrl, status: "draft",
+      notices: [], createdAt: now, updatedAt: now,
+      marketingSource: { ownerId, commandId: command.commandId, requestDigest: digest, receipt }
+    };
+    await atomicWriteJson(runsFile, retainedRuns([...runs.values(), run], MAX_RUNS));
+    runs.set(id, run);
+    return { ...receipt, replayed: false };
+  };
+  const result = (g.__pipelinePersistQueue ?? Promise.resolve()).then(execute, execute);
+  g.__pipelinePersistQueue = result.then(() => undefined, () => undefined);
+  return result;
 }
 
 /** Removes the run record only — the long-form project, clip job, and other outputs stay in their own tools. */
 export async function deleteRun(id: string) {
   await loadRuns();
+  if (runs.get(id)?.marketingSource) {
+    throw new Error("Managed source receipts cannot be deleted through the legacy pipeline.");
+  }
   runs.delete(id);
   await persistRuns();
 }
@@ -338,6 +431,9 @@ function stuck(run: PipelineRun, key: string): boolean {
  * where the records left off. Every step is idempotent behind an id check.
  */
 export async function advanceRun(run: PipelineRun): Promise<void> {
+  // Managed preparation is dispatched only by its narrowly permitted worker.
+  // Even a malformed stored status must never enter legacy scheduling stages.
+  if (run.marketingSource) return;
   if (await isAutomationPaused("pipeline")) return;
   if (run.status !== "running" || !run.sourceId) return;
   const sourceId = run.sourceId;
@@ -890,6 +986,7 @@ export function overviewContext(): OverviewContext {
  * pipeline forward.
  */
 export async function runOverview(run: PipelineRun, context?: OverviewContext): Promise<PipelineRunOverview> {
+  if (run.marketingSource || run.status === "draft") return draftOverview(run);
   await advanceRun(run);
 
   const ctx = context ?? overviewContext();

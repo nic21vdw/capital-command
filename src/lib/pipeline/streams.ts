@@ -106,6 +106,7 @@ export function streamHref(href: string, stream: StreamSummary | null): string {
 
 /** How far along a stream reads in one short phrase. */
 export function streamProgressLabel(stream: StreamSummary): string {
+  if (stream.status === "draft") return "Awaiting preparation";
   if (stream.status === "ingesting") return "Importing…";
   if (stream.status === "error") return "Needs attention";
   if (stream.needsAttention) return "Needs attention";

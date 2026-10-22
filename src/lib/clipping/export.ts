@@ -1,10 +1,14 @@
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { closeSync, lstatSync, openSync, readSync, realpathSync } from "node:fs";
 import path from "node:path";
+import { dataPath } from "@/lib/paths";
+import { clipProjectSchema } from "@/lib/storage/schemas";
 import { brandKit } from "@/lib/brand/kit";
 import { shortsAudioArgs, shortsAudioFilter } from "@/lib/clipping/audio";
 import { containScale, masterVideoArgs, scaleFilter } from "@/lib/clipping/encode";
-import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue } from "@/lib/clipping/captions";
-import { hasAudioStream, isRenderCanceled, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue, textOverlayFont } from "@/lib/clipping/captions";
+import { hasAudioStream, isRenderCanceled, parseVideoStreamInfo, probeDuration, runFfmpeg, RenderCanceledError } from "@/lib/clipping/ffmpeg";
 import { attachEditedClipRender, outputDir, workDir } from "@/lib/clipping/jobs";
 import { renderSignature } from "@/lib/clipping/export-signature";
 import { removeQuietly } from "@/lib/disk/cleanup";
@@ -143,12 +147,30 @@ function shiftedOverlays(spec: ExportSpec): Overlay[] {
 function selectExpression(spec: ExportSpec): string {
   const ranges = editRanges(spec);
   if (ranges.length === 0) throw new Error("Nothing to export — every timeline segment is cut.");
-  return ranges.map((range) => `between(t,${range.start.toFixed(3)},${range.end.toFixed(3)})`).join("+");
+  return ranges.map((range) => ranges.length === 1
+    ? `between(t,${range.start.toFixed(3)},${range.end.toFixed(3)})`
+    : `gte(t,${range.start.toFixed(3)})*lt(t,${range.end.toFixed(3)})`).join("+");
 }
 
-async function writeOverlayImages(spec: ExportSpec, dir: string) {
-  const images: { overlay: Overlay; file: string }[] = [];
+async function writeOverlayImages(spec: ExportSpec, dir: string,
+  preparedImages?: ReadonlyMap<string, { bytes: Buffer; format: "png" | "jpeg" | "webp" }>) {
+  const images: { overlay: Overlay; file: string; intervals?: { start: number; end: number }[] }[] = [];
   let i = 0;
+  if (preparedImages) {
+    let intervalCount = 0;
+    for (const original of spec.overlays.filter((row) => row.kind !== "text")) {
+      const intervals = remapClipOverlays([original], editRanges(spec), spec.baseDurationSec);
+      if (!intervals.length) continue;
+      intervalCount += intervals.length;
+      if (intervalCount > 512) throw new Error("The prepared image timeline has too many active intervals.");
+      const prepared = preparedImages.get(original.id);
+      if (!prepared) throw new Error("A prepared image has no verified copied bytes.");
+      const file = path.join(dir, `ov-${i++}.${prepared.format === "jpeg" ? "jpg" : prepared.format}`);
+      await writeFile(file, prepared.bytes);
+      images.push({ overlay: original, file, intervals });
+    }
+    return images;
+  }
   for (const overlay of shiftedOverlays(spec)) {
     if (overlay.kind === "text" && !overlay.src) continue;
     if (!overlay.src) continue;
@@ -162,20 +184,20 @@ async function writeOverlayImages(spec: ExportSpec, dir: string) {
 }
 
 /** Generates the combined ASS document (captions + positioned text overlays). */
-function buildExportAss(spec: ExportSpec, w: number, h: number): string {
+async function buildExportAss(spec: ExportSpec, w: number, h: number): Promise<string> {
   const dur = trimDuration(spec);
   const captions = shiftedCaptions(spec);
   const overlays = shiftedOverlays(spec);
   const captionDoc = buildAss(
-    spec.captionsVisible ? captions : [],
+    spec.captionsVisible && spec.settings.burnCaptions ? captions : [],
     spec.captionStyle,
     w,
     h,
     spec.highlightCurrentWord
   );
-  const overlayLines = overlays
+  const overlayLines = await Promise.all(overlays
     .filter((o) => o.kind === "text" && o.text && o.text.trim())
-    .map((o) =>
+    .map(async (o) =>
       buildTextOverlayDialogue(
         o.text as string,
         {
@@ -187,17 +209,48 @@ function buildExportAss(spec: ExportSpec, w: number, h: number): string {
           color: o.color ?? brandKit().palette.purple,
           rotation: o.rotation,
           bold: (o.fontWeight ?? 800) >= 600,
-          opacity: o.opacity
+          opacity: o.opacity,
+          width: o.width,
+          scale: o.scale,
+          fontFamily: o.fontFamily,
+          fontWeight: o.fontWeight,
+          background: o.background,
+          ...(o.width !== undefined || o.fontFamily !== undefined || o.background !== undefined
+            ? await overlayTextMeasure(o.fontFamily ?? "Inter", o.fontWeight ?? 800, Math.round(0.05 * o.scale * h)) : {})
         },
         w,
         h
       )
-    );
+    ));
   const extra = [...overlayLines];
   if (spec.settings.watermark) {
     extra.push(buildWatermarkDialogue(h, 0, dur));
   }
   return extra.length ? `${captionDoc}${extra.join("\n")}\n` : captionDoc;
+}
+
+let overlayFontMetrics: Promise<typeof import("@napi-rs/canvas")> | undefined;
+async function overlayTextMeasure(familyList: string, weight: number, size: number): Promise<{ measureText: (text: string) => number; assFontSize: number }> {
+  const { family } = textOverlayFont(familyList, weight);
+  overlayFontMetrics ??= import("@napi-rs/canvas").then((canvas) => {
+    const bundled: Record<string, string> = { "Montserrat Black": "Montserrat-Black.ttf", "Montserrat ExtraBold": "Montserrat-ExtraBold.ttf",
+      "Poppins Black": "Poppins-Black.ttf", "Poppins ExtraBold": "Poppins-ExtraBold.ttf", Anton: "Anton-Regular.ttf",
+      "Archivo Black": "ArchivoBlack-Regular.ttf", "Instrument Serif": "InstrumentSerif-Italic.ttf" };
+    for (let weight = 100; weight <= 900; weight += 100) bundled[`Inter Overlay ${weight}`] = `Inter-Text-${weight}.ttf`;
+    for (const [name, file] of Object.entries(bundled)) {
+      const font = path.join(process.cwd(), "public", "fonts", "captions", file);
+      assertPreparationPath(font);
+      if (!canvas.GlobalFonts.registerFromPath(font, name)) throw new Error("A bundled overlay font could not be loaded.");
+    }
+    return canvas;
+  });
+  const { createCanvas } = await overlayFontMetrics;
+  const context = createCanvas(1, 1).getContext("2d");
+  context.font = `${weight} ${Math.max(1, size)}px "${family}"`;
+  // ASS sizes a font by ascender-to-descender height; CSS uses em size.
+  const metrics = context.measureText("Mg");
+  return { measureText: (text) => context.measureText(text).width,
+    assFontSize: Number((metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent).toFixed(3)) };
 }
 
 /** Escapes a filesystem path for use inside an ffmpeg filtergraph argument. */
@@ -249,27 +302,39 @@ function sourceCompositionChain(spec: ExportSpec, w: number, h: number): string 
   return centerBlurChain("0:v", "v0", w, h, spec.reframe.scale, spec.reframe.offsetX, spec.reframe.offsetY);
 }
 
-async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[]; outFile: string }> {
+async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePath: string; outFile: string;
+  images?: ReadonlyMap<string, { bytes: Buffer; format: "png" | "jpeg" | "webp" }>; music?: Buffer;
+  signal?: AbortSignal }): Promise<{ args: string[]; outFile: string }> {
   const { settings } = spec;
   const w = settings.width;
   const h = settings.height;
-  const basePath = path.join(outputDir(spec.jobId), spec.sourceFile);
+  const basePath = preparation?.sourcePath ?? path.join(outputDir(spec.jobId), spec.sourceFile);
   const dur = trimDuration(spec);
   if (dur < 0.05) throw new Error("Nothing to export — every timeline segment is cut.");
   const selectExpr = selectExpression(spec);
-  const hasAudio = await hasAudioStream(basePath).catch(() => false);
+  const hasAudio = preparation ? (await probePreparationMedia(basePath, preparation.signal)).hasAudio
+    : await hasAudioStream(basePath).catch(() => false);
 
-  const images = await writeOverlayImages(spec, dir);
+  const images = await writeOverlayImages(spec, dir, preparation?.images);
   const assPath = path.join(dir, "subs.ass");
-  await writeFile(assPath, buildExportAss(spec, w, h), "utf8");
+  await writeFile(assPath, await buildExportAss(spec, w, h), "utf8");
 
   const ext = settings.format === "webm" ? "webm" : "mp4";
-  const outFile = path.join(outputDir(spec.jobId), `export-${path.basename(dir)}.${ext}`);
+  const outFile = preparation?.outFile ?? path.join(outputDir(spec.jobId), `export-${path.basename(dir)}.${ext}`);
 
   const inputs: string[] = ["-i", basePath];
   for (const img of images) inputs.push("-i", img.file);
   let musicIndex = -1;
-  if (spec.audio.musicSrc) {
+  if (preparation) {
+    if (Boolean(spec.audio.musicSrc) !== Boolean(preparation.music)) throw new Error("The verified preparation music input is missing or unexpected.");
+    if (preparation.music) {
+      const musicFile = path.join(dir, "music.wav");
+      assertPreparationPath(musicFile, true);
+      await writeFile(musicFile, preparation.music, { flag: "wx" });
+      musicIndex = 1 + images.length;
+      inputs.push("-protocol_whitelist", "file", "-f", "wav", "-i", musicFile);
+    }
+  } else if (spec.audio.musicSrc) {
     const buf = dataUrlToBuffer(spec.audio.musicSrc);
     if (buf) {
       const musicFile = path.join(dir, "music.audio");
@@ -319,7 +384,8 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
     parts.push(
       `[${inputIdx}:v]format=rgba,colorchannelmixer=aa=${o.opacity.toFixed(3)},${scaleFilter(targetW, -1)}${rotate}[ov${k}]`
     );
-    const enable = `:enable='between(t,${o.start},${o.end > o.start ? o.end : dur})'`;
+    const enable = img.intervals ? `:enable='${img.intervals.map((range) => `between(t,${range.start},${range.end})`).join("+")}'`
+      : `:enable='between(t,${o.start},${o.end > o.start ? o.end : dur})'`;
     const next = `vov${k}`;
     parts.push(`[${last}][ov${k}]overlay=x=W*${o.x.toFixed(4)}-w/2:y=H*${o.y.toFixed(4)}-h/2${enable}[${next}]`);
     last = next;
@@ -400,7 +466,379 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
     args.push("-movflags", "+faststart");
   }
   args.push(outFile);
+  if (preparation?.images?.size && args.reduce((size, arg) => size + arg.length + 3, 0) > 24_000) {
+    throw new Error("The prepared image timeline exceeds the bounded render command size.");
+  }
   return { args, outFile };
+}
+
+/** Internal owner-worker capability. Never construct from an HTTP export body. */
+export type PreparationExportBinding = {
+  ownerId: string; projectId: string; jobId: string; clipId: string; sourceFile: string;
+  sourceSha256: string; projectDigest: string; specSha256: string; renderSignature: string;
+  requestId: string; attemptId: string;
+  workerEpoch?: string;
+  overlayAssets?: PreparationOverlayAssetIdentity[];
+  musicAsset?: PreparationMusicAssetIdentity;
+};
+export type PreparationMusicAssetIdentity = {
+  slot: "background_music"; format: "wav"; mimeType: "audio/wav"; demuxer: "wav"; codec: "pcm_s16le";
+  bitsPerSample: 16; sampleRate: number; channels: 1 | 2; sampleFrames: number; durationSec: number;
+  byteLength: number; sha256: string; sourceRefSha256: string;
+};
+export type PreparationMusicAsset = PreparationMusicAssetIdentity & { copyBytes(): Buffer };
+export type PreparationOverlayAssetIdentity = {
+  overlayId: string; src: string; sha256: string; format: "png" | "jpeg" | "webp";
+  byteLength: number; width: number; height: number;
+};
+export type PreparationOverlayAsset = PreparationOverlayAssetIdentity & {
+  copyBytes(): Buffer;
+  assertCurrentFile(): void;
+  streamingRead(): { purpose: "streaming"; assertCurrentFile(): void };
+};
+export type PreparationExportCurrent = { binding: PreparationExportBinding; spec: ExportSpec;
+  overlayAssets?: readonly PreparationOverlayAsset[]; musicAsset?: PreparationMusicAsset };
+/** Streaming-only identity guard; never accepted as an export-outcome proof. */
+export type PreparationArtifactRead = PreparationExportBinding & {
+  exportId: string; file: string; durationSec: number; bytes: number; artifactSha256: string;
+  assertCurrent(): void;
+};
+export type PreparationExportProof = PreparationArtifactRead & {
+  /** Rechecks current filesystem identity and bytes without yielding inside a store lock. */
+  assertCurrent(): void;
+  verifyCurrent(): Promise<void>;
+  streamingRead(): PreparationArtifactRead;
+};
+
+function canonicalPreparationJson(value: unknown): string {
+  if (typeof value === "number" && !Number.isFinite(value)) throw new Error("Preparation numbers must be finite.");
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) return `[${value.map(canonicalPreparationJson).join(",")}]`;
+  return `{${Object.entries(value as Record<string, unknown>).filter(([, field]) => field !== undefined)
+    .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+    .map(([key, field]) => `${JSON.stringify(key)}:${canonicalPreparationJson(field)}`).join(",")}}`;
+}
+export const preparationSpecDigest = (spec: ExportSpec): string => createHash("sha256")
+  .update(canonicalPreparationJson(spec)).digest("hex");
+
+const preparationSpecSchema = clipProjectSchema.pick({ jobId: true, sourceFile: true, baseDurationSec: true,
+  trimStart: true, trimEnd: true, segments: true, compositionMode: true, reframe: true,
+  faceSource: true, screenSource: true, captions: true, captionStyle: true, captionsVisible: true,
+  highlightCurrentWord: true, overlays: true, audio: true, sfx: true
+}).extend({ settings: clipProjectSchema.shape.exportSettings }).strict();
+const preparationId = (value: string): boolean => /^[A-Za-z0-9_-]{1,128}$/.test(value);
+const preparationUuid = (value: string): boolean => /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
+const preparationFile = (value: string): boolean => typeof value === "string" && value.length <= 255
+  && !value.startsWith(".") && !/[\\/:\u0000-\u001f\u007f]/.test(value) && /\.(?:mp4|webm|mov|mkv)$/i.test(value);
+
+function assetIdentity(asset: PreparationOverlayAssetIdentity): PreparationOverlayAssetIdentity {
+  const { overlayId, src, sha256, format, byteLength, width, height } = asset;
+  return { overlayId, src, sha256, format, byteLength, width, height };
+}
+export function preparationMusicAssetIdentity(asset: PreparationMusicAssetIdentity): PreparationMusicAssetIdentity {
+  const { slot, format, mimeType, demuxer, codec, bitsPerSample, sampleRate, channels, sampleFrames,
+    durationSec, byteLength, sha256, sourceRefSha256 } = asset;
+  return { slot, format, mimeType, demuxer, codec, bitsPerSample, sampleRate, channels, sampleFrames,
+    durationSec, byteLength, sha256, sourceRefSha256 };
+}
+const MAX_PREPARATION_MUSIC_BYTES = 8 * 1024 * 1024;
+const MAX_PREPARATION_MUSIC_SOURCE = 4 * Math.ceil(MAX_PREPARATION_MUSIC_BYTES / 3) + "data:audio/x-wav;base64,".length;
+function validMusicManifest(asset: PreparationMusicAssetIdentity): boolean {
+  return Boolean(asset && canonicalPreparationJson(asset) === canonicalPreparationJson(preparationMusicAssetIdentity(asset))
+    && asset.slot === "background_music" && asset.format === "wav" && asset.mimeType === "audio/wav"
+    && asset.demuxer === "wav" && asset.codec === "pcm_s16le" && asset.bitsPerSample === 16
+    && [asset.byteLength, asset.sampleRate, asset.sampleFrames].every((value) => Number.isSafeInteger(value) && value > 0)
+    && (asset.channels === 1 || asset.channels === 2) && asset.sampleRate >= 8000 && asset.sampleRate <= 48000
+    && asset.byteLength <= MAX_PREPARATION_MUSIC_BYTES && asset.byteLength === 44 + asset.sampleFrames * asset.channels * 2
+    && asset.durationSec === asset.sampleFrames / asset.sampleRate && asset.durationSec <= 600
+    && /^[a-f0-9]{64}$/.test(asset.sha256) && /^[a-f0-9]{64}$/.test(asset.sourceRefSha256));
+}
+function preparationSpecWithinSize(spec: ExportSpec): boolean {
+  if (!spec.audio.musicSrc) return canonicalPreparationJson(spec).length <= 4_000_000;
+  // The original spec, digest and signature still include the exact inline
+  // source. Only this size-check view omits it; all other fields retain 4M.
+  const withoutMusic = { ...spec, audio: { ...spec.audio, musicSrc: undefined } };
+  return spec.audio.musicSrc.length <= MAX_PREPARATION_MUSIC_SOURCE
+    && canonicalPreparationJson(spec.audio.musicSrc).length <= MAX_PREPARATION_MUSIC_SOURCE + 2
+    && canonicalPreparationJson(withoutMusic).length <= 4_000_000
+    && canonicalPreparationJson(spec).length <= 4_000_000 + MAX_PREPARATION_MUSIC_SOURCE + 16;
+}
+function validAssetManifest(assets: readonly PreparationOverlayAssetIdentity[]): boolean {
+  return assets.length <= 32 && new Set(assets.map((asset) => asset.overlayId)).size === assets.length
+    && assets.every((asset) => preparationId(asset.overlayId) && /^[a-f0-9]{64}$/.test(asset.sha256)
+      && /^\/api\/clips\/overlay-images\/[a-f0-9]{40}\.(?:png|jpg|webp)$/.test(asset.src)
+      && asset.format === (asset.src.endsWith(".jpg") ? "jpeg" : asset.src.endsWith(".png") ? "png" : "webp")
+      && [asset.byteLength, asset.width, asset.height].every((value) => Number.isSafeInteger(value) && value > 0)
+      && asset.byteLength <= 8 * 1024 * 1024 && asset.width <= 8192 && asset.height <= 8192)
+    && assets.reduce((sum, asset) => sum + asset.byteLength, 0) <= 32 * 1024 * 1024
+    && assets.reduce((sum, asset) => sum + asset.width * asset.height, 0) <= 16 * 1024 * 1024;
+}
+
+/** Checks every ancestor, including Windows junctions, before using a derived path. */
+function assertPreparationPath(target: string, allowMissing = false): void {
+  const absolute = path.resolve(target);
+  const root = path.parse(absolute).root;
+  let current = root;
+  for (const segment of absolute.slice(root.length).split(path.sep)) {
+    current = path.join(current, segment);
+    try {
+      if (lstatSync(current).isSymbolicLink() || path.resolve(realpathSync(current)).toLowerCase() !== current.toLowerCase()) {
+        throw new Error("Preparation paths must not contain symlinks or junctions.");
+      }
+    } catch (error) {
+      if (allowMissing && (error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+  }
+}
+function preparationFileIdentity(file: string): { bytes: number; identity: string } {
+  assertPreparationPath(file);
+  const info = lstatSync(file, { bigint: true });
+  if (!info.isFile() || info.nlink !== 1n) throw new Error("Preparation requires an independent regular media file.");
+  return { bytes: Number(info.size), identity: `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}` };
+}
+function preparationFileHash(file: string): { sha256: string; bytes: number; identity: string } {
+  const before = preparationFileIdentity(file);
+  const fd = openSync(file, "r");
+  const hash = createHash("sha256");
+  try {
+    const chunk = Buffer.allocUnsafe(1024 * 1024);
+    let count: number;
+    while ((count = readSync(fd, chunk, 0, chunk.length, null)) > 0) hash.update(chunk.subarray(0, count));
+  } finally { closeSync(fd); }
+  if (before.identity !== preparationFileIdentity(file).identity) throw new Error("Preparation media changed while being verified.");
+  return { sha256: hash.digest("hex"), ...before };
+}
+
+function assertNotAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new RenderCanceledError();
+}
+async function probePreparationMedia(file: string, signal?: AbortSignal) {
+  assertNotAborted(signal);
+  assertPreparationPath(file);
+  const header = Buffer.alloc(12);
+  const fd = openSync(file, "r");
+  try { readSync(fd, header, 0, header.length, 0); } finally { closeSync(fd); }
+  if (header.toString("ascii", 4, 8) !== "ftyp" && header.readUInt32BE(0) !== 0x1a45dfa3) {
+    throw new Error("Preparation media is not a supported local video container.");
+  }
+  // Constrain probes too: demuxer sniffing must never turn a disguised playlist
+  // into a network request before the render's own protocol whitelist applies.
+  const { stderr } = await runFfmpeg(["-protocol_whitelist", "file", "-hide_banner", "-i", file], { allowFailure: true, signal });
+  assertNotAborted(signal);
+  const video = parseVideoStreamInfo(stderr);
+  if (!video || !video.durationSec || video.durationSec <= 0) throw new Error("Preparation media is not a probeable local video.");
+  return { ...video, durationSec: video.durationSec, hasAudio: /Stream #\d+:\d+.*Audio/.test(stderr) };
+}
+
+async function preparationContext(
+  trusted: PreparationExportBinding,
+  readCurrent: () => Promise<PreparationExportCurrent>, signal?: AbortSignal
+) {
+  assertNotAborted(signal);
+  const binding = structuredClone(trusted);
+  if (!binding.ownerId?.trim() || binding.ownerId.length > 128
+    || ![binding.projectId, binding.jobId, binding.clipId].every(preparationId)
+    || !preparationFile(binding.sourceFile) || ![binding.requestId, binding.attemptId].every(preparationUuid)
+    || ![binding.sourceSha256, binding.projectDigest, binding.specSha256].every((hash) => /^[a-f0-9]{64}$/.test(hash))
+    || !/^[a-z0-9]{1,64}$/.test(binding.renderSignature)
+    || (binding.workerEpoch !== undefined && !preparationUuid(binding.workerEpoch))
+    || !validAssetManifest(binding.overlayAssets ?? [])
+    || (binding.musicAsset !== undefined && !validMusicManifest(binding.musicAsset))) throw new Error("An explicit trusted preparation binding is required.");
+  if (binding.overlayAssets) {
+    binding.overlayAssets.forEach((asset) => Object.freeze(asset));
+    Object.freeze(binding.overlayAssets);
+  }
+  if (binding.musicAsset) Object.freeze(binding.musicAsset);
+  Object.freeze(binding);
+  const root = path.resolve(dataPath("clips"));
+  const sourcePath = path.join(root, "outputs", binding.jobId, binding.sourceFile);
+  // Keep libass paths below Windows' legacy MAX_PATH limit, including under a
+  // sandbox's long temp root. The full trusted identities remain in the proof.
+  const attemptKey = createHash("sha256").update(canonicalPreparationJson({ ownerId: binding.ownerId,
+    jobId: binding.jobId, attemptId: binding.attemptId })).digest("hex").slice(0, 32);
+  const dir = path.join(root, "preparations", attemptKey);
+  const scratch = path.join(dir, "scratch");
+  const assertRoot = () => {
+    if (path.resolve(dataPath("clips")) !== root) throw new Error("The preparation data root changed.");
+    assertPreparationPath(root);
+  };
+  const checkCurrent = async () => {
+    assertNotAborted(signal);
+    const current = await readCurrent();
+    assertNotAborted(signal);
+    if (canonicalPreparationJson(current.binding) !== canonicalPreparationJson(binding)) throw new Error("The preparation source, project or attempt changed.");
+    const parsed = preparationSpecSchema.parse(current.spec) as ExportSpec;
+    if (!preparationSpecWithinSize(parsed) || preparationSpecDigest(parsed) !== binding.specSha256
+      || preparationSpecDigest(current.spec) !== binding.specSha256 || renderSignature(parsed) !== binding.renderSignature
+      || parsed.jobId !== binding.jobId || parsed.sourceFile !== binding.sourceFile) throw new Error("The preparation render spec changed.");
+    if (parsed.overlays.some((overlay) => overlay.kind === "text" && overlay.src)
+      || parsed.sfx?.enabled || parsed.settings.separateSubtitle) throw new Error("This preparation requires an unsupported asset or subtitle capability.");
+    const images = parsed.overlays.filter((overlay) => overlay.kind !== "text");
+    const assets = current.overlayAssets ?? [];
+    const manifest = binding.overlayAssets ?? [];
+    if (images.length !== manifest.length || assets.length !== manifest.length
+      || canonicalPreparationJson(assets.map(assetIdentity)) !== canonicalPreparationJson(manifest)
+      || images.some((overlay, index) => overlay.id !== manifest[index].overlayId || overlay.src !== manifest[index].src)) {
+      throw new Error("This preparation has an unsupported or unverified existing image manifest.");
+    }
+    assets.forEach((asset) => asset.assertCurrentFile());
+    const musicAsset = current.musicAsset;
+    if (Boolean(parsed.audio.musicSrc) !== Boolean(binding.musicAsset) || Boolean(musicAsset) !== Boolean(binding.musicAsset)
+      || (binding.musicAsset && (!musicAsset || canonicalPreparationJson(preparationMusicAssetIdentity(musicAsset)) !== canonicalPreparationJson(binding.musicAsset)
+        || createHash("sha256").update(parsed.audio.musicSrc!).digest("hex") !== binding.musicAsset.sourceRefSha256))) {
+      throw new Error("This preparation has an unsupported or unverified existing music manifest.");
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9_. -]{0,127}$/.test(parsed.settings.filename)
+      || parsed.settings.width % 2 || parsed.settings.height % 2) throw new Error("The preparation export settings are unsupported.");
+    const end = parsed.trimEnd || parsed.baseDurationSec;
+    if (!(parsed.baseDurationSec > 0) || parsed.trimStart >= end || end > parsed.baseDurationSec
+      || [...parsed.captions, ...parsed.overlays, ...(parsed.segments ?? [])].some((row) => row.end < row.start || row.end > parsed.baseDurationSec)
+      || parsed.captions.some((caption) => caption.words.some((word) => word.end < word.start || word.end > parsed.baseDurationSec))) {
+      throw new Error("The preparation timeline is outside its original source.");
+    }
+    assertRoot();
+    if (preparationFileHash(sourcePath).sha256 !== binding.sourceSha256) throw new Error("The preparation source bytes changed.");
+    return { spec: structuredClone(parsed), assets, musicAsset };
+  };
+  const { spec, assets, musicAsset } = await checkCurrent();
+  const source = preparationFileHash(sourcePath);
+  return { binding, spec, assets, musicAsset, source, sourcePath, dir, scratch, assertRoot, checkCurrent,
+    file: path.join(dir, `prepared.${spec.settings.format}`) };
+}
+
+async function readPreparationProof(context: Awaited<ReturnType<typeof preparationContext>>, signal?: AbortSignal): Promise<PreparationExportProof> {
+  assertNotAborted(signal);
+  const { binding, spec, assets, source, sourcePath, file, assertRoot, checkCurrent } = context;
+  // Guard functions retain file identities, never decoded/copy buffers in proofs.
+  const assetGuards = assets.map((asset) => ({ assertCurrentFile: asset.assertCurrentFile, streamingRead: asset.streamingRead }));
+  const output = preparationFileHash(file);
+  if (output.bytes < 1024) throw new Error("Preparation produced no usable video file.");
+  const media = await probePreparationMedia(file, signal);
+  const durationSec = media.durationSec;
+  if (Math.abs(durationSec - trimDuration(spec)) > Math.max(0.25, 2 / spec.settings.fps)) throw new Error("The preparation output duration does not match its render spec.");
+  if (media.width !== spec.settings.width || media.height !== spec.settings.height) throw new Error("The preparation output dimensions do not match its render spec.");
+  const assertCurrent = () => {
+    assertNotAborted(signal);
+    assertRoot();
+    assetGuards.forEach((asset) => asset.assertCurrentFile());
+    const currentSource = preparationFileHash(sourcePath);
+    const currentOutput = preparationFileHash(file);
+    if (currentSource.sha256 !== binding.sourceSha256 || currentSource.identity !== source.identity
+      || currentOutput.sha256 !== output.sha256 || currentOutput.identity !== output.identity) throw new Error("The verified preparation media changed.");
+  };
+  const verifyCurrent = async () => { await checkCurrent(); assertCurrent(); };
+  await verifyCurrent();
+  assertNotAborted(signal);
+  const artifact = { ...binding, exportId: `preparation-${binding.attemptId}`, file, durationSec,
+    bytes: output.bytes, artifactSha256: output.sha256 };
+  const streamingRead = (): PreparationArtifactRead => {
+    const assetReads = assetGuards.map((asset) => asset.streamingRead());
+    const assertStreamingCurrent = () => {
+      assertNotAborted(signal);
+      assertRoot();
+      assetReads.forEach((asset) => asset.assertCurrentFile());
+      if (preparationFileIdentity(sourcePath).identity !== source.identity
+        || preparationFileIdentity(file).identity !== output.identity) throw new Error("The streaming preparation media identity changed.");
+    };
+    assertStreamingCurrent();
+    return Object.freeze({ ...artifact, assertCurrent: assertStreamingCurrent });
+  };
+  return Object.freeze({ ...artifact, assertCurrent, verifyCurrent, streamingRead });
+}
+
+/** Read-only proof recovery, bound to the hash committed by the trusted worker. */
+export async function verifyPreparedClipExport(
+  binding: PreparationExportBinding, readCurrent: () => Promise<PreparationExportCurrent>,
+  expected: { exportId: string; artifactSha256: string }
+): Promise<PreparationExportProof> {
+  if (expected.exportId !== `preparation-${binding.attemptId}` || !/^[a-f0-9]{64}$/.test(expected.artifactSha256)) {
+    throw new Error("The persisted preparation artifact identity is invalid.");
+  }
+  const proof = await readPreparationProof(await preparationContext(binding, readCurrent));
+  if (proof.artifactSha256 !== expected.artifactSha256) throw new Error("The persisted preparation artifact bytes changed.");
+  return proof;
+}
+
+/**
+ * Render-only worker entry: reuses the original editor's pixel/audio pipeline,
+ * but never registers an export, attaches a clip, enqueues, schedules or sends.
+ * The trusted loader must re-read the exact claimed original project/job/clip.
+ */
+export async function prepareClipExport(
+  trusted: PreparationExportBinding,
+  readCurrent: () => Promise<PreparationExportCurrent>,
+  options: { signal?: AbortSignal; onProgress?: (percent: number) => void } = {}
+): Promise<PreparationExportProof> {
+  const context = await preparationContext(trusted, readCurrent, options.signal);
+  assertNotAborted(options.signal);
+  const { spec, assets, musicAsset, sourcePath, dir, scratch, file, checkCurrent } = context;
+  assertPreparationPath(dir, true);
+  // Exclusive attempt directory: retries never overwrite an uncertain artifact.
+  await mkdir(path.dirname(dir), { recursive: true });
+  assertPreparationPath(path.dirname(dir));
+  await mkdir(dir);
+  assertPreparationPath(dir);
+  await mkdir(scratch);
+  try {
+    let proof: PreparationExportProof;
+    try {
+      assertNotAborted(options.signal);
+      assertPreparationPath(path.join(process.cwd(), "public", "fonts", "captions"), true);
+      const images = new Map(assets.map((asset) => {
+        const bytes = asset.copyBytes();
+        if (bytes.length !== asset.byteLength || createHash("sha256").update(bytes).digest("hex") !== asset.sha256) {
+          throw new Error("The verified image copy does not match its immutable manifest.");
+        }
+        return [asset.overlayId, { bytes, format: asset.format }] as const;
+      }));
+      const music = musicAsset?.copyBytes();
+      if (music && (music.length !== musicAsset!.byteLength || createHash("sha256").update(music).digest("hex") !== musicAsset!.sha256)) {
+        throw new Error("The verified music copy does not match its immutable manifest.");
+      }
+      const { args } = await buildArgs(spec, scratch, { sourcePath, outFile: file, images, music, signal: options.signal });
+      const musicFile = path.join(scratch, "music.wav");
+      const musicInput = music ? preparationFileHash(musicFile) : undefined;
+      const assertMusicInput = () => {
+        if (!musicInput) return;
+        const latest = preparationFileHash(musicFile);
+        if (latest.sha256 !== musicAsset!.sha256 || latest.identity !== musicInput.identity) {
+          throw new Error("The verified scratch music input changed.");
+        }
+      };
+      assertMusicInput();
+      assertNotAborted(options.signal);
+      await checkCurrent();
+      assertMusicInput();
+      assertNotAborted(options.signal);
+      assertPreparationPath(scratch);
+      assertPreparationPath(file, true);
+      let lastProgress = 0;
+      await runFfmpeg(["-protocol_whitelist", "file", ...args], { signal: options.signal, onLine: (line) => {
+        const match = line.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/);
+        if (!match || options.signal?.aborted) return;
+        const seconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+        const progress = Math.max(lastProgress, Math.min(99, Math.floor(seconds / trimDuration(spec) * 100)));
+        if (progress > lastProgress) { lastProgress = progress; options.onProgress?.(progress); }
+      } });
+      assertNotAborted(options.signal);
+      assertMusicInput();
+      proof = await readPreparationProof(context, options.signal);
+      assertMusicInput();
+    } finally {
+      assertPreparationPath(scratch);
+      await rm(scratch, { recursive: true, force: true });
+    }
+    // Cleanup is the last await: a stop during it must still invalidate proof.
+    assertNotAborted(options.signal);
+    options.onProgress?.(100);
+    assertNotAborted(options.signal);
+    return proof;
+  } catch (error) {
+    assertPreparationPath(dir);
+    await rm(file, { force: true });
+    throw error;
+  }
 }
 
 export function startExport(spec: ExportSpec): ExportRecord {
@@ -446,6 +884,7 @@ async function runExport(record: ExportRecord, spec: ExportSpec, signal: AbortSi
 
 async function renderToFile(record: ExportRecord, spec: ExportSpec, dir: string, signal: AbortSignal) {
   const { args, outFile } = await buildArgs(spec, dir);
+  assertNotAborted(signal);
   const total = Math.max(0.1, trimDuration(spec));
 
   try {
@@ -460,6 +899,7 @@ async function renderToFile(record: ExportRecord, spec: ExportSpec, dir: string,
         }
       }
     });
+    assertNotAborted(signal);
   } catch (error) {
     // A stop or a failure leaves a half-written output; remove it so nothing
     // downstream ever picks up a truncated, unplayable file.
@@ -468,11 +908,18 @@ async function renderToFile(record: ExportRecord, spec: ExportSpec, dir: string,
   }
 
   // Never mark complete unless a real, probeable, non-empty file exists.
-  const info = await stat(outFile).catch(() => null);
-  if (!info || info.size < 1024) {
-    throw new Error("Export finished but produced no usable video file.");
+  try {
+    const info = await stat(outFile).catch(() => null);
+    assertNotAborted(signal);
+    if (!info || info.size < 1024) {
+      throw new Error("Export finished but produced no usable video file.");
+    }
+    await probeDuration(outFile, { signal }); // throws if the output is not a valid video
+    assertNotAborted(signal);
+  } catch (error) {
+    if (signal.aborted) await rm(outFile, { force: true }).catch(() => undefined);
+    throw error;
   }
-  await probeDuration(outFile); // throws if the output is not a valid video
   record.file = path.basename(outFile);
 
   // Record the export on the clip it was cut from — with the signature of the

@@ -14,6 +14,32 @@ already shipped.
 
 ## Unreleased
 
+- **An explicitly connected editor can prepare a fresh export in its owning process.** An optional dispatcher uses the original locked request and exact worker proof, preserving replay, cancellation and interrupted-attempt records. It is absent by default; hosted connection, installation and posting remain unconfigured.
+
+- **Source-based editor creation has a scoped, atomic adapter contract.** An explicitly configured policy can create a child and its replay receipt in the original store while preserving the root's edits, review and prepared output. The policy is absent by default; this does not enable hosted creation, child rendering or posting.
+
+- **Existing PCM WAV background music stays attached to prepared exports.** Owner-bound music uses protected previews and exact byte manifests, while redacted saves retain the original source. Preparation keeps the original mixer, volume, timing and no-loop behavior. Other audio formats and Site playback controls remain incomplete; the hosted backend stays unconnected.
+
+- **Prepared editor exports retain a cancellation and restart record.** Stop requests are saved before the worker is signaled, and only verified process settlement confirms a stop. Interrupted attempts remain uncertain until explicit reconciliation; a fresh export keeps a link to the original attempt instead of silently retrying it. Hosted controls remain unconnected.
+
+- **Saved PNG, JPEG and WebP overlays stay visible in prepared exports.** Existing project images are verified, previewed through private media references and rendered across kept cuts without duplicating inputs. Changed or unsupported assets stop preparation clearly; no source files or schedules are changed.
+
+- **Text overlays export with their chosen width, font and background.** Narrow text wraps, scaled boxes stay centered, and standard Inter weights use bundled licensed fonts. Existing files remain unchanged until an explicit rerender.
+
+- **Incomplete Site asset previews are clearly unavailable.** Projects with an unsupported original image or audio reference wait for the asset connection instead of showing a preview with that content silently missing.
+
+- **Scoped editor projects can be deleted even when their source is gone.** Revision checks protect newer edits, deleted projects stay out of the library, and retrying the same request preserves its confirmed receipt. Source files and posting schedules are kept intact.
+
+- **Exported captions follow edited speech.** Words fully removed by a cut no longer remain in the caption text. Highlighted words stop at their actual end times, leaving ordinary gaps unhighlighted. ASS timestamps also carry correctly across rounded second boundaries. Generated-frame checks cover these repairs.
+
+- **Prepared previews avoid repeatedly hashing large files.** Streaming uses a bounded verified-artifact cache while rechecking owner, project and file identity; export proof still hashes the full bytes. The final audio limiter also preserves the existing -14 LUFS house target instead of adding automatic gain.
+
+- **Clip exports honor the caption toggle and preserve selected frames.** Turning off burned captions now removes them from exports. Multi-cut renders use half-open ranges so removed boundary frames do not reappear or displace the final kept frames. Both changes are checked with generated footage; no existing media is rerendered.
+
+- **Marketing records and editor work are scoped to their owner.** Passive source and clip views, protected previews, revision-checked editor saves and explicit preparation requests reuse the original records. Preparation remains separate from scheduling and posting; the hosted worker connection is still unconfigured.
+
+- **The private marketing workspace has a tested local adapter.** Source drafts and exact clip reviews, edit requests and safe retry receipts use the existing records. Changed clips invalidate review; uncertain deliveries stay held. Synthetic tests exercise the actual local routes, atomic saves and original render helpers. The hosted connection remains unconfigured, and review never grants permission to post.
+
 - **Free automatic TikTok through Buffer.** Put a Buffer API key in `.env` (`BUFFER_API_KEY`) with TikTok connected in Buffer, and every scheduled TikTok is handed to Buffer at its slot and posted to your profile automatically, with no inbox tap and no paid plan.
 
 - **TikTok can post itself.** With an Upload-Post API key and profile in `.env` (`UPLOAD_POST_API_KEY`, `UPLOAD_POST_USER`), every scheduled TikTok goes straight to your profile at its slot, like Instagram and Facebook, instead of waiting in your TikTok inbox for a tap. Mirrored schedules include TikTok when it is on. The schedule board shows those slots as posting at the slot, not as inbox drafts.

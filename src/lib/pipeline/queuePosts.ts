@@ -12,6 +12,7 @@ export type QueuePostsResult = { scheduled: number; firstAt?: string; note?: str
 export async function queueRunPosts(runId: string): Promise<QueuePostsResult> {
   const run = await getRun(runId);
   if (!run) throw new Error(`No pipeline run called ${runId}.`);
+  if (run.marketingSource || run.status === "draft") throw new Error("Managed preparation does not authorize scheduling text posts.");
   const posts = run.posts ?? [];
   if (posts.length === 0) throw new Error("This run has no text posts to schedule.");
   if (run.postsQueuedAt) throw new Error("These posts are already on the queue.");

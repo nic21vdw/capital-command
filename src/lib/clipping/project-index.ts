@@ -1,4 +1,5 @@
 import type { ClipProject } from "@/types/domain";
+import { isActiveClipProject } from "./project-visibility";
 
 /**
  * The newest Clip Editor project per source file, worked out ONCE per store.
@@ -19,7 +20,7 @@ export type ClipProjectIndex = Map<string, ClipProject>;
 export function indexProjectsBySource(projects: ClipProject[]): ClipProjectIndex {
   const index: ClipProjectIndex = new Map();
   for (const project of projects) {
-    if (!project.sourceFile) continue;
+    if (!project.sourceFile || !isActiveClipProject(project)) continue;
     const key = indexKey(project.jobId, project.sourceFile);
     const current = index.get(key);
     if (!current || project.updatedAt.localeCompare(current.updatedAt) > 0) index.set(key, project);
