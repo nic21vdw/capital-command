@@ -1,5 +1,6 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { VIRAL_TITLE_SYSTEM_PROMPT, cleanViralTitle } from "@/lib/clipping/titles";
+import { viralTitleSystemPrompt, cleanViralTitle } from "@/lib/clipping/titles";
+import { applyBrandRules, brandPromptBlock } from "@/lib/brand/kit";
 import { normalizeTitle } from "@/lib/publisher/duplicates";
 import { MAX_HOOK_LENGTH, type ExperimentKind } from "@/lib/experiments/types";
 
@@ -29,11 +30,11 @@ export function buildVariantPrompt(request: VariantRequest): { system: string; u
     "What is said in the clip:",
     excerpt
   ].join("\n");
-  return { system: request.kind === "hook" ? HOOK_SYSTEM_PROMPT : VIRAL_TITLE_SYSTEM_PROMPT, user };
+  return { system: request.kind === "hook" ? `${HOOK_SYSTEM_PROMPT}\n\n${brandPromptBlock("youtube", { titleOnly: true })}` : viralTitleSystemPrompt(), user };
 }
 
 function cleanHook(raw: string): string {
-  const cleaned = raw
+  const cleaned = applyBrandRules(raw, "youtube")
     .replace(/^["'“”]+|["'“”]+$/g, "")
     .replace(/#[\w-]+/g, " ")
     .replace(/[\p{Extended_Pictographic}️]/gu, "")

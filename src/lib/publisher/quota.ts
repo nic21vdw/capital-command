@@ -140,8 +140,11 @@ function utcDate(instant: Date): string {
 export function linkedinPostsToday(items: QueueItem[], now: Date): number {
   const today = utcDate(now);
   return items.filter((item) => {
-    const uploadedAt = item.platforms.linkedin?.uploadedAt;
-    return uploadedAt !== undefined && utcDate(new Date(uploadedAt)) === today;
+    const state = item.platforms.linkedin;
+    // Media upload may precede post creation by days. Count accepted posts,
+    // including older accepted records that only carried an upload timestamp.
+    const postedAt = state?.publishedAt ?? (state?.postId ? state.uploadedAt : undefined);
+    return postedAt !== undefined && Number.isFinite(Date.parse(postedAt)) && utcDate(new Date(postedAt)) === today;
   }).length;
 }
 

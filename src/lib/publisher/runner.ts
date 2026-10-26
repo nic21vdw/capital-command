@@ -530,7 +530,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
             }
             tiktokInboxLeft -= 1;
           }
-          if (platform === "linkedin" && !state?.containerId) {
+          if (platform === "linkedin") {
             if (linkedinPostsLeft <= 0) {
               await record(
                 "deferred",

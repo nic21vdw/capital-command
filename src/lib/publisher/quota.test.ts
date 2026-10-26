@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { remainingYoutubeUploads, youtubeQuota } from "@/lib/publisher/quota";
+import { linkedinPostsToday, remainingYoutubeUploads, youtubeQuota } from "@/lib/publisher/quota";
 import { testConfig, testItem } from "@/lib/publisher/test-helpers";
 import type { QueueItem } from "@/lib/publisher/types";
 import type { LedgerSnapshot } from "@/lib/youtube/quotaLedger";
 
 // 18:00Z is 11:00 Pacific — the same quota day as 10:00Z (03:00 Pacific).
 const NOW = new Date("2026-07-08T18:00:00Z");
+
+it("counts LinkedIn post acceptance today without charging media uploaded before creation", () => {
+  const posted = testItem({ id: "posted", platformIds: ["linkedin"] });
+  Object.assign(posted.platforms.linkedin!, { postId: "urn:li:share:1", uploadedAt: "2026-07-07T10:00:00Z", publishedAt: "2026-07-08T10:00:00Z" });
+  const media = testItem({ id: "media-only", platformIds: ["linkedin"] });
+  Object.assign(media.platforms.linkedin!, { containerId: "urn:li:video:1", uploadedAt: "2026-07-08T09:00:00Z" });
+  expect(linkedinPostsToday([posted, media], NOW)).toBe(1);
+});
 
 function ytItem(id: string, state: Partial<NonNullable<QueueItem["platforms"]["youtube"]>>): QueueItem {
   const item = testItem({ id, platformIds: ["youtube"] });

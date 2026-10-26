@@ -44,6 +44,18 @@ async function connectLinkedin() {
 }
 
 describe("a connected LinkedIn with the platform list production has", () => {
+  it("defers fresh post creation for stored media when the accepted-post budget is spent", async () => {
+    const config = testConfig(); config.linkedin.dailyPostBudget = 0;
+    const queue = new PublishQueue(new MemoryQueueStore(), config);
+    const item = testItem({ id: "stored-media", publishAt: "2026-10-13T14:00:00.000Z", platformIds: ["linkedin"], mediaKind: "image", imagePaths: [picture], clipPath: picture, visibility: "public" });
+    Object.assign(item.platforms.linkedin!, { containerId: "urn:li:image:existing", uploadedAt: "2026-10-12T14:00:00.000Z" });
+    await queue.add(item);
+    const publish = vi.fn();
+    const linkedin: PlatformAdapter = { id: "linkedin", configured: () => true, validateAuth: async () => undefined, buildPlan: () => ({ platform: "linkedin", endpoint: "x", payload: {}, publishAtLocal: "", publishAtUtc: item.publishAt, notes: [] }), publish };
+    const report = await runDue(NOW, { config, queue, log: () => {}, adapters: { linkedin } });
+    expect(publish).not.toHaveBeenCalled();
+    expect(report.outcomes).toEqual([expect.objectContaining({ platform: "linkedin", outcome: "deferred" })]);
+  });
   it("counts as connected even though PUBLISH_PLATFORMS does not name it", async () => {
     await connectLinkedin();
     const { publisherConfig, configuredPlatforms } = await import("@/lib/publisher/config");

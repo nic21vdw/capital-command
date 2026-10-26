@@ -65,7 +65,7 @@ describe("the Book clip fields", () => {
       ["bookCaption", "longtext"]
     ]);
     expect(fields[0].options).toEqual(["Why the beam failed", "Why the beam failed (2)", "Ten second rebar tip"]);
-    expect(fields[1].options).toEqual(["youtube", "instagram", "tiktok", "facebook"]);
+    expect(fields[1].options).toEqual(["youtube", "instagram", "tiktok", "facebook", "linkedin"]);
     expect(BOOK_PLATFORMS).not.toContain("all");
     expect(fields[2].hint).toContain(TZ);
   });
@@ -142,6 +142,16 @@ describe("the Book control", () => {
 });
 
 describe("pressing Book", () => {
+  it("names an explicit LinkedIn booking and uses the existing scheduling path", async () => {
+    const schedule = scheduler({ ok: true, message: "Scheduled." });
+    const records: BookingRecord[] = [];
+    const started = startBooking({ ...READY_DRAFT, platform: "linkedin" }, context(), schedule, (record) => records.push(record));
+    expect(started.ok).toBe(true);
+    if (started.ok) await started.done;
+    expect(schedule.mock.calls[0][1].platform).toBe("linkedin");
+    expect(records[0].text).toContain("LinkedIn");
+    expect(records[0].text).not.toContain("undefined");
+  });
   it("books through the one booking path, with the chosen clip, platform, instant and caption", async () => {
     const schedule = scheduler({ ok: true, message: "Scheduled." });
     const records: BookingRecord[] = [];

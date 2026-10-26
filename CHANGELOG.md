@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- LinkedIn keeps its approval hold and daily post limit when uploaded media resumes later. Experiment hooks keep the saved brand voice, and LinkedIn bookings show the platform name.
+
 - **An explicitly connected editor can prepare a fresh export in its owning process.** An optional dispatcher uses the original locked request and exact worker proof, preserving replay, cancellation and interrupted-attempt records. It is absent by default; hosted connection, installation and posting remain unconfigured.
 
 - **Source-based editor creation has a scoped, atomic adapter contract.** An explicitly configured policy can create a child and its replay receipt in the original store while preserving the root's edits, review and prepared output. The policy is absent by default; this does not enable hosted creation, child rendering or posting.

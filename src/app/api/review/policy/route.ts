@@ -18,7 +18,8 @@ const changeSchema = z
     instagram: mode.optional(),
     tiktok: mode.optional(),
     facebook: mode.optional(),
-    threads: mode.optional()
+    threads: mode.optional(),
+    linkedin: mode.optional()
   })
   .strict()
   .refine((change) => Object.keys(change).length > 0, "Name at least one channel.");

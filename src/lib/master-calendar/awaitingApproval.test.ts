@@ -29,6 +29,7 @@ const hold = (...channels: Array<keyof ReviewPolicy>): ReviewPolicy => ({
   tiktok: "auto",
   facebook: "auto",
   threads: "auto",
+  linkedin: "auto",
   ...Object.fromEntries(channels.map((channel) => [channel, "hold"]))
 });
 

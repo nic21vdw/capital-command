@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildVariantPrompt, parseVariants, suggestVariants } from "@/lib/experiments/suggest";
+import { resetBrandKit, saveBrandKitOverrides } from "@/lib/brand/kit";
 
 const runAi = vi.hoisted(() => vi.fn());
 const aiConfigured = vi.hoisted(() => vi.fn(() => true));
@@ -20,6 +21,7 @@ describe("buildVariantPrompt", () => {
     const prompt = buildVariantPrompt({ kind: "hook", base: "Nobody tells you this.", transcript: "words", count: 2 });
     expect(prompt.system).toMatch(/opening line/i);
     expect(prompt.system).not.toMatch(/Title Case/);
+    expect(prompt.system).toContain("CoLateral");
   });
 });
 
@@ -47,6 +49,18 @@ describe("parseVariants", () => {
   it("accepts a longer line for a hook", () => {
     const hook = "I spent a month letting an agent run my inbox and this is the one thing it got wrong.";
     expect(parseVariants(JSON.stringify([hook]), "hook", "Nobody tells you this.", 2)).toEqual([hook]);
+  });
+
+  it("keeps hook suggestions on the saved brand prompt and output rules", async () => {
+    await saveBrandKitOverrides({ channels: { youtube: { guide: "Custom operator voice" } }, voice: { substitutions: [{ from: "gadgets", to: "tools" }] } });
+    try {
+      const prompt = buildVariantPrompt({ kind: "hook", base: "A different opening", transcript: "words", count: 2 });
+      expect(prompt.system).toContain("Custom operator voice");
+      const hooks = parseVariants(JSON.stringify(["I use gadgets — here is what I learned"]), "hook", "A different opening", 2);
+      expect(hooks).toHaveLength(1);
+      expect(hooks[0]).toContain("I use tools");
+      expect(hooks[0]).not.toMatch(/[—–]/);
+    } finally { await resetBrandKit(); }
   });
 
   it("returns nothing for a reply it cannot read", () => {

@@ -12,7 +12,8 @@ const PLATFORM_NAMES: Record<PlatformId, string> = {
   youtube: "YouTube",
   instagram: "Instagram",
   tiktok: "TikTok",
-  facebook: "Facebook"
+  facebook: "Facebook",
+  linkedin: "LinkedIn"
 };
 
 const BOOK_HINT =
