@@ -3,6 +3,7 @@ import { publisherConfig } from "@/lib/publisher/config";
 import { missingCredentialsMessage } from "@/lib/publisher/connectStart";
 import { fetchJson } from "@/lib/publisher/http";
 import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
+import { QuotaSavedError, debitOrSkip } from "@/lib/youtube/quotaSpend";
 
 /**
  * Google OAuth 2.0 for the in-app "Connect YouTube" button. The whole flow
@@ -137,6 +138,7 @@ export async function exchangeGoogleCode(
 }
 
 async function fetchChannelInfo(accessToken: string): Promise<YoutubeChannelInfo | null> {
+  await debitOrSkip(1, "channel");
   const data = await fetchJson<{
     items?: Array<{
       snippet?: { title?: string; customUrl?: string; thumbnails?: Record<string, { url?: string }> };
@@ -216,8 +218,8 @@ export async function youtubeChannelInfo(
     }
     channelLookupFailed.add(accountId);
     return null;
-  } catch {
-    channelLookupFailed.add(accountId);
+  } catch (error) {
+    if (!(error instanceof QuotaSavedError)) channelLookupFailed.add(accountId);
     return null;
   }
 }

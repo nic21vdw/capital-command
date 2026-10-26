@@ -3,6 +3,7 @@ import { youtubeAccessToken } from "@/lib/publisher/adapters/youtube";
 import { publisherConfig } from "@/lib/publisher/config";
 import { youtubeRefreshTokenFor } from "@/lib/publisher/googleAuth";
 import { fetchJson } from "@/lib/publisher/http";
+import { debitOrSkip } from "@/lib/youtube/quotaSpend";
 
 /**
  * Reads the channel's own uploads from the YouTube Data API so the Uploading
@@ -146,6 +147,7 @@ async function fetchChannelVideos(now: Date, accountId: string): Promise<{ chann
   const token = await youtubeAccessToken(accountId);
   const auth = { Authorization: `Bearer ${token}` };
 
+  await debitOrSkip(1, "schedule");
   const channels = await fetchJson<{
     items?: Array<{ id?: string; contentDetails?: { relatedPlaylists?: { uploads?: string } } }>;
   }>(`${API}/channels?part=id,contentDetails&mine=true`, {
@@ -157,6 +159,7 @@ async function fetchChannelVideos(now: Date, accountId: string): Promise<{ chann
   const uploadsPlaylist = channels.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
   if (!uploadsPlaylist) return { channelId, videos: [] };
 
+  await debitOrSkip(1, "schedule");
   const playlist = await fetchJson<{ items?: Array<{ contentDetails?: { videoId?: string } }> }>(
     `${API}/playlistItems?part=contentDetails&playlistId=${encodeURIComponent(uploadsPlaylist)}&maxResults=${MAX_VIDEOS}`,
     { label: "YouTube uploads playlist", method: "GET", headers: auth }
@@ -166,6 +169,7 @@ async function fetchChannelVideos(now: Date, accountId: string): Promise<{ chann
     .filter((id): id is string => Boolean(id));
   if (ids.length === 0) return { channelId, videos: [] };
 
+  await debitOrSkip(1, "schedule");
   const details = await fetchJson<{ items?: VideoResource[] }>(
     `${API}/videos?part=snippet,status&id=${ids.join(",")}&maxResults=${MAX_VIDEOS}`,
     { label: "YouTube video details", method: "GET", headers: auth }

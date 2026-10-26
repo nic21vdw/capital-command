@@ -14,6 +14,7 @@ import {
   type WatchlistChannel
 } from "@/lib/youtube/outliers";
 import { readOutlierStore, writeOutlierStore } from "@/lib/youtube/outlier-store";
+import { QuotaSavedError, debitOrSkip } from "@/lib/youtube/quotaSpend";
 
 /**
  * YouTube Data API calls for the Outlier Radar. Reuses the existing
@@ -64,6 +65,13 @@ function classifyApiError(error: unknown): OutlierApiError {
     return new OutlierApiError("YouTube authorization failed (401) — reconnect YouTube from the Uploading Center.", 401);
   }
   return new OutlierApiError(message, 502);
+}
+
+type UnitMeter = { units: number };
+
+async function spend(meter: UnitMeter): Promise<void> {
+  await debitOrSkip(1, "outliers");
+  meter.units += 1;
 }
 
 async function authHeaders(): Promise<Record<string, string>> {
@@ -118,7 +126,7 @@ export async function resolveChannel(rawInput: string): Promise<{ channel: Watch
   // Legacy /c/ custom URLs usually match the handle; fall back to the old
   // username lookup before giving up — both are 1-unit channels.list calls.
   const attempts: ChannelRef[] = ref.kind === "handle" ? [ref, { kind: "user", value: ref.value }] : [ref];
-  let unitsUsed = 0;
+  const meter: UnitMeter = { units: 0 };
   for (const attempt of attempts) {
     const param =
       attempt.kind === "id"
@@ -126,7 +134,11 @@ export async function resolveChannel(rawInput: string): Promise<{ channel: Watch
         : attempt.kind === "handle"
           ? `forHandle=${encodeURIComponent(attempt.value)}`
           : `forUsername=${encodeURIComponent(attempt.value)}`;
-    unitsUsed += 1;
+    try {
+      await spend(meter);
+    } catch (error) {
+      throw error instanceof QuotaSavedError ? new OutlierApiError(error.message, 429) : error;
+    }
     let data: { items?: ChannelResource[] };
     try {
       data = await fetchJson<{ items?: ChannelResource[] }>(
@@ -137,7 +149,7 @@ export async function resolveChannel(rawInput: string): Promise<{ channel: Watch
       throw classifyApiError(error);
     }
     const channel = data.items?.[0] ? toWatchlistChannel(data.items[0], new Date().toISOString()) : null;
-    if (channel) return { channel, unitsUsed };
+    if (channel) return { channel, unitsUsed: meter.units };
   }
   throw new OutlierApiError(
     `No YouTube channel found for "${rawInput.trim()}". Check the URL/handle, or paste the UC… channel id directly.`,
@@ -157,9 +169,10 @@ type VideoResource = {
 async function fetchRecentVideos(
   headers: Record<string, string>,
   uploadsPlaylistId: string,
-  count: number
-): Promise<{ videos: VideoStats[]; unitsUsed: number }> {
-  let unitsUsed = 1;
+  count: number,
+  meter: UnitMeter
+): Promise<VideoStats[]> {
+  await spend(meter);
   const playlist = await fetchJson<{ items?: PlaylistItemResource[] }>(
     `${API}/playlistItems?part=contentDetails&playlistId=${encodeURIComponent(uploadsPlaylistId)}&maxResults=${Math.min(50, count)}`,
     { label: "YouTube uploads playlist", method: "GET", headers }
@@ -167,9 +180,9 @@ async function fetchRecentVideos(
   const ids = (playlist.items ?? [])
     .map((item) => item.contentDetails?.videoId)
     .filter((id): id is string => Boolean(id));
-  if (ids.length === 0) return { videos: [], unitsUsed };
+  if (ids.length === 0) return [];
 
-  unitsUsed += 1;
+  await spend(meter);
   const details = await fetchJson<{ items?: VideoResource[] }>(
     `${API}/videos?part=snippet,statistics,contentDetails&id=${ids.join(",")}&maxResults=50`,
     { label: "YouTube video stats", method: "GET", headers }
@@ -190,19 +203,19 @@ async function fetchRecentVideos(
       thumbnailUrl: thumbnails.medium?.url ?? thumbnails.default?.url ?? null
     });
   }
-  return { videos, unitsUsed };
+  return videos;
 }
 
 /** Fills in uploads-playlist ids for channels missing one — 1 unit per 50. */
 async function backfillUploadsPlaylists(
   headers: Record<string, string>,
-  channels: WatchlistChannel[]
-): Promise<number> {
+  channels: WatchlistChannel[],
+  meter: UnitMeter
+): Promise<void> {
   const missing = channels.filter((channel) => !channel.uploadsPlaylistId);
-  let unitsUsed = 0;
   for (let start = 0; start < missing.length; start += 50) {
     const batch = missing.slice(start, start + 50);
-    unitsUsed += 1;
+    await spend(meter);
     const data = await fetchJson<{ items?: ChannelResource[] }>(
       `${API}/channels?part=contentDetails&id=${batch.map((c) => c.id).join(",")}&maxResults=50`,
       { label: "YouTube uploads playlist lookup", method: "GET", headers }
@@ -213,7 +226,6 @@ async function backfillUploadsPlaylists(
       if (channel && uploads) channel.uploadsPlaylistId = uploads;
     }
   }
-  return unitsUsed;
 }
 
 let scanInFlight = false;
@@ -249,7 +261,7 @@ async function scan(force: boolean): Promise<{ store: OutlierStore; run: ScanRun
   const nowIso = now.toISOString();
   const cooldownMs = config.cooldownMinutes * 60 * 1000;
 
-  let unitsUsed = 0;
+  const meter: UnitMeter = { units: 0 };
   let channelsChecked = 0;
   let channelsSkipped = 0;
   let channelsFailed = 0;
@@ -263,14 +275,17 @@ async function scan(force: boolean): Promise<{ store: OutlierStore; run: ScanRun
   }
 
   const channels = store.channels.map((channel) => ({ ...channel }));
+  let quotaSaved = false;
   try {
-    unitsUsed += await backfillUploadsPlaylists(headers, channels);
+    await backfillUploadsPlaylists(headers, channels, meter);
   } catch (error) {
-    throw classifyApiError(error);
+    if (!(error instanceof QuotaSavedError)) throw classifyApiError(error);
+    quotaSaved = true;
+    notes.push(`Scan stopped early: ${error.message}`);
   }
 
   let freshOutlierCandidates = store.outliers;
-  for (const channel of channels) {
+  for (const channel of quotaSaved ? [] : channels) {
     if (!force && channel.lastFetchedAt && now.getTime() - new Date(channel.lastFetchedAt).getTime() < cooldownMs) {
       channelsSkipped += 1;
       continue;
@@ -281,8 +296,7 @@ async function scan(force: boolean): Promise<{ store: OutlierStore; run: ScanRun
       continue;
     }
     try {
-      const { videos, unitsUsed: cost } = await fetchRecentVideos(headers, channel.uploadsPlaylistId, config.baselineWindow);
-      unitsUsed += cost;
+      const videos = await fetchRecentVideos(headers, channel.uploadsPlaylistId, config.baselineWindow, meter);
       const baseline = computeBaseline(videos, config.baselineWindow);
       channel.recentVideos = videos;
       channel.baseline = { ...baseline, computedAt: nowIso };
@@ -292,6 +306,10 @@ async function scan(force: boolean): Promise<{ store: OutlierStore; run: ScanRun
       const flagged = detectOutliers(channel, videos, baseline, config.multiplier, now);
       freshOutlierCandidates = mergeOutliers(freshOutlierCandidates, flagged);
     } catch (error) {
+      if (error instanceof QuotaSavedError) {
+        notes.push(`Scan stopped early: ${error.message}`);
+        break;
+      }
       const classified = classifyApiError(error);
       // Quota/auth failures apply to every remaining channel — stop burning calls.
       if (classified.status === 429 || classified.status === 403 || classified.status === 401) {
@@ -309,7 +327,7 @@ async function scan(force: boolean): Promise<{ store: OutlierStore; run: ScanRun
   const run: ScanRun = {
     id: `run-${crypto.randomUUID()}`,
     at: nowIso,
-    unitsUsed,
+    unitsUsed: meter.units,
     channelsChecked,
     channelsSkipped,
     channelsFailed,

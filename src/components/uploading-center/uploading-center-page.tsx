@@ -1055,7 +1055,7 @@ export function UploadingCenterPage() {
             onEditCaption={(item, caption) => void editQueueCaption(item, caption)}
             onRemove={(item) => void remove(item)}
             onRename={(item, title) => void renameQueueItem(item, title)}
-            youtubeQuotaFull={Boolean(overview && overview.quota.uploadsUsed >= overview.quota.budgetUploads)}
+            youtubeQuotaFull={Boolean(overview && overview.quota.remainingUploads <= 0)}
             isConnected={isAccountConnected}
             busy={busy}
             highlightedItemId={itemParam}
@@ -1156,7 +1156,7 @@ export function UploadingCenterPage() {
       { label: "Failed captions", value: String(failedCaptionClips.length) },
       {
         label: "YouTube quota",
-        value: overview ? `${overview.quota.uploadsUsed}/${overview.quota.budgetUploads} uploads` : "—",
+        value: overview ? `${overview.quota.remainingUploads} uploads left` : "—",
       },
       { label: "Publishing", value: overview ? (overview.enabled ? "On" : "Off") : "—" },
       { label: "Shorts a day", value: shortsPerDay ? String(shortsPerDay) : "—" },
