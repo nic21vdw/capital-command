@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { PlatformIconKey } from "@/components/ui/platform-icon";
 
 type PlatformKey = PlatformIconKey;
-const OTHER_PLATFORMS: PlatformKey[] = ["instagram", "tiktok", "facebook"];
+const OTHER_PLATFORMS: PlatformKey[] = ["instagram", "tiktok", "facebook", "linkedin"];
 
 export type Profile = { title: string; thumbnail: string | null; handle?: string | null };
 

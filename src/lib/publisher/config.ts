@@ -5,7 +5,8 @@ import {
   DEFAULT_WEEKEND_SLOT_TIMES
 } from "@/lib/publisher/slots";
 import { DEFAULT_SHORTS_PER_DAY } from "@/lib/publisher/shortsCap";
-import { ALL_PLATFORMS, type PlatformId, type Visibility } from "@/lib/publisher/types";
+import { LINKEDIN_KEYS } from "@/lib/publisher/linkedinKeys";
+import { ALL_PLATFORMS, DEFAULT_PLATFORMS, type PlatformId, type Visibility } from "@/lib/publisher/types";
 import { dataPath } from "@/lib/paths";
 
 /**
@@ -135,6 +136,14 @@ export type PublisherConfig = {
     pageAccessToken: string | null;
     graphApiVersion: string;
   };
+  linkedin: {
+    clientId: string | null;
+    clientSecret: string | null;
+    accessToken: string | null;
+    refreshToken: string | null;
+    authorUrn: string | null;
+    dailyPostBudget: number;
+  };
   tiktok: {
     clientKey: string | null;
     clientSecret: string | null;
@@ -255,7 +264,7 @@ export function publisherConfig(): PublisherConfig {
         .split(",")
         .map((p) => p.trim().toLowerCase())
         .filter((p): p is PlatformId => (ALL_PLATFORMS as string[]).includes(p)))
-    : [...ALL_PLATFORMS];
+    : [...DEFAULT_PLATFORMS];
   const visibilityRaw = str("PUBLISH_DEFAULT_VISIBILITY")?.toLowerCase();
   const defaultVisibility: Visibility =
     visibilityRaw === "public" || visibilityRaw === "unlisted" ? visibilityRaw : "private";
@@ -308,6 +317,14 @@ export function publisherConfig(): PublisherConfig {
       // https://developers.facebook.com/docs/graph-api/changelog
       graphApiVersion: str("FB_GRAPH_API_VERSION") ?? "v23.0"
     },
+    linkedin: {
+      clientId: str("LINKEDIN_CLIENT_ID"),
+      clientSecret: str("LINKEDIN_CLIENT_SECRET"),
+      accessToken: cachedRefreshToken(LINKEDIN_KEYS.accessToken),
+      refreshToken: cachedRefreshToken(LINKEDIN_KEYS.refreshToken),
+      authorUrn: cachedRefreshToken(LINKEDIN_KEYS.author),
+      dailyPostBudget: num("LINKEDIN_DAILY_POST_BUDGET", 10)
+    },
     tiktok: {
       clientKey: str("TIKTOK_CLIENT_KEY"),
       clientSecret: str("TIKTOK_CLIENT_SECRET"),
@@ -352,8 +369,16 @@ export function configuredPlatforms(config = publisherConfig()): PlatformId[] {
     }
     if (p === "instagram") return Boolean(config.instagram.userId && config.instagram.accessToken);
     if (p === "facebook") return Boolean(config.facebook.pageId && config.facebook.pageAccessToken);
+    if (p === "linkedin") return linkedinConfigured(config);
     return Boolean(config.tiktok.clientKey && config.tiktok.clientSecret && config.tiktok.refreshToken);
   });
+}
+
+export function linkedinConfigured(config = publisherConfig()): boolean {
+  const { linkedin } = config;
+  return Boolean(
+    linkedin.clientId && linkedin.clientSecret && (linkedin.accessToken || linkedin.refreshToken) && linkedin.authorUrn
+  );
 }
 
 export function hostingConfigured(config = publisherConfig()): boolean {

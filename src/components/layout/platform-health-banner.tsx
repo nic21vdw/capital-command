@@ -79,8 +79,7 @@ export function PlatformHealthBanner() {
             <li key={entry.key} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
               {model.entries.length > 1 && <span className="font-medium">{entry.displayName}</span>}
               <span className="text-[var(--muted-foreground-2)]">
-                broke {entry.sinceLabel}
-                {entry.agoLabel ? ` (${entry.agoLabel})` : ""}
+                {entry.lead ?? `broke ${entry.sinceLabel}${entry.agoLabel ? ` (${entry.agoLabel})` : ""}`}
               </span>
               <span className="min-w-0 flex-1 basis-40 truncate text-[var(--muted-foreground)]" title={entry.reason}>
                 {entry.reason}

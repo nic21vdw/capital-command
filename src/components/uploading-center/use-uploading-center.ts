@@ -51,7 +51,7 @@ import { generateSlots } from "@/lib/publisher/slots";
 import { remoteUrlFor } from "@/lib/publisher/remoteUrl";
 import type { YoutubeQuota } from "@/lib/publisher/quota";
 import { DEFAULT_SLOT_OFFSET_DAYS, SLOT_WINDOW_DAYS } from "@/lib/publisher/slotWindow";
-import { ALL_PLATFORMS, type PlatformId, type QueueItem, type TiktokPostOptions } from "@/lib/publisher/types";
+import { DEFAULT_PLATFORMS, type PlatformId, type QueueItem, type TiktokPostOptions } from "@/lib/publisher/types";
 
 export { DEFAULT_SLOT_OFFSET_DAYS, SLOT_WINDOW_DAYS };
 
@@ -226,7 +226,7 @@ export { REARM_MAX_SLOT_AGE_HOURS };
 export type PlatformTarget = PlatformId | typeof ALL_PLATFORMS_TARGET;
 
 export function targetPlatforms(target: PlatformTarget): PlatformId[] {
-  return target === ALL_PLATFORMS_TARGET ? [...ALL_PLATFORMS] : [target];
+  return target === ALL_PLATFORMS_TARGET ? [...DEFAULT_PLATFORMS] : [target];
 }
 
 /**
@@ -257,14 +257,16 @@ const DEFAULT_ACTIVE_ACCOUNTS: Record<PlatformId, string> = {
   youtube: primaryAccountIdFor("youtube"),
   tiktok: primaryAccountIdFor("tiktok"),
   instagram: primaryAccountIdFor("instagram"),
-  facebook: primaryAccountIdFor("facebook")
+  facebook: primaryAccountIdFor("facebook"),
+  linkedin: primaryAccountIdFor("linkedin")
 };
 
 export const PLATFORM_LABELS: Record<PlatformId, string> = {
   youtube: "YouTube",
   tiktok: "TikTok",
   instagram: "Instagram",
-  facebook: "Facebook"
+  facebook: "Facebook",
+  linkedin: "LinkedIn"
 };
 
 /**

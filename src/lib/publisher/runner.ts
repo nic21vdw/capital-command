@@ -11,17 +11,18 @@ import { authStateKey } from "@/lib/platform-health/types";
 import { accountIdConfigured, itemAccountId } from "@/lib/publisher/accounts";
 import { facebookAdapter } from "@/lib/publisher/adapters/facebook";
 import { instagramAdapter } from "@/lib/publisher/adapters/instagram";
+import { linkedinAdapter } from "@/lib/publisher/adapters/linkedin";
 import { tiktokAdapter } from "@/lib/publisher/adapters/tiktok";
 import { youtubeAdapter } from "@/lib/publisher/adapters/youtube";
 import { type BufferOutcome, syncDueToBuffer, validateBufferAuth } from "@/lib/publisher/buffer";
 import { bufferConfigured, configuredPlatforms, publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { hostImages, hostMedia, mediaHost } from "@/lib/publisher/hosting";
-import { imagePathsOf, isImagePost } from "@/lib/publisher/images";
+import { PUBLIC_URL_PLATFORMS, imagePathsOf, isImagePost } from "@/lib/publisher/images";
 import { channelDuplicateMessage, youtubeChannelDuplicate } from "@/lib/publisher/duplicateGuard";
 import { describeMirrorPlan, planMirror } from "@/lib/publisher/mirror";
 import { AbandonedUploadError, PermanentError, StillProcessingError, ThrottledError, isTransient } from "@/lib/publisher/http";
 import { listeningUnitsToday } from "@/lib/listening/ledger";
-import { effectiveUploadBudget, remainingYoutubeUploads } from "@/lib/publisher/quota";
+import { effectiveUploadBudget, remainingLinkedinPosts, remainingYoutubeUploads } from "@/lib/publisher/quota";
 import { outstandingTiktokDrafts, usesTiktokInbox } from "@/lib/publisher/tiktokInbox";
 import { PublishQueue, isTerminalStatus, mirroredPlatformState, publishQueue } from "@/lib/publisher/queue";
 import { formatInTimezone } from "@/lib/publisher/time";
@@ -115,11 +116,12 @@ export const defaultAdapters: Record<PlatformId, PlatformAdapter> = {
   youtube: youtubeAdapter,
   instagram: instagramAdapter,
   tiktok: tiktokAdapter,
-  facebook: facebookAdapter
+  facebook: facebookAdapter,
+  linkedin: linkedinAdapter
 };
 
 /** Platforms whose APIs pull the video from a public URL rather than an upload. */
-const PLATFORMS_NEEDING_PUBLIC_URL = new Set<PlatformId>(["instagram", "facebook"]);
+const PLATFORMS_NEEDING_PUBLIC_URL = new Set<PlatformId>(PUBLIC_URL_PLATFORMS);
 
 const FACEBOOK_POLL_BUDGET_MS_PER_RUN = 180_000;
 
@@ -164,7 +166,8 @@ async function resolveLocalMedia(item: QueueItem, config: PublisherConfig): Prom
 async function resolveImageMedia(
   item: QueueItem,
   config: PublisherConfig,
-  queue: PublishQueue
+  queue: PublishQueue,
+  requirePublicUrls = true
 ): Promise<{ localPaths: string[]; publicUrls: string[] }> {
   const relative = imagePathsOf(item);
   const localPaths: string[] = [];
@@ -174,6 +177,15 @@ async function resolveImageMedia(
       .then((info) => info.size > 0)
       .catch(() => false);
     if (exists) localPaths.push(absolute);
+  }
+
+  if (!requirePublicUrls) {
+    if (localPaths.length !== relative.length) {
+      throw new PermanentError(
+        "The pictures for this post are not on this machine - re-schedule it where the images live."
+      );
+    }
+    return { localPaths, publicUrls: [] };
   }
 
   const host = mediaHost(config);
@@ -416,6 +428,9 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
   let tiktokInboxLeft = options.force
     ? Number.POSITIVE_INFINITY
     : Math.max(0, config.tiktok.inboxLimit - tiktokDraftsWaiting);
+  let linkedinPostsLeft = options.force
+    ? Number.POSITIVE_INFINITY
+    : remainingLinkedinPosts(allItems, now, config);
   let facebookPollMsLeft = FACEBOOK_POLL_BUDGET_MS_PER_RUN;
   let facebookPreschedulesLeft = options.force ? Number.POSITIVE_INFINITY : FACEBOOK_PRESCHEDULES_PER_RUN;
   const authHold = new Map<string, boolean>();
@@ -512,6 +527,17 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
             }
             tiktokInboxLeft -= 1;
           }
+          if (platform === "linkedin" && !state?.containerId) {
+            if (linkedinPostsLeft <= 0) {
+              await record(
+                "deferred",
+                `LinkedIn's ${config.linkedin.dailyPostBudget} posts for today are used - this one goes out on the first run after LinkedIn's daily limits reset at midnight UTC.`,
+                "daily cap"
+              );
+              continue;
+            }
+            linkedinPostsLeft -= 1;
+          }
           if (platform === "facebook" && new Date(item.publishAt).getTime() > now.getTime()) {
             if (facebookPreschedulesLeft <= 0) {
               await record(
@@ -526,7 +552,10 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
           if (!(await queue.claim(item, platform, now, { force: forcedNow }))) continue;
           // Resolve media lazily and once per item, not per platform.
           if (isImagePost(item)) {
-            images ??= await resolveImageMedia(item, config, queue);
+            const needsPublicUrls = PLATFORMS_NEEDING_PUBLIC_URL.has(platform);
+            if (!images || (needsPublicUrls && images.publicUrls.length === 0)) {
+              images = await resolveImageMedia(item, config, queue, needsPublicUrls);
+            }
             localPath ??= images.localPaths[0] ?? item.clipPath;
             publicUrl ??= images.publicUrls[0];
           } else {

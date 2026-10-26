@@ -37,7 +37,8 @@ const NAMES: Record<PlatformId, string> = {
   youtube: "YouTube",
   instagram: "Instagram",
   tiktok: "TikTok",
-  facebook: "Facebook"
+  facebook: "Facebook",
+  linkedin: "LinkedIn"
 };
 
 /** The result for a request the server refused (nothing was booked). */

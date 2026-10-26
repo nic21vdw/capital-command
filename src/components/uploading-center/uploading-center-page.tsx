@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Facebook,
   Instagram,
+  Linkedin,
   Loader2,
   Music2,
   Play,
@@ -93,6 +94,7 @@ import { noAccountConnected } from "@/lib/publisher/boardActions";
 import { ACCOUNTS_SETTINGS_HREF } from "@/lib/publisher/failure";
 import { buildAgenda } from "@/lib/publisher/agenda";
 import { formatClockTime, formatSlotDateTime } from "@/lib/timeFormat";
+import { visiblePlatformTabs } from "@/components/uploading-center/platform-tabs";
 import { publisherBannerLine } from "@/lib/publisher/publishOverview";
 import { EARLIEST_PUBLISH_DAY_OFFSET, addDaysToDateKey } from "@/lib/publisher/schedule";
 import { clearConnectFailure, rememberConnectFailure } from "@/lib/publisher/connectErrors";
@@ -111,6 +113,7 @@ const PLATFORM_TABS: Array<{ id: PlatformId; icon: typeof Youtube }> = [
   { id: "tiktok", icon: Music2 },
   { id: "instagram", icon: Instagram },
   { id: "facebook", icon: Facebook },
+  { id: "linkedin", icon: Linkedin },
 ];
 
 export function UploadingCenterPage() {
@@ -952,7 +955,10 @@ export function UploadingCenterPage() {
     [showBookedItem],
   );
 
-  const tabs = PLATFORM_TABS.map(({ id, icon }) => {
+  const itemCountByPlatform = new Map<PlatformId, number>(
+    PLATFORM_TABS.map(({ id }) => [id, itemsByPlatform.get(id)?.length ?? 0]),
+  );
+  const tabs = visiblePlatformTabs(PLATFORM_TABS, accounts, itemCountByPlatform).map(({ id, icon }) => {
     const activeAccount = activeAccountFor(id);
     // Connection status follows the account the tab is showing, not the
     // platform as a whole — each account connects on its own.

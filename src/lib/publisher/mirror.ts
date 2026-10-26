@@ -55,12 +55,12 @@ export type MirrorPlan = {
 };
 
 /**
- * Instagram and Facebook Reels published through the API are always public;
- * their adapters refuse anything else rather than posting it unlisted. Mirror
- * refuses too, at planning time, so a private clip is reported instead of
- * being queued to fail hours later.
+ * Instagram and Facebook Reels published through the API are always public, and
+ * so is everything LinkedIn posts; their adapters refuse anything else rather
+ * than posting it unlisted. Mirror refuses too, at planning time, so a private
+ * clip is reported instead of being queued to fail hours later.
  */
-const PUBLIC_ONLY: PlatformId[] = ["instagram", "facebook"];
+const PUBLIC_ONLY: PlatformId[] = ["instagram", "facebook", "linkedin"];
 
 /** Deterministic 32-bit PRNG (mulberry32) so a seeded shuffle is reproducible. */
 function rng(seed: number): () => number {
@@ -190,7 +190,7 @@ export function planMirror(items: QueueItem[], options: MirrorOptions): MirrorPl
     if (item.visibility === "public") return true;
     plan.skipped.push({
       itemId: item.id,
-      reason: `visibility is "${item.visibility}" — Instagram and Facebook only accept public posts.`
+      reason: `visibility is "${item.visibility}" — Instagram, Facebook and LinkedIn only accept public posts.`
     });
     return false;
   });

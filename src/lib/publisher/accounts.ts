@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { configuredPlatforms, publisherConfig } from "@/lib/publisher/config";
+import { configuredPlatforms, linkedinConfigured, publisherConfig } from "@/lib/publisher/config";
 import { dataPath } from "@/lib/paths";
 import { atomicWriteFile } from "@/lib/storage/atomic-json";
 import { mediaHost } from "@/lib/publisher/hosting";
@@ -206,7 +206,9 @@ export async function removeAccount(accountId: string, queueItems: QueueItem[]):
 
 /**
  * Whether posts for this platform+account publish automatically. The primary
- * account is configured exactly when today's env credentials are; an extra
+ * account is configured exactly when today's env credentials are (LinkedIn when
+ * its app credentials and a stored sign-in are, whatever PUBLISH_PLATFORMS says,
+ * because that list decides what books automatically, not what is connected); an extra
  * YouTube or TikTok account is configured once its own Connect flow ran. Extra
  * accounts on other platforms always post as manual reminders for now.
  */
@@ -217,6 +219,7 @@ export async function accountIdConfigured(
 ): Promise<boolean> {
   const resolved = accountId ?? primaryAccountId(platform);
   if (resolved === primaryAccountId(platform)) {
+    if (platform === "linkedin") return linkedinConfigured(config);
     return configuredPlatforms(config).includes(platform);
   }
   if (platform === "youtube") {

@@ -16,10 +16,12 @@ import type { PublishInput, TiktokPostOptions } from "@/lib/publisher/types";
 // that file synchronously) prefer it over the .env seed. Pin the token to the
 // env stub so the suite never reaches for the live one.
 const tokenCache = new Map<string, string>();
+let failTokenWrites = false;
 
 vi.mock("@/lib/publisher/tokens", () => ({
   getCachedToken: async (key: string) => tokenCache.get(key) ?? null,
   setCachedToken: async (key: string, value: string) => {
+    if (failTokenWrites) throw Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" });
     tokenCache.set(key, value);
   }
 }));
@@ -74,6 +76,7 @@ beforeEach(() => {
   probe.signal = undefined;
   probe.calls = 0;
   tokenCache.clear();
+  failTokenWrites = false;
   vi.stubEnv("TIKTOK_CLIENT_KEY", "tt-key");
   vi.stubEnv("TIKTOK_CLIENT_SECRET", "tt-secret");
   vi.stubEnv("TIKTOK_REFRESH_TOKEN", "tt-refresh");
@@ -115,7 +118,8 @@ type CreatorInfoOverride = {
 
 function routes(
   finalStatus: "PUBLISH_COMPLETE" | "SEND_TO_USER_INBOX" = "SEND_TO_USER_INBOX",
-  creatorInfo: CreatorInfoOverride = {}
+  creatorInfo: CreatorInfoOverride = {},
+  refreshToken = "tt-refresh"
 ) {
   const init = () =>
     jsonResponse({
@@ -126,7 +130,7 @@ function routes(
     {
       // Refresh token grant returns the same refresh_token (no rotation).
       match: "/v2/oauth/token/",
-      respond: () => jsonResponse({ access_token: "tt-at", expires_in: 86400, refresh_token: "tt-refresh" })
+      respond: () => jsonResponse({ access_token: "tt-at", expires_in: 86400, refresh_token: refreshToken })
     },
     {
       // Direct posts query this first. The account has Duet switched off, so a
@@ -162,6 +166,30 @@ function routes(
     }
   ]);
 }
+
+describe("tiktok refresh-token rotation", () => {
+  it("stores the rotated refresh token when TikTok hands one back", async () => {
+    routes("SEND_TO_USER_INBOX", {}, "tt-refresh-rotated");
+    await (await loadAdapter()).publish(input({ visibility: "public" }));
+    expect(tokenCache.get("tiktok.refreshToken")).toBe("tt-refresh-rotated");
+  });
+
+  it("still posts with the new access token when the rotated one cannot be saved", async () => {
+    failTokenWrites = true;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const requests = routes("SEND_TO_USER_INBOX", {}, "tt-refresh-rotated");
+
+    const result = await (await loadAdapter()).publish(input({ visibility: "public" }));
+
+    expect(result.status).toBe("scheduled");
+    const init = requests.find((request) => request.url.endsWith("/post/publish/inbox/video/init/"));
+    expect(init?.headers.Authorization).toBe("Bearer tt-at");
+    expect(tokenCache.has("tiktok.refreshToken")).toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("rotated refresh token could not be saved"));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("EBUSY"));
+    warn.mockRestore();
+  });
+});
 
 describe("tiktok adapter", () => {
   it("sends to the creator's TikTok inbox while unaudited", async () => {

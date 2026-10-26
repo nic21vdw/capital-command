@@ -88,3 +88,19 @@ export function youtubeQuota(items: QueueItem[], now: Date, config: PublisherCon
     overBudget: projectedUploads > budget
   };
 }
+
+function utcDate(instant: Date): string {
+  return instant.toISOString().slice(0, 10);
+}
+
+export function linkedinPostsToday(items: QueueItem[], now: Date): number {
+  const today = utcDate(now);
+  return items.filter((item) => {
+    const uploadedAt = item.platforms.linkedin?.uploadedAt;
+    return uploadedAt !== undefined && utcDate(new Date(uploadedAt)) === today;
+  }).length;
+}
+
+export function remainingLinkedinPosts(items: QueueItem[], now: Date, config: PublisherConfig): number {
+  return Math.max(0, config.linkedin.dailyPostBudget - linkedinPostsToday(items, now));
+}

@@ -11,12 +11,13 @@ import { publisherConfig } from "@/lib/publisher/config";
  * because that is where the missing values are entered.
  */
 
-export type OAuthPlatform = "youtube" | "tiktok" | "spotify";
+export type OAuthPlatform = "youtube" | "tiktok" | "spotify" | "linkedin";
 
 const MISSING: Record<OAuthPlatform, string> = {
   youtube: "Add the YouTube client ID and secret in Settings > Accounts first.",
   tiktok: "Add the TikTok client key and secret in Settings > Accounts first.",
-  spotify: "Add the Spotify client ID and secret in Settings > Accounts first."
+  spotify: "Add the Spotify client ID and secret in Settings > Accounts first.",
+  linkedin: "Add the LinkedIn client ID and secret in Settings > Accounts first."
 };
 
 export function missingCredentialsMessage(platform: OAuthPlatform): string {
@@ -27,6 +28,7 @@ export function missingCredentialsMessage(platform: OAuthPlatform): string {
 export function oauthCredentialsMissing(platform: OAuthPlatform, config = publisherConfig()): boolean {
   if (platform === "youtube") return !config.youtube.clientId || !config.youtube.clientSecret;
   if (platform === "tiktok") return !config.tiktok.clientKey || !config.tiktok.clientSecret;
+  if (platform === "linkedin") return !config.linkedin.clientId || !config.linkedin.clientSecret;
   return !config.spotify.clientId || !config.spotify.clientSecret;
 }
 
