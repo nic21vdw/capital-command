@@ -1,7 +1,7 @@
 import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 
-export const REVIEW_CHANNELS = ["youtube", "instagram", "tiktok", "facebook", "threads"] as const;
+export const REVIEW_CHANNELS = ["youtube", "instagram", "tiktok", "facebook", "threads", "linkedin"] as const;
 export type ReviewChannel = (typeof REVIEW_CHANNELS)[number];
 
 export const REVIEW_MODES = ["auto", "hold"] as const;
@@ -14,7 +14,8 @@ export const DEFAULT_REVIEW_POLICY: ReviewPolicy = {
   instagram: "auto",
   tiktok: "auto",
   facebook: "auto",
-  threads: "auto"
+  threads: "auto",
+  linkedin: "auto"
 };
 
 export type HeldSince = Partial<Record<ReviewChannel, string>>;
@@ -35,7 +36,8 @@ export const HOLD_EVERYTHING: ReviewPolicy = {
   instagram: "hold",
   tiktok: "hold",
   facebook: "hold",
-  threads: "hold"
+  threads: "hold",
+  linkedin: "hold"
 };
 
 export const REVIEW_CHANNEL_LABELS: Record<ReviewChannel, string> = {
@@ -43,7 +45,8 @@ export const REVIEW_CHANNEL_LABELS: Record<ReviewChannel, string> = {
   instagram: "Instagram Reels",
   tiktok: "TikTok",
   facebook: "Facebook Reels",
-  threads: "Threads"
+  threads: "Threads",
+  linkedin: "LinkedIn"
 };
 
 export function isReviewChannel(value: unknown): value is ReviewChannel {

@@ -28,6 +28,47 @@ function item(overrides: Partial<QueueItem> = {}): QueueItem {
 
 const absolute = (relative: string) => path.resolve(process.cwd(), relative);
 
+describe("LinkedIn is its own audience", () => {
+  const deckPaths = ["data/carousels/c-1/slide-01.jpg", "data/carousels/c-1/slide-02.jpg"];
+  const deck = (platforms: QueueItem["platforms"], id = "d1") =>
+    item({ id, clipPath: deckPaths[0], imagePaths: deckPaths, mediaKind: "image", jobId: undefined, platforms });
+  const pending = { status: "pending", attempts: 0 } as PlatformState;
+
+  it("lets a deck booked to Instagram and Facebook be booked to LinkedIn too", () => {
+    const queued = [deck({ instagram: pending, facebook: pending })];
+    expect(findDuplicateInQueue({ paths: deckPaths, platforms: ["linkedin"] }, queued)).toBeUndefined();
+  });
+
+  it("lets a deck booked to LinkedIn be booked to Instagram and Facebook too", () => {
+    const queued = [deck({ linkedin: pending })];
+    expect(findDuplicateInQueue({ paths: deckPaths, platforms: ["instagram", "facebook"] }, queued)).toBeUndefined();
+  });
+
+  it("still refuses a second booking on the same audience", () => {
+    expect(findDuplicateInQueue({ paths: deckPaths, platforms: ["linkedin"] }, [deck({ linkedin: pending })])?.reason).toBe("same-file");
+    expect(
+      findDuplicateInQueue({ paths: deckPaths, platforms: ["instagram"] }, [deck({ instagram: pending, facebook: pending })])?.reason
+    ).toBe("same-file");
+  });
+
+  it("refuses a booking that includes the audience already booked", () => {
+    expect(
+      findDuplicateInQueue({ paths: deckPaths, platforms: ["instagram", "linkedin"] }, [deck({ instagram: pending, facebook: pending })])?.reason
+    ).toBe("same-file");
+  });
+
+  it("is unchanged for a caller that does not say where it posts", () => {
+    expect(findDuplicateInQueue({ paths: deckPaths }, [deck({ linkedin: pending })])?.reason).toBe("same-file");
+  });
+
+  it("does not report the two audiences' posts of one deck as duplicates of each other in the audit", () => {
+    const meta = deck({ instagram: pending, facebook: pending }, "meta");
+    const linkedin = deck({ linkedin: pending }, "li");
+    expect(queueDuplicateGroups([meta, linkedin])).toEqual([]);
+    expect(queueDuplicateGroups([linkedin, deck({ linkedin: pending }, "li2")])).toHaveLength(1);
+  });
+});
+
 describe("a post the queue already carries", () => {
   it("is found by its file, however the path is spelled", () => {
     const found = findDuplicateInQueue({ paths: [absolute("data/clips/job-1/clip-1.mp4")] }, [item()]);

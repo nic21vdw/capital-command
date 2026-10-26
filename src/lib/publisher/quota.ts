@@ -1,18 +1,27 @@
 import { dateTimeFormat } from "@/lib/publisher/intl";
 import type { PublisherConfig } from "@/lib/publisher/config";
 import type { QueueItem } from "@/lib/publisher/types";
+import type { LedgerSnapshot, PurposeUnits, QuotaPurpose } from "@/lib/youtube/quotaLedger";
 
 /**
- * YouTube Data API quota awareness for the Uploading Center meter. Each
- * videos.insert costs ~1600 units of the default 10,000/day, so about six
- * uploads fit. Usage is counted from the queue's uploadedAt stamps in the
- * quota's own reset window — YouTube resets at midnight Pacific Time.
+ * YouTube Data API quota awareness for the Uploading Center meter and the
+ * runner's daily allowance. Each videos.insert costs ~1600 units of the default
+ * 10,000/day, so about six uploads fit. Every unit the app spends is debited in
+ * the shared ledger (src/lib/youtube/quotaLedger.ts); this module only reads its
+ * snapshot, in the quota's own reset window - YouTube resets at midnight Pacific
+ * Time. The queue's uploadedAt stamps stay as the second opinion on how many
+ * videos went up today.
  */
 
 export const YOUTUBE_UNITS_PER_UPLOAD = 1600;
-export const YOUTUBE_UNITS_PER_UPLOAD_SAFE = 1700;
+export const YOUTUBE_UPDATE_UNITS = 50;
+export const YOUTUBE_READ_UNITS = 1;
 export const YOUTUBE_DAILY_UNITS = 10_000;
 const QUOTA_RESET_TIMEZONE = "America/Los_Angeles";
+
+const SPLIT_ORDER: QuotaPurpose[] = ["upload", "analytics", "inbox", "inbox-reply", "listening", "outliers", "stats", "schedule", "ingest", "channel"];
+
+export type QuotaSplitEntry = { purpose: QuotaPurpose; units: number; cap?: number };
 
 export type YoutubeQuota = {
   /** Calendar date (in the quota reset timezone) these numbers cover. */
@@ -22,12 +31,36 @@ export type YoutubeQuota = {
   uploadsPending: number;
   projectedUploads: number;
   budgetUploads: number;
+  /** Uploads the day can still take: the smaller of the queue's count and what the ledger says is left. */
+  remainingUploads: number;
   usedUnits: number;
-  listeningUnits: number;
   unitsPerUpload: number;
   dailyUnits: number;
   overBudget: boolean;
+  /** What each purpose has spent today, from the ledger. */
+  split: QuotaSplitEntry[];
+  nonUploadAllowance: number;
+  nonUploadSpent: number;
+  /** False when the ledger could not be read and the numbers come from the queue alone. */
+  ledgerReadable: boolean;
 };
+
+function ledgerFor(snapshot: LedgerSnapshot | null | undefined, now: Date): LedgerSnapshot | null {
+  return snapshot && snapshot.day === quotaDate(now) ? snapshot : null;
+}
+
+function uploadsToday(items: QueueItem[], now: Date): { used: number; pending: number } {
+  const today = quotaDate(now);
+  let used = 0;
+  let pending = 0;
+  for (const item of items) {
+    const state = item.platforms.youtube;
+    if (!state) continue;
+    if (state.uploadedAt && quotaDate(new Date(state.uploadedAt)) === today) used += 1;
+    else if (state.status === "pending" || state.status === "uploaded") pending += 1;
+  }
+  return { used, pending };
+}
 
 /**
  * How many more videos may be uploaded to YouTube in the current quota day.
@@ -37,15 +70,19 @@ export type YoutubeQuota = {
  * file TODAY. That is what emptied the daily allowance in one morning and locked
  * the channel out of uploading. The runner asks this before each fresh upload
  * and defers the rest to tomorrow; nothing is failed or lost.
+ *
+ * The ledger knows what the day has really spent, so an upload is only handed
+ * out while it holds a whole upload's units. Its non-upload allowance is
+ * reserved outside the upload budget, so it never takes a slot. The queue's
+ * count still caps the answer: a ledger that lost the morning's uploads (a
+ * deleted file, a first day after migrating) cannot hand the day out twice.
  */
-export function remainingYoutubeUploads(items: QueueItem[], now: Date, config: PublisherConfig, listeningUnits = 0): number {
-  const { uploadsUsed } = youtubeQuota(items, now, config, listeningUnits);
-  return Math.max(0, effectiveUploadBudget(config, listeningUnits) - uploadsUsed);
-}
-
-export function effectiveUploadBudget(config: PublisherConfig, listeningUnits = 0): number {
-  const displaced = Math.ceil(Math.max(0, listeningUnits) / YOUTUBE_UNITS_PER_UPLOAD_SAFE);
-  return Math.max(0, config.youtube.dailyUploadBudget - displaced);
+export function remainingYoutubeUploads(items: QueueItem[], now: Date, config: PublisherConfig, ledger?: LedgerSnapshot | null): number {
+  const queueLeft = Math.max(0, config.youtube.dailyUploadBudget - uploadsToday(items, now).used);
+  const usable = ledgerFor(ledger, now);
+  if (!usable) return queueLeft;
+  const ledgerLeft = Math.floor(Math.max(0, usable.dailyUnits - usable.spent) / YOUTUBE_UNITS_PER_UPLOAD);
+  return Math.min(queueLeft, ledgerLeft);
 }
 
 export function quotaDate(instant: Date): string {
@@ -63,28 +100,54 @@ export function quotaMinuteOfDay(instant: Date): number {
   return part("hour") * 60 + part("minute");
 }
 
-export function youtubeQuota(items: QueueItem[], now: Date, config: PublisherConfig, listeningUnits = 0): YoutubeQuota {
-  const today = quotaDate(now);
-  let uploadsUsed = 0;
-  let uploadsPending = 0;
-  for (const item of items) {
-    const state = item.platforms.youtube;
-    if (!state) continue;
-    if (state.uploadedAt && quotaDate(new Date(state.uploadedAt)) === today) uploadsUsed += 1;
-    else if (state.status === "pending" || state.status === "uploaded") uploadsPending += 1;
-  }
+function splitOf(ledger: LedgerSnapshot): QuotaSplitEntry[] {
+  const byPurpose: PurposeUnits = ledger.byPurpose;
+  const purposes = SPLIT_ORDER.filter((purpose) => purpose === "upload" || (byPurpose[purpose] ?? 0) > 0 || ledger.purposeCaps[purpose] !== undefined);
+  return purposes.map((purpose) => {
+    const cap = ledger.purposeCaps[purpose];
+    return { purpose, units: byPurpose[purpose] ?? 0, ...(cap === undefined ? {} : { cap }) };
+  });
+}
+
+export function youtubeQuota(items: QueueItem[], now: Date, config: PublisherConfig, ledger: LedgerSnapshot | null = null): YoutubeQuota {
+  const { used: uploadsUsed, pending: uploadsPending } = uploadsToday(items, now);
   const projectedUploads = uploadsUsed + uploadsPending;
-  const budget = effectiveUploadBudget(config, listeningUnits);
+  const budget = config.youtube.dailyUploadBudget;
+  const usable = ledgerFor(ledger, now);
+  const queueUnits = uploadsUsed * YOUTUBE_UNITS_PER_UPLOAD;
   return {
-    date: today,
+    date: quotaDate(now),
     uploadsUsed,
     uploadsPending,
     projectedUploads,
     budgetUploads: budget,
-    usedUnits: uploadsUsed * YOUTUBE_UNITS_PER_UPLOAD + listeningUnits,
-    listeningUnits,
+    remainingUploads: remainingYoutubeUploads(items, now, config, usable),
+    usedUnits: usable ? usable.spent : queueUnits,
     unitsPerUpload: YOUTUBE_UNITS_PER_UPLOAD,
     dailyUnits: YOUTUBE_DAILY_UNITS,
-    overBudget: projectedUploads > budget
+    overBudget: projectedUploads > budget,
+    split: usable ? splitOf(usable) : [{ purpose: "upload", units: queueUnits }],
+    nonUploadAllowance: usable?.nonUploadAllowance ?? 0,
+    nonUploadSpent: usable?.nonUploadSpent ?? 0,
+    ledgerReadable: usable !== null
   };
+}
+
+function utcDate(instant: Date): string {
+  return instant.toISOString().slice(0, 10);
+}
+
+export function linkedinPostsToday(items: QueueItem[], now: Date): number {
+  const today = utcDate(now);
+  return items.filter((item) => {
+    const state = item.platforms.linkedin;
+    // Media upload may precede post creation by days. Count accepted posts,
+    // including older accepted records that only carried an upload timestamp.
+    const postedAt = state?.publishedAt ?? (state?.postId ? state.uploadedAt : undefined);
+    return postedAt !== undefined && Number.isFinite(Date.parse(postedAt)) && utcDate(new Date(postedAt)) === today;
+  }).length;
+}
+
+export function remainingLinkedinPosts(items: QueueItem[], now: Date, config: PublisherConfig): number {
+  return Math.max(0, config.linkedin.dailyPostBudget - linkedinPostsToday(items, now));
 }

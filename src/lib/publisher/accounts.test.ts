@@ -105,7 +105,8 @@ describe("withPrimaries", () => {
     };
     const list = withPrimaries([extra]);
     expect(list.filter((a) => a.platform === "youtube").map((a) => a.id)).toEqual(["youtube-primary", "youtube-x1"]);
-    expect(list.filter((a) => isPrimaryAccountId(a.id))).toHaveLength(4);
+    expect(list.filter((a) => isPrimaryAccountId(a.id))).toHaveLength(5);
+    expect(list.map((a) => a.id)).toContain("linkedin-primary");
   });
 
   it("drops stored entries that collide with a primary id or use an unknown platform", () => {
@@ -114,7 +115,7 @@ describe("withPrimaries", () => {
       { id: "x-1", platform: "myspace", label: "old", createdAt: "2026-01-01T00:00:00.000Z" }
     ] as SocialAccount[];
     const list = withPrimaries(bogus);
-    expect(list).toHaveLength(4);
+    expect(list).toHaveLength(5);
     expect(list.find((a) => a.id === "youtube-primary")?.label).toBe("Primary");
   });
 });

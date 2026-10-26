@@ -1020,7 +1020,7 @@ export type ScheduleRecurrence = "once" | "daily" | "weekly";
 export interface CarouselSchedule {
   id: string;
   /** Target networks, using the publisher's PlatformId vocabulary. */
-  platforms: ("youtube" | "instagram" | "tiktok" | "facebook")[];
+  platforms: ("youtube" | "instagram" | "tiktok" | "facebook" | "linkedin")[];
   /** Local wall-clock time, "HH:mm" (e.g. "12:00"). */
   time: string;
   recurrence: ScheduleRecurrence;

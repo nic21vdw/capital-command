@@ -10,6 +10,7 @@ import {
   instagramProfile,
   type MetaProfile
 } from "@/lib/publisher/metaProfile";
+import { linkedinProfile } from "@/lib/publisher/linkedinAuth";
 import { publishQueue } from "@/lib/publisher/queue";
 import { reconnectBlocker } from "@/lib/publisher/connections";
 import { needsReconnect } from "@/lib/publisher/reconnectNeeded";
@@ -19,7 +20,7 @@ import { TIKTOK_AUDIT_BLOCKER, tiktokCreatorInfo, type TiktokCreatorInfo } from 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PLATFORM_LABEL = { youtube: "YouTube", instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook" } as const;
+const PLATFORM_LABEL = { youtube: "YouTube", instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook", linkedin: "LinkedIn" } as const;
 
 /** Who an account posts as: display name, @handle and avatar. */
 export type ConnectedProfile = MetaProfile;
@@ -55,6 +56,7 @@ async function profileFor(
     };
   }
   if (account.platform === "instagram") return { profile: await instagramProfile(), blocker: null };
+  if (account.platform === "linkedin") return { profile: await linkedinProfile(), blocker: null };
   return {
     profile: await facebookProfile(),
     blocker: (await facebookCanPublish()) ? null : FACEBOOK_SCOPE_BLOCKER
@@ -90,7 +92,7 @@ export async function GET() {
 }
 
 const createSchema = z.object({
-  platform: z.enum(["youtube", "instagram", "tiktok", "facebook"]),
+  platform: z.enum(["youtube", "instagram", "tiktok", "facebook", "linkedin"]),
   label: z.string().min(1).max(60)
 });
 

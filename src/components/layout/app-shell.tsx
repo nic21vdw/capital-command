@@ -53,6 +53,7 @@ import { PipelineAttentionProvider, usePipelineAttention } from "@/components/pi
 import { useAppData } from "@/components/providers/app-provider";
 import { useColateralBridge } from "@/components/providers/colateral-bridge-provider";
 import { StreamProvider, useStream } from "@/components/providers/stream-provider";
+import { PERSONAL_GROUP_LABEL, PERSONAL_NAV } from "@/lib/personal-routes";
 import { streamHref } from "@/lib/pipeline/streams";
 import { reconnectBlocker, signInVerifiable } from "@/lib/publisher/connections";
 import { PlatformIcon, PLATFORM_LABEL, type PlatformIconKey } from "@/components/ui/platform-icon";
@@ -161,20 +162,21 @@ const STUDIO_ITEMS: NavItem[] = [
 
 /**
  * The personal finance screens, listed only on an install that has asked for
- * them. They were reachable by URL and by nothing else, which meant an owner
- * who wanted them had to remember the address and a buyer could stumble onto
- * them. Now the switch decides, and the switch puts them in the sidebar.
+ * them, and in a group of their own that stays folded: they are Nic's
+ * portfolio, not part of the marketing flow, and a canvas agent never sees
+ * them. The switch decides whether the group exists at all.
  */
-const FINANCE_ITEM: NavItem = { href: "/finance", label: "Personal Finance", icon: WalletCards };
+const PERSONAL_ITEMS: NavItem[] = PERSONAL_NAV.map((item) => ({ ...item, icon: WalletCards }));
 const SETTINGS_ITEM: NavItem = { href: "/settings", label: "Settings", icon: Settings };
 
-function studioItemsFor(personalDashboard: boolean | undefined): NavItem[] {
-  return personalDashboard === true ? [...STUDIO_ITEMS, FINANCE_ITEM] : STUDIO_ITEMS;
+function personalItemsFor(personalDashboard: boolean | undefined): NavItem[] {
+  return personalDashboard === true ? PERSONAL_ITEMS : [];
 }
 
-const ALL_NAV_ITEMS = [...PIPELINE_STAGES.flatMap((stage) => stage.items), ...STUDIO_ITEMS, FINANCE_ITEM, SETTINGS_ITEM];
+const ALL_NAV_ITEMS = [...PIPELINE_STAGES.flatMap((stage) => stage.items), ...STUDIO_ITEMS, ...PERSONAL_ITEMS, SETTINGS_ITEM];
 const SIDEBAR_COLLAPSED_KEY = "capital-command:sidebar-collapsed";
 const STUDIO_OPEN_KEY = "capital-command:studio-open";
+const PERSONAL_OPEN_KEY = "capital-command:personal-open";
 // Shown in the sidebar brand until a display name is saved in Settings.
 const DEFAULT_BRAND_NAME = "Your channel";
 
@@ -269,7 +271,8 @@ const PLATFORM_STYLE: Record<PlatformKey, { label: string; tint: string; backgro
   youtube: { label: PLATFORM_LABEL.youtube, tint: "text-[#ff4d4d]", background: "bg-[#ff0000]/15" },
   instagram: { label: PLATFORM_LABEL.instagram, tint: "text-[#f0629b]", background: "bg-[#e1306c]/15" },
   tiktok: { label: PLATFORM_LABEL.tiktok, tint: "text-[#25f4ee]", background: "bg-[#25f4ee]/12" },
-  facebook: { label: PLATFORM_LABEL.facebook, tint: "text-[#4f9bff]", background: "bg-[#1877f2]/20" }
+  facebook: { label: PLATFORM_LABEL.facebook, tint: "text-[#4f9bff]", background: "bg-[#1877f2]/20" },
+  linkedin: { label: PLATFORM_LABEL.linkedin, tint: "text-[#5aa9ff]", background: "bg-[#0a66c2]/25" }
 };
 
 /**
@@ -734,14 +737,18 @@ function StageNode({ step, active }: { step: number; active: boolean }) {
  * few times a week and the flow above is opened every day, so they fold away
  * behind one row — open while you are on one of them, and remembered after.
  */
-function StudioSection({
+function NavSection({
   items,
   pathname,
-  collapsed
+  collapsed,
+  label = "Studio",
+  storageKey = STUDIO_OPEN_KEY
 }: {
   items: NavItem[];
   pathname: string;
   collapsed: boolean;
+  label?: string;
+  storageKey?: string;
 }) {
   const onStudioPage = items.some((item) => isActivePath(pathname, item.href));
   const [open, setOpen] = useState(false);
@@ -749,18 +756,18 @@ function StudioSection({
   useEffect(() => {
     queueMicrotask(() => {
       try {
-        if (window.localStorage.getItem(STUDIO_OPEN_KEY) === "1") setOpen(true);
+        if (window.localStorage.getItem(storageKey) === "1") setOpen(true);
       } catch {
         // Non-critical preference read.
       }
     });
-  }, []);
+  }, [storageKey]);
 
   const toggle = () => {
     setOpen((current) => {
       const next = !current;
       try {
-        window.localStorage.setItem(STUDIO_OPEN_KEY, next ? "1" : "0");
+        window.localStorage.setItem(storageKey, next ? "1" : "0");
       } catch {
         // Non-critical preference persistence.
       }
@@ -772,7 +779,7 @@ function StudioSection({
     return (
       <div>
         <div className="mx-3 border-t border-[var(--border)] pb-1" />
-        <p className="sr-only">Studio</p>
+        <p className="sr-only">{label}</p>
         <div className="space-y-0.5">
           {items.map((item) => (
             <NavLink key={item.href} item={item} active={isActivePath(pathname, item.href)} collapsed />
@@ -792,7 +799,7 @@ function StudioSection({
         className="flex w-full items-center gap-1.5 rounded-lg px-1 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted-foreground)] transition hover:text-white"
       >
         <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition", !showItems && "-rotate-90")} />
-        <span className="flex-1 text-left">Studio</span>
+        <span className="flex-1 text-left">{label}</span>
         {!showItems && <span className="normal-case tracking-normal">{items.length}</span>}
       </button>
       {showItems && (
@@ -871,7 +878,7 @@ function CollapsedPipeline({ pathname }: { pathname: string }) {
  */
 function NarrowChrome({ pathname }: { pathname: string }) {
   const { data: appData } = useAppData();
-  const studioItems = studioItemsFor(appData.settings.personalDashboard);
+  const personalItems = personalItemsFor(appData.settings.personalDashboard);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -964,7 +971,7 @@ function NarrowChrome({ pathname }: { pathname: string }) {
                     Studio
                   </p>
                   <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
-                    {studioItems.map((item) => (
+                    {STUDIO_ITEMS.map((item) => (
                       <NarrowNavItem
                         key={item.href}
                         item={item}
@@ -979,6 +986,23 @@ function NarrowChrome({ pathname }: { pathname: string }) {
                     />
                   </div>
                 </div>
+                {personalItems.length > 0 && (
+                  <div className="border-t border-[var(--border)] pt-1.5">
+                    <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                      {PERSONAL_GROUP_LABEL}
+                    </p>
+                    <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
+                      {personalItems.map((item) => (
+                        <NarrowNavItem
+                          key={item.href}
+                          item={item}
+                          active={isActivePath(pathname, item.href)}
+                          onSelect={() => setMenuOpen(false)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </nav>
           )}
         </div>
@@ -1106,7 +1130,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
   const pathname = usePathname();
   const settingsActive = pathname === "/settings";
   const { data } = useAppData();
-  const studioItems = studioItemsFor(data.settings.personalDashboard);
+  const personalItems = personalItemsFor(data.settings.personalDashboard);
   // Inside a CoLateral Marketing Card the window is a card on a canvas, not a
   // browser tab. A 288px sidebar is most of a small card, so the host says how
   // much room it has and the shell sheds chrome to match: `compact` starts the
@@ -1231,7 +1255,16 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
               )}
             </div>
 
-            <StudioSection items={studioItems} pathname={pathname} collapsed={sidebarCollapsed} />
+            <NavSection items={STUDIO_ITEMS} pathname={pathname} collapsed={sidebarCollapsed} />
+            {personalItems.length > 0 && (
+              <NavSection
+                items={personalItems}
+                pathname={pathname}
+                collapsed={sidebarCollapsed}
+                label={PERSONAL_GROUP_LABEL}
+                storageKey={PERSONAL_OPEN_KEY}
+              />
+            )}
           </SidebarScroll>
 
           <div className="mt-3 space-y-1.5 border-t border-[var(--border)] pt-3">

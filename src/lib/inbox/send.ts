@@ -2,12 +2,15 @@ import { classifyFailure } from "@/lib/inbox/failures";
 import { REPLY_LIMITS } from "@/lib/inbox/limits";
 import { recordReply, setSendRecord, updateInbox } from "@/lib/inbox/store";
 import { INBOX_PLATFORM_LABEL, reconnectMessage, type InboxItem, type InboxPlatform } from "@/lib/inbox/types";
-import { YOUTUBE_REPLY_UNITS, chargeYoutubeUnits } from "@/lib/inbox/youtubeUnits";
+import { chargeInboxReply } from "@/lib/inbox/youtubeUnits";
 import { youtubeAccessToken } from "@/lib/publisher/adapters/youtube";
 import { publisherConfig } from "@/lib/publisher/config";
 import { fetchJson } from "@/lib/publisher/http";
 import { accountUserId, publishContainer } from "@/lib/threads/api";
 import { findAccount, threadsConfig } from "@/lib/threads/config";
+import type { QuotaLedger } from "@/lib/youtube/quotaLedger";
+
+type Debiter = Pick<QuotaLedger, "debit">;
 
 const YOUTUBE_REPLY_SCOPES = ["https://www.googleapis.com/auth/youtube.force-ssl", "https://www.googleapis.com/auth/youtube"];
 const INSTAGRAM_REPLY_SCOPE = "instagram_manage_comments";
@@ -53,6 +56,7 @@ export type SendOptions = {
   now?: Date;
   override?: boolean;
   retryDelaysMs?: number[];
+  quota?: Debiter;
 };
 
 type InflightSlot = typeof globalThis & { __inboxSending?: Set<string> };
@@ -104,7 +108,7 @@ async function metaScopes(token: string): Promise<string[] | null> {
 
 type Post = () => Promise<string | undefined>;
 
-async function prepareYoutube(item: InboxItem, text: string, now: Date): Promise<Post> {
+async function prepareYoutube(item: InboxItem, text: string, quota: Debiter | undefined): Promise<Post> {
   const accessToken = await youtubeAccessToken(item.accountId);
   const info = await fetchJson<{ scope?: string }>(
     `https://oauth2.googleapis.com/tokeninfo?${new URLSearchParams({ access_token: accessToken })}`,
@@ -112,7 +116,7 @@ async function prepareYoutube(item: InboxItem, text: string, now: Date): Promise
   );
   const granted = (info.scope ?? "").split(/\s+/);
   if (!YOUTUBE_REPLY_SCOPES.some((scope) => granted.includes(scope))) throw new ReconnectNeededError("youtube");
-  await chargeYoutubeUnits(now, YOUTUBE_REPLY_UNITS);
+  await chargeInboxReply(quota);
   return async () => {
     const data = await fetchJson<{ id?: string }>("https://www.googleapis.com/youtube/v3/comments?part=snippet", {
       label: "YouTube comments.insert",
@@ -192,17 +196,17 @@ async function prepareThreads(item: InboxItem, text: string): Promise<Post> {
   };
 }
 
-const PREPARE: Record<InboxPlatform, (item: InboxItem, text: string, now: Date) => Promise<Post>> = {
+const PREPARE: Record<InboxPlatform, (item: InboxItem, text: string, quota: Debiter | undefined) => Promise<Post>> = {
   youtube: prepareYoutube,
   instagram: prepareInstagram,
   facebook: prepareFacebook,
   threads: prepareThreads
 };
 
-async function execute(item: InboxItem, text: string, now: Date): Promise<string | undefined> {
+async function execute(item: InboxItem, text: string, quota: Debiter | undefined): Promise<string | undefined> {
   let post: Post;
   try {
-    post = await PREPARE[item.platform](item, text, now);
+    post = await PREPARE[item.platform](item, text, quota);
   } catch (error) {
     throw new NotPosted(error);
   }
@@ -264,7 +268,7 @@ async function sendClaimed(id: string, body: string, options: SendOptions): Prom
 
   let externalId: string | undefined;
   try {
-    externalId = await execute(item, body, now);
+    externalId = await execute(item, body, options.quota);
   } catch (error) {
     if (error instanceof NotPosted) {
       await updateInbox((current) => setSendRecord(current, id, null)).catch(() => undefined);

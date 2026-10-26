@@ -387,6 +387,38 @@ pipeline's booking sheet, the ingest scan, the CLI, `/api/publish`).
   matching audit is `GET /api/publish/youtube-channel/duplicates`, which reports
   repeated titles on the channel and repeats on the queue, and changes nothing.
 
+## Experiments and learned posting times (`src/lib/experiments`, `analytics/bestTimes.ts`)
+
+Both read the analytics store (`data/analytics/metrics.json`) and neither ever acts on its own.
+
+- AN EXPERIMENT IS OPT-IN PER CLIP. `createExperiment` is called from `POST /api/experiments` and nowhere else,
+  and that is called only by Start test in the Uploading Center's `experiment-panel.tsx`. `optIn.test.ts` fails
+  if the pipeline, ingest, autopilot, runner or `enqueue` ever reach it.
+- A variant is a queue item per platform (title test: the title; hook test: the caption's opening line).
+  Every variant carries the same caption body and hashtags so only the tested thing differs.
+- THE DUPLICATE GUARD STILL MEANS WHAT IT SAYS. A clip that is already on the schedule is refused before anything
+  is booked; the first booking then goes through `enqueue` unaided and only the experiment's own later bookings
+  pass `allowDuplicate`. A hook test refuses YouTube, whose channel guard will not take one title twice in 30 days.
+  Thumbnail tests are refused: a queue item has no per-variant thumbnail.
+- NEVER TWO VARIANTS OF A VIDEO ON ONE PLATFORM AND ACCOUNT WITHIN 48 HOURS (`spacing.ts`). `plan.ts` picks open
+  slots at least 48 real hours apart (a DST change makes "two days at the same clock time" 47 hours). Schedule
+  repair and shuffle can still move an item later, so `evaluate.ts` re-checks the times the posts actually went
+  out and settles as "confounded" rather than scoring a spoiled test.
+- SCORING (`evaluate.ts`, `winner.ts`, `baselines.ts`). Each post is read at the variant's window (72 hours) by
+  `metricsAtAge`, which interpolates the daily snapshots and refuses a bracket wider than 4 days. Views and
+  engagement rate are divided by the median for the same platform and account, computed WITHOUT the experiment's
+  own posts, and need 5 earlier posts. A variant under 100 views is "not enough data"; a lead under 10% is a tie.
+  Once decided, the decision is written into `data/experiments.json` (by the GET that notices it) and never
+  recomputed, because the account median keeps moving.
+- BEST TIMES (`bestTimes.ts`). Views at 48 hours by local publish hour in PUBLISH_TIMEZONE, per platform, account
+  and weekday or weekend, log-scaled and shrunk toward the account's mean with neighbouring hours blended in.
+  An account needs 20 posts, an hour 3; the suggestion keeps the grid's size, never puts two slots in
+  neighbouring hours, and keeps the minutes of a current slot. Only hours already posted at can win. Threads and
+  long-form videos are left out (their cadence is not this grid).
+- THE ONLY WRITE IS A CLICK. Use these slots calls `PATCH /api/automations/cadence`, the cadence editor's own path
+  (`saveCadence`), from `applySuggestedSlots` in the Performance page. `bestTimesApply.test.ts` fails if the
+  learning, its read route or anything scheduled imports the writer.
+
 ## Automatic channel ingest (`src/lib/ingest`)
 
 A daily scan reads the YouTube channel and runs each NEW LIVE STREAM through
@@ -507,11 +539,14 @@ atomic write and lock). Items run `new` -> `seen` -> `replied` -> `done`.
   first 6 hours of effective age, 2 hours to 2 days, 12 hours to a week, daily
   after that.
 - YouTube reads spend the same 10,000 daily units uploads use (1,600 each, six a
-  day), so the inbox is capped at `INBOX_YOUTUBE_DAILY_UNITS` (default 200) per
-  Pacific day. `youtubeUnits.ts` reserves one unit before EVERY request (failed
-  ones count) and saves it to the store at once, so the CLI and the server share
-  one count; a reply charges 50 and is never blocked by a spent read budget. A
-  spent budget reports `deferred`, never an error.
+  day), so the inbox debits the shared quota ledger as `inbox`, one unit before
+  EVERY request (failed ones count), under a sub-cap of `INBOX_YOUTUBE_DAILY_UNITS`
+  (default 200) inside the ledger's non-upload allowance. A reply is debited as
+  `inbox-reply` (50 units): it is never refused, whatever the read budget or the
+  allowance holds, but it is counted, so readers give way to it. A spent budget
+  reports `deferred` ("YouTube quota saved for uploads"), never an error. The old
+  `youtubeUnits` field in `data/inbox.json` is still readable (the ledger carries
+  today's count over on first use) and is no longer written.
 - A missing permission is not an outage. `failures.ts` sorts an error into
   `auth` (trips the platform-health breaker through `recordAuthRejection`),
   `scope` (the platform state says "Reconnect <platform> with comment
@@ -640,14 +675,14 @@ News, Reddit, YouTube and Bluesky. It reads and classifies; it never posts.
   units out of the daily 10,000 that uploads share (about 1,700 each, and
   `YOUTUBE_DAILY_UPLOAD_BUDGET` is 6). When switched on it makes one search per
   scan, spread over the Pacific day, and stops at `YOUTUBE_LISTENING_DAILY_UNITS`
-  (default 100, which is one search and no comment lookups). The ledger in
-  `data/listening.json` is debited BEFORE each request, by a change applied to
-  the stored value inside the store lock (`ledger.ts`), never by writing back a
-  copy read when the scan began, so a crash after the fetch still counts and a
-  second writer is not overwritten. The publish runner subtracts the ledger from
-  the day's upload budget (`remainingYoutubeUploads`, rounding up to whole uploads
-  at about 1,700 units). Not connected, a spent budget, pacing and X are reported
-  as `skipped`, which is not a failed scan.
+  (default 100, which is one search and no comment lookups). Every unit is debited
+  as `listening` in the shared quota ledger BEFORE each request (`ledger.ts` keeps
+  only the term-rotation cursor in `data/listening.json`; its old `youtube.day` and
+  `units` are still readable, carried over on first use, and no longer written),
+  under a 100-unit sub-cap inside the non-upload allowance, so a crash after the
+  fetch still counts. Listening no longer takes anything out of the upload budget:
+  the allowance is reserved outside the six uploads. Not connected, a spent
+  budget, pacing and X are reported as `skipped`, which is not a failed scan.
 - REDDIT IS SLOW ON PURPOSE. Requests are 6 seconds apart, a scan searches 8
   terms and carries on from where the last scan stopped (`redditCursor`, advanced
   by a delta), and a `Retry-After` of 30 seconds or less is waited out once;
@@ -737,13 +772,82 @@ capped at 90 (`metrics.ts`). Numbers a platform did not report are absent, never
   the lock is held for over 5 seconds (`remaining("upload")` then says the whole day). Anything else is refused as `budget` (allowance
   spent) or `unavailable` (ledger unusable). Analytics debits 1 unit per `videos.list` batch;
   on `budget` it rests until midnight Pacific (`nextResetAt`, exact across the 23- and 25-hour
-  DST days), on `unavailable` it tries again next cycle. The upload path does not debit the
-  ledger yet; the inbox, listening and outlier scans are meant to move onto it.
+  DST days), on `unavailable` it tries again next cycle. Every other YouTube Data API caller
+  debits it too, before the call: the upload adapter and the story uploader as `upload`
+  (insert 1,600, update 50, status read 1, captions 400), the inbox as `inbox` (sub-cap
+  `INBOX_YOUTUBE_DAILY_UNITS`, 200) and `inbox-reply` (50, never refused), Listening as
+  `listening` (sub-cap `YOUTUBE_LISTENING_DAILY_UNITS`, 100), the outlier scan as `outliers`,
+  video statistics as `stats`, the Uploading Center's channel schedule as `schedule`, the
+  daily channel scan as `ingest` and the channel name lookup as `channel`. A refusal skips the
+  call and says "YouTube quota saved for uploads" (`quotaSpend.ts`, `QuotaSavedError`).
+  `remainingYoutubeUploads` is the smaller of the queue's count of today's uploads and
+  `floor((10,000 - spent) / 1,600)` from the ledger, so uploads fall back to the queue's
+  count alone when the ledger cannot be read; the Uploading Center meter shows the ledger's
+  per-purpose split. The first use of the shared ledger in a process carries today's counts
+  from the old inbox and Listening stores (`quotaLegacy.ts`, `carryOver` raises a purpose to
+  the old count and never adds, so running it again changes nothing).
 - **For later slices**: `queryAnalytics`, `queryRows`, `topRows`, `platformTotals` and
   `getPostMetrics` are exported from `src/lib/analytics/index.ts`; `GET /api/analytics`
   takes `platform` (comma list), `since` (`28d` or a date), `top` and `sort`. The page
   declares its filters, Sync now and a reading of the totals through
   `buildPerformanceSurface` (`surface.ts`).
+
+## LinkedIn (`adapters/linkedin.ts`, `linkedinAuth.ts`, `linkedinApi.ts`)
+
+Ships switched off. With `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET` unset the
+Settings row says what to set and links `docs/LINKEDIN_SETUP.md`, and the Uploading Center
+shows no LinkedIn tab until an account is connected. `linkedin` is in `ALL_PLATFORMS` but
+not in `DEFAULT_PLATFORMS` (`types.ts`), which is what the default platform list and
+"All platforms" use, so connecting it does not start posting every clip there. Opt in with
+`PUBLISH_PLATFORMS` / `PUBLISH_MIRROR_TARGETS`.
+
+- Posts go to `POST /rest/posts` with `LinkedIn-Version` (`LINKEDIN_API_VERSION`, default in
+  `linkedinApi.ts`) and `X-Restli-Protocol-Version: 2.0.0`. Media is uploaded by the
+  adapter (Images, Videos, Documents APIs), so LinkedIn never needs the S3 hosting; the
+  runner skips hosting for a picture post whose legs are all LinkedIn. A multi-slide deck
+  becomes one PDF (`carousels/pdf.ts`, `@napi-rs/canvas`) posted as a document.
+- Commentary uses LinkedIn's little-text format. `littleText` escapes `| { } @ [ ] ( ) < > # \ * _ ~`
+  and turns hashtags into `{hashtag|\#|tag}`; an unescaped `(` cuts the post short.
+- A create that may have gone through is never retried. `adapters/linkedin.ts` writes a
+  `posting:<media urn>` marker into the leg's `containerId` (through `onHandle`) BEFORE
+  `POST /rest/posts`. A timeout, 408 or 5xx of that POST, or a resume that finds the marker
+  and no `postId`, throws `AMBIGUOUS_POST_MESSAGE` (permanent): the user checks the feed and
+  re-arms, and `rearmItem` turns the marker into `rearmed:<media urn>` so the stored media is
+  reused and the leg remembers it came from an ambiguous create. A definite refusal (4xx,
+  429) clears the marker back to its starting handle. A duplicate-content 422 that names
+  `urn:li:share` or `urn:li:ugcPost` is recorded as published ONLY for a `rearmed:` leg; on
+  a fresh leg (and for `publishLinkedinText`) it fails with "LinkedIn refused: same text as
+  an earlier post". A network failure that proves the request was never sent
+  (`LinkedinUnsentError`: ENOTFOUND, EAI_AGAIN, ECONNREFUSED, TLS certificate errors) is
+  retryable and clears the marker; a timeout, 408 or 5xx stays "may already be posted".
+  Uploads time out after 120 s plus 30 s per 10 MB (`linkedinUploadTimeoutMs`).
+- LinkedIn only posts public items. `enqueue`/`enqueueImagePost` hold a non-public LinkedIn
+  leg as `manual` with the reason, the mirror skips it (`PUBLIC_ONLY`), and the adapter
+  refuses it. "Connected" for LinkedIn is `linkedinConfigured` (credentials plus a stored
+  token) and does not depend on `PUBLISH_PLATFORMS`, which only decides what books
+  automatically. The duplicate rule treats LinkedIn as its own audience
+  (`DuplicateCandidate.platforms`), so a deck booked to Instagram and Facebook can also be
+  booked to LinkedIn. Text-with-link (`publishLinkedinText`) is adapter-only: nothing in the
+  queue creates one.
+- Errors: 429 is a `ThrottledError` that waits for the daily reset at midnight UTC (or
+  `Retry-After`), 5xx and network errors are transient, 401 is `HTTP 401` so
+  `isAuthFailure` trips the account breaker, everything else is permanent. A UTC-day budget
+  (`LINKEDIN_DAILY_POST_BUDGET`, `remainingLinkedinPosts`) defers fresh posts past it.
+- The mid-flight handle (`containerId`) is the media URN, stored after the upload finishes;
+  a retry polls that asset and posts instead of uploading again.
+- Tokens live in `data/publisher-tokens.json` under `linkedin.*` (`linkedinKeys.ts`),
+  written with `setCachedTokens` / `updateCachedTokens` (one locked, atomic read-modify-write;
+  a read that fails for any reason but ENOENT throws and nothing is written; EBUSY, EPERM and
+  EACCES are retried five times with a short backoff first). A refresh token that rotates
+  must never cost the request: TikTok, Spotify and LinkedIn save it through
+  `rotatedToken.ts` (or catch the write), log "the rotated refresh token could not be
+  saved" and carry on with the new access token. The
+  OAuth state is single-use and expires in ten minutes. Standard apps get a 60 day access
+  token and no refresh token: `platform-health/expiry.ts` adds an `expiring` entry to
+  `/api/health/platforms` seven days ahead and the banner shows it. A refresh token, when
+  LinkedIn issues one, is used silently.
+- The author (`urn:li:person:<sub>` or `urn:li:organization:<id>`) is chosen in Settings
+  (`/api/linkedin/author`). A page needs `w_organization_social`; page posts are always public.
 
 ## Launch Pad (`src/lib/launch`)
 
@@ -1422,3 +1526,17 @@ committed as a standalone project under `video/`.
   Use the helpers in `src/motion.ts` (`enter`, `stagger`, `ramp`, `drift`)
   rather than hand-rolled easings, so the whole library moves as one system.
 
+## The CoLateral canvas bridge (`src/lib/colateral`)
+
+- **The messages are pinned.** `docs/colateral-card-contract.md` lists every
+  `colateral:*` and `capital-command:*` message; `contract.ts` has the types and
+  JSON schemas and `contract.test.ts` fails when either side drifts. Change
+  `protocol.ts`, `contract.ts` and the CoLateral host together.
+- **A page is drivable by calling `useColateralSurface`.** A control that
+  publishes, sends or deletes sets `destructive: true`. A handler refuses with
+  `false` or, better, `refuse("why")`, so the agent hears why.
+- **Booking from the canvas never has its own path.** `book-clip.ts` calls the
+  Uploading Center's `schedule`, which posts to `/api/publish`; the duplicate
+  guard, caps and any approval hold live there. Do not add a second route.
+- **Personal finance is not marketing.** `src/lib/personal-routes.ts` lists the
+  pages that stay out of `routes.ts` and out of `registerSurface`.

@@ -5,6 +5,7 @@ export const BRAND_CHANNELS = [
   "tiktok",
   "instagram",
   "facebook",
+  "linkedin",
   "threads",
   "x",
   "youtube-longform",
@@ -323,6 +324,18 @@ export const DEFAULT_BRAND_KIT: BrandKit = brandKitSchema.parse({
     ]
   },
   channels: {
+    linkedin: {
+      label: "LinkedIn",
+      family: "text",
+      guide: "LinkedIn: professional and first-person. Open with one concrete line, then 2-4 short paragraphs about supported product work and why it matters. No slang or engagement bait. End with a plain invitation to read or watch.",
+      plainTalk: false,
+      useKeywords: true,
+      emoji: "none",
+      hashtags: { target: 3, max: 3, base: [] },
+      cta: { line: "Try CoLateral", url: `${SITE}/li` },
+      avoid: [],
+      rules: ["No invented results or product claims."]
+    },
     youtube: {
       label: "YouTube Shorts",
       family: "short-form",

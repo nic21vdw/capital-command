@@ -63,6 +63,9 @@ export const APP_MESSAGE = {
 export type HostMessageType = (typeof HOST_MESSAGE)[keyof typeof HOST_MESSAGE];
 export type AppMessageType = (typeof APP_MESSAGE)[keyof typeof APP_MESSAGE];
 
+export const FIELD_KIND_VALUES = ["text", "number", "boolean", "select", "date", "time", "longtext"] as const;
+export type SurfaceFieldKind = (typeof FIELD_KIND_VALUES)[number];
+
 /** One editable value on the visible page. */
 export interface SurfaceField {
   /** Stable handle an agent addresses the field by, e.g. "title". */
@@ -70,7 +73,7 @@ export interface SurfaceField {
   /** What the engineer sees beside it, e.g. "Clip title". */
   label: string;
   value: string | number | boolean | null;
-  kind: "text" | "number" | "boolean" | "select" | "date" | "time" | "longtext";
+  kind: SurfaceFieldKind;
   /** For `select`, the values that are actually accepted. */
   options?: string[];
   /** "s", "px", "%" — shown after the value, never part of it. */
@@ -167,9 +170,10 @@ export function normalizeRoute(value: unknown): string {
  *                own route rail, or one small enough that only the page itself
  *                fits.
  */
-export type ChromeMode = "full" | "compact" | "bare";
+export const CHROME_MODE_VALUES = ["full", "compact", "bare"] as const;
+export type ChromeMode = (typeof CHROME_MODE_VALUES)[number];
 
-const CHROME_MODES: ReadonlySet<string> = new Set<ChromeMode>(["full", "compact", "bare"]);
+const CHROME_MODES: ReadonlySet<string> = new Set<string>(CHROME_MODE_VALUES);
 
 export function normalizeChrome(value: unknown, fallback: ChromeMode = "full"): ChromeMode {
   const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -186,6 +190,7 @@ export interface HostRequest {
   theme: string;
   tokens: Record<string, string>;
   chrome: ChromeMode | "";
+  protocolVersion: number;
 }
 
 const HOST_TYPES: ReadonlySet<string> = new Set(Object.values(HOST_MESSAGE));
@@ -277,6 +282,13 @@ function sanitizeFields(value: unknown): Record<string, string | number | boolea
   return out;
 }
 
+function readProtocolVersion(data: Record<string, unknown>): number {
+  for (const candidate of [data.protocolVersion, data.protocol]) {
+    if (typeof candidate === "number" && Number.isInteger(candidate) && candidate >= 0) return candidate;
+  }
+  return 0;
+}
+
 /**
  * Read one inbound host message, or return null when it is not one of ours.
  * Every field is normalised here so nothing downstream has to re-check it.
@@ -295,7 +307,8 @@ export function parseHostMessage(data: unknown): HostRequest | null {
     tokens: sanitizeThemeTokens(data.tokens),
     // "" and not a default, so a message that never mentioned chrome is told
     // apart from one that asked for `full`.
-    chrome: data.chrome === undefined ? "" : normalizeChrome(data.chrome)
+    chrome: data.chrome === undefined ? "" : normalizeChrome(data.chrome),
+    protocolVersion: readProtocolVersion(data)
   };
 }
 
@@ -319,11 +332,65 @@ export function appResult(
   return { type: APP_MESSAGE.result, id, ok, ...extra };
 }
 
+export interface AppReadyMessage {
+  type: typeof APP_MESSAGE.ready;
+  id: string;
+  protocol: number;
+  protocolVersion: number;
+  app: "capital-command";
+  route: string;
+  title: string;
+  routes: RouteEntry[];
+  surface: PageSurface;
+}
+
+export function buildReadyMessage(input: {
+  id: string;
+  route: string;
+  title: string;
+  routes: RouteEntry[];
+  surface: PageSurface;
+}): AppReadyMessage {
+  return {
+    type: APP_MESSAGE.ready,
+    id: input.id,
+    protocol: BRIDGE_PROTOCOL_VERSION,
+    protocolVersion: BRIDGE_PROTOCOL_VERSION,
+    app: "capital-command",
+    route: input.route,
+    title: input.title,
+    routes: input.routes,
+    surface: input.surface
+  };
+}
+
+export interface AppRouteMessage {
+  type: typeof APP_MESSAGE.route;
+  route: string;
+  title: string;
+  surface: PageSurface;
+}
+
+export function buildRouteMessage(input: { route: string; title: string; surface: PageSurface }): AppRouteMessage {
+  return { type: APP_MESSAGE.route, route: input.route, title: input.title, surface: input.surface };
+}
+
+export interface AppSurfaceMessage {
+  type: typeof APP_MESSAGE.surface;
+  route: string;
+  surface: PageSurface;
+}
+
+export function buildSurfaceMessage(surface: PageSurface): AppSurfaceMessage {
+  return { type: APP_MESSAGE.surface, route: surface.route, surface };
+}
+
 /* ---- notifications ------------------------------------------------------ */
 
-export type NotificationLevel = "error" | "warning" | "info";
+export const NOTIFICATION_LEVEL_VALUES = ["error", "warning", "info"] as const;
+export type NotificationLevel = (typeof NOTIFICATION_LEVEL_VALUES)[number];
 
-const NOTIFICATION_LEVELS: ReadonlySet<string> = new Set<NotificationLevel>(["error", "warning", "info"]);
+const NOTIFICATION_LEVELS: ReadonlySet<string> = new Set<string>(NOTIFICATION_LEVEL_VALUES);
 
 export const NOTIFICATION_TITLE_MAX = 200;
 export const NOTIFICATION_BODY_MAX = 1000;

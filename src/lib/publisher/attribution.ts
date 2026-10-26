@@ -1,7 +1,7 @@
 import { isPostCode } from "@/lib/attribution/code";
 import { DEFAULT_BRAND_KIT, type BrandChannel } from "@/lib/brand/defaults";
 
-export type AttributionPlatform = "youtube" | "instagram" | "tiktok" | "facebook" | "threads" | "x";
+export type AttributionPlatform = "youtube" | "instagram" | "tiktok" | "facebook" | "threads" | "x" | "linkedin";
 
 const pathFor = (channel: BrandChannel) => new URL(DEFAULT_BRAND_KIT.channels[channel].cta.url).pathname;
 
@@ -11,7 +11,8 @@ export const ATTRIBUTION_PATHS: Record<AttributionPlatform, string> = {
   tiktok: pathFor("tiktok"),
   facebook: pathFor("facebook"),
   threads: pathFor("threads"),
-  x: pathFor("x")
+  x: pathFor("x"),
+  linkedin: pathFor("linkedin")
 };
 
 export const YOUTUBE_LEAD_LINE = `${DEFAULT_BRAND_KIT.channels.youtube.cta.line}: ${DEFAULT_BRAND_KIT.channels.youtube.cta.url}`;

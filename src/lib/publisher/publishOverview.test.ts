@@ -69,7 +69,7 @@ describe("agoLabel", () => {
 });
 
 describe("mirroredNote", () => {
-  const names = { youtube: "YouTube", instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook" } as const;
+  const names = { youtube: "YouTube", instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook", linkedin: "LinkedIn" } as const;
 
   it("names where the lead is copied to", () => {
     expect(mirroredNote({ enabled: true, lead: "youtube", targets: ["instagram", "facebook"] }, names)).toBe(
@@ -85,7 +85,7 @@ describe("mirroredNote", () => {
 });
 
 describe("platformTargetHint", () => {
-  const names = { youtube: "YouTube", instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook" } as const;
+  const names = { youtube: "YouTube", instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook", linkedin: "LinkedIn" } as const;
   const mirror = { enabled: true, lead: "youtube", targets: ["instagram", "facebook"] } as const;
 
   it("says what the mirror adds to the lead", () => {
@@ -103,5 +103,12 @@ describe("platformTargetHint", () => {
     expect(platformTargetHint("instagram", undefined, names)).toContain("Facebook Page too");
     expect(platformTargetHint("facebook", undefined, names)).toBe("Books the Facebook Page only.");
     expect(platformTargetHint("all", undefined, names)).toContain("YouTube, TikTok, Instagram and Facebook");
+    expect(platformTargetHint("all", undefined, names)).not.toContain("LinkedIn");
+  });
+
+  it("says LinkedIn posts as the profile or page chosen in Settings, and is not part of all", () => {
+    expect(platformTargetHint("linkedin", undefined, names)).toBe(
+      "Books LinkedIn only; it posts as the profile or company page chosen in Settings > Accounts."
+    );
   });
 });
