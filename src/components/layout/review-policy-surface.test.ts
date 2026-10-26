@@ -10,7 +10,8 @@ describe("what Settings tells the canvas about the review policy", () => {
       "review-instagram",
       "review-tiktok",
       "review-facebook",
-      "review-threads"
+      "review-threads",
+      "review-linkedin"
     ]);
     for (const field of fields) {
       expect(field).toMatchObject({ kind: "select", options: ["auto", "hold"], value: "auto" });
@@ -33,6 +34,8 @@ describe("what Settings tells the canvas about the review policy", () => {
     expect(canvasMayChange({ channel: "instagram", mode: "hold" })).toBe(true);
     expect(canvasMayChange({ channel: "instagram", mode: "auto" })).toBe(false);
     expect(canvasMayChange({ channel: "tiktok", mode: "auto" })).toBe(false);
+    expect(canvasMayChange({ channel: "linkedin", mode: "hold" })).toBe(true);
+    expect(canvasMayChange({ channel: "linkedin", mode: "auto" })).toBe(false);
   });
 
   it("leaves other fields alone and refuses a bad write", () => {

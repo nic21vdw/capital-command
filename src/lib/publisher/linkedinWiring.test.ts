@@ -220,8 +220,9 @@ describe("the publish runner and LinkedIn", () => {
   });
 
   it("counts a day by UTC, which is when LinkedIn's limits reset", () => {
-    const stamped = (uploadedAt: string) =>
-      testItem({ platformIds: ["linkedin"], platforms: { linkedin: { status: "published", attempts: 1, uploadedAt } } });
+    const stamped = (publishedAt: string) =>
+      testItem({ platformIds: ["linkedin"], platforms: { linkedin: { status: "published", attempts: 1,
+        postId: `urn:li:share:${Date.parse(publishedAt)}`, publishedAt, uploadedAt: "2026-10-01T14:00:00.000Z" } } });
     const items = [stamped("2026-10-13T00:30:00.000Z"), stamped("2026-10-12T23:30:00.000Z"), stamped("2026-10-13T14:00:00.000Z")];
     expect(linkedinPostsToday(items, NOW)).toBe(2);
     expect(remainingLinkedinPosts(items, NOW, config)).toBe(8);

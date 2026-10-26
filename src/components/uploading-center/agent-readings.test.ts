@@ -27,8 +27,9 @@ describe("queueStatusReadings", () => {
   const value = (label: string) => readings.find((reading) => reading.label === label)?.value ?? "";
 
   it("gives one reading per platform, in a fixed order, even for a platform with nothing queued", () => {
-    expect(readings.map((reading) => reading.label)).toEqual(["Queue: YouTube", "Queue: Instagram", "Queue: TikTok", "Queue: Facebook"]);
-    expect(queueStatusReadings([], NOW, TZ).map((reading) => reading.value)).toEqual(Array(4).fill("Nothing queued."));
+    expect(readings.map((reading) => reading.label)).toEqual(["Queue: YouTube", "Queue: Instagram", "Queue: TikTok", "Queue: Facebook", "Queue: LinkedIn"]);
+    expect(value("Queue: LinkedIn")).toBe("Nothing queued.");
+    expect(queueStatusReadings([], NOW, TZ).map((reading) => reading.value)).toEqual(Array(5).fill("Nothing queued."));
   });
 
   it("counts pending, scheduled and failed per platform and ignores what already published", () => {

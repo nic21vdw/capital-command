@@ -84,12 +84,16 @@ describe("a LinkedIn sign-in with a refresh token", () => {
 
 describe("what the health endpoint and the banner say", () => {
   it("adds the warning to the platform health answer without calling the account broken", async () => {
-    await seed({ access: 4 * DAY });
-    const { GET } = await import("@/app/api/health/platforms/route");
-    const health = (await (await GET()).json()) as PlatformHealthResponse;
-    expect(health.ok).toBe(true);
-    expect(health.broken).toEqual([]);
-    expect(health.expiring).toEqual([expect.objectContaining({ platform: "linkedin", displayName: "LinkedIn", daysLeft: 4 })]);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    try {
+      await seed({ access: 4 * DAY });
+      const { GET } = await import("@/app/api/health/platforms/route");
+      const health = (await (await GET()).json()) as PlatformHealthResponse;
+      expect(health.ok).toBe(true);
+      expect(health.broken).toEqual([]);
+      expect(health.expiring).toEqual([expect.objectContaining({ platform: "linkedin", displayName: "LinkedIn", daysLeft: 4 })]);
+    } finally { vi.useRealTimers(); }
   });
 
   it("shows a banner that asks for a reconnect before anything stops", async () => {
