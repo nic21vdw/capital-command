@@ -136,6 +136,16 @@ export function zoneTimeLabel(timeZone: string): string {
   return `${(timeZone.split("/").pop() ?? timeZone).replace(/_/g, " ")} time`;
 }
 
+export function instantLabel(instant: Date, timeZone: string): string {
+  const make = (zone: string) =>
+    new Intl.DateTimeFormat("en-US", { timeZone: zone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  try {
+    return `${make(timeZone).format(instant)} (${timeZone})`;
+  } catch {
+    return `${make("UTC").format(instant)} (UTC)`;
+  }
+}
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /**

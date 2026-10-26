@@ -1526,3 +1526,17 @@ committed as a standalone project under `video/`.
   Use the helpers in `src/motion.ts` (`enter`, `stagger`, `ramp`, `drift`)
   rather than hand-rolled easings, so the whole library moves as one system.
 
+## The CoLateral canvas bridge (`src/lib/colateral`)
+
+- **The messages are pinned.** `docs/colateral-card-contract.md` lists every
+  `colateral:*` and `capital-command:*` message; `contract.ts` has the types and
+  JSON schemas and `contract.test.ts` fails when either side drifts. Change
+  `protocol.ts`, `contract.ts` and the CoLateral host together.
+- **A page is drivable by calling `useColateralSurface`.** A control that
+  publishes, sends or deletes sets `destructive: true`. A handler refuses with
+  `false` or, better, `refuse("why")`, so the agent hears why.
+- **Booking from the canvas never has its own path.** `book-clip.ts` calls the
+  Uploading Center's `schedule`, which posts to `/api/publish`; the duplicate
+  guard, caps and any approval hold live there. Do not add a second route.
+- **Personal finance is not marketing.** `src/lib/personal-routes.ts` lists the
+  pages that stay out of `routes.ts` and out of `registerSurface`.

@@ -1,43 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { TriangleAlert } from "lucide-react";
+import { usePlatformHealth } from "@/components/layout/use-platform-health";
 import { useColateralBridge } from "@/components/providers/colateral-bridge-provider";
 import { bannerModel } from "@/lib/platform-health/banner";
-import type { PlatformHealthResponse } from "@/lib/platform-health/types";
 import { cn } from "@/lib/utils";
 
-const POLL_MS = 60_000;
 const HEIGHT_VAR = "--platform-banner-height";
 
 export function PlatformHealthBanner() {
   const { hosted, chrome } = useColateralBridge();
-  const [health, setHealth] = useState<PlatformHealthResponse | null>(null);
+  const health = usePlatformHealth();
   const bannerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let live = true;
-    const load = () => {
-      fetch("/api/health/platforms", { cache: "no-store" })
-        .then((response) => (response.ok ? response.json() : null))
-        .then((body: PlatformHealthResponse | null) => {
-          if (live && body) setHealth(body);
-        })
-        .catch(() => undefined);
-    };
-    const onVisible = () => {
-      if (document.visibilityState === "visible") load();
-    };
-    load();
-    const timer = window.setInterval(load, POLL_MS);
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      live = false;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, []);
 
   const model = bannerModel(health);
 
