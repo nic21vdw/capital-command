@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   applyViralityVerdicts,
+  matchLineTime,
+  recutToHook,
   buildViralityPrompt,
   parseViralityVerdicts,
   type ViralityRequest
@@ -67,5 +69,42 @@ describe("applyViralityVerdicts", () => {
   it("returns candidates untouched when there are no verdicts", () => {
     const candidates = [candidate("clip-1", 80)];
     expect(applyViralityVerdicts(candidates, new Map())).toBe(candidates);
+  });
+});
+
+describe("opening on the hook", () => {
+  it("re-cuts a clip to start on the line the judge picked", () => {
+    const clip = { ...candidate("clip-1", 60), start: 100, end: 130 };
+    const verdicts = parseViralityVerdicts('[{"id":"clip-1","virality":80,"verdict":"keep","openAt":104.2}]');
+    const [out] = applyViralityVerdicts([clip], verdicts, { minDuration: 15 });
+    expect(out.start).toBe(104.2);
+    expect(out.end).toBe(130);
+    expect(out.rationale).toContain("Re-cut to open on its hook");
+  });
+
+  it("never leaves a clip shorter than the minimum or moves it earlier", () => {
+    expect(recutToHook({ ...candidate("a", 1), start: 100, end: 120 }, 108, 15).start).toBe(100);
+    expect(recutToHook({ ...candidate("a", 1), start: 100, end: 120 }, 95, 15).start).toBe(100);
+    expect(recutToHook({ ...candidate("a", 1), start: 100, end: 120 }, 100.2, 15).start).toBe(100);
+  });
+
+  it("only trusts a time that is one of the clip's own lines", () => {
+    const lines = [{ at: 100, text: "so okay" }, { at: 103.5, text: "GPT just cut limits in half" }];
+    expect(matchLineTime(103.6, lines)).toBe(103.5);
+    expect(matchLineTime(110, lines)).toBeUndefined();
+    expect(matchLineTime(undefined, lines)).toBeUndefined();
+  });
+
+  it("shows timed lines to the judge when it has them", () => {
+    const prompt = buildViralityPrompt([
+      { id: "clip-1", transcript: "x", score: 50, lines: [{ at: 12, text: "so anyway" }, { at: 15.5, text: "this cost me $20" }] }
+    ]);
+    expect(prompt).toContain("[15.5] this cost me $20");
+    expect(prompt).toContain('"openAt"');
+  });
+
+  it("reads a null openAt as keep the start", () => {
+    const verdicts = parseViralityVerdicts('[{"id":"clip-1","virality":80,"verdict":"keep","openAt":null}]');
+    expect(verdicts.get("clip-1")!.openAt).toBeUndefined();
   });
 });

@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Shorts frame on your face and open on the point.** Clips from the basement camera are now cropped full height around your face (the same face detector the story edit uses) instead of shrinking the whole room into a strip over blur; screenshares with a small camera still lead with the camera. Each clip is re-cut to start on its strongest line, the clip picker skips general musing (motivation, how the stream is going) for moments about one specific tool, number, price, game or result, and titles must name that specific thing. The picker, the judge and the title writer now learn from your own best and worst Shorts in Performance, and run on Claude through your Claude Code login when it is there. Needs Python with OpenCV and `data/clips/bin/face_detection_yunet_2023mar.onnx` (both already used by the story edit); without them clips frame exactly as before. `CLIP_FACE_FRAMING=off` and `CLIP_WRITER=off` switch the two halves off.
+
 - LinkedIn keeps its approval hold and daily post limit when uploaded media resumes later. Experiment hooks keep the saved brand voice, and LinkedIn bookings show the platform name.
 
 - **An explicitly connected editor can prepare a fresh export in its owning process.** An optional dispatcher uses the original locked request and exact worker proof, preserving replay, cancellation and interrupted-attempt records. It is absent by default; hosted connection, installation and posting remain unconfigured.

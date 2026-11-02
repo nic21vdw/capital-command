@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildTimeline, PRODUCT_MOMENT_RULE, selectByTranscript, transcriptClipScore } from "./transcript-select";
+import {
+  buildTimeline,
+  HOOK_START_RULE,
+  PRODUCT_MOMENT_RULE,
+  selectByTranscript,
+  SPECIFIC_MOMENT_RULE,
+  transcriptClipScore
+} from "./transcript-select";
 import type { CaptionSegment } from "@/types/domain";
 
 const ai = vi.hoisted(() => ({ prompts: [] as string[], reply: "[]" }));
@@ -56,8 +63,9 @@ describe("favouring on-screen CoLateral moments", () => {
   it("adds a bonus for the product visibly working and nothing when it is absent", () => {
     expect(transcriptClipScore(speech)).toBe(70);
     expect(transcriptClipScore({ ...speech, product: 0 })).toBe(70);
-    expect(transcriptClipScore({ ...speech, product: 100 })).toBe(95);
+    expect(transcriptClipScore({ ...speech, product: 100 })).toBe(78);
     expect(transcriptClipScore({ hook: 95, pacing: 95, standalone: 95, intensity: 95, product: 100 })).toBe(100);
+    expect(transcriptClipScore({ hook: 80, pacing: 80, standalone: 80, intensity: 80 })).toBeGreaterThan(transcriptClipScore({ ...speech, product: 100 }));
   });
 
   it("asks for the product moment and an opening within three seconds", async () => {
@@ -79,5 +87,15 @@ describe("favouring on-screen CoLateral moments", () => {
     expect(clips?.[0].title).toBe("Agent Finishes");
     expect(clips?.[0].breakdown.product).toBe(90);
     expect(clips![0].score).toBeGreaterThan(clips![1].score);
+  });
+});
+
+describe("what the picker is told to choose", () => {
+  it("asks for specific moments that open on their hook, with the channel's own results", async () => {
+    ai.prompts.length = 0;
+    await selectByTranscript(Array.from({ length: 40 }, (_, i) => seg(i * 5, `line ${i}`)), 200, undefined, 3);
+    expect(ai.prompts[0]).toContain(SPECIFIC_MOMENT_RULE);
+    expect(ai.prompts[0]).toContain(HOOK_START_RULE);
+    expect(ai.prompts[0]).toContain("These flopped");
   });
 });
