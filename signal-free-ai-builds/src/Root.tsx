@@ -65,7 +65,7 @@ export const RemotionRoot: React.FC = () => {
         width={VIDEO.width}
         height={VIDEO.height}
         defaultProps={
-          { name: "Nic Vandewetering", subtitle: "Structural Engineer, Building CoLateral" } as LowerThirdProps
+          { name: "Nic Vandewetering", subtitle: "Founder, Building CoLateral" } as LowerThirdProps
         }
       />
       <Composition
