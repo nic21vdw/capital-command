@@ -33,9 +33,9 @@ export function claudeCodeBinary(): string {
   return existsSync(local) ? local : "claude";
 }
 
-export function claudeCodeEnabled(): boolean {
+export function claudeCodeEnabled(switchName = "CAROUSEL_WRITER"): boolean {
   if (missingBinary) return false;
-  const switchValue = env("CAROUSEL_WRITER").toLowerCase();
+  const switchValue = env(switchName).toLowerCase();
   return switchValue !== "off" && switchValue !== "default" && env("NODE_ENV") !== "test";
 }
 
@@ -72,8 +72,8 @@ export function parseClaudeCodeOutput(stdout: string): string | null {
   }
 }
 
-export async function runClaudeCode(request: ClaudeCodeRequest): Promise<string | null> {
-  if (!claudeCodeEnabled()) return null;
+export async function runClaudeCode(request: ClaudeCodeRequest, switchName?: string): Promise<string | null> {
+  if (!claudeCodeEnabled(switchName)) return null;
   const cwd = request.readDir ?? path.join(os.tmpdir(), "colateral-marketing-writer");
   await mkdir(cwd, { recursive: true });
   const childEnv = { ...process.env };

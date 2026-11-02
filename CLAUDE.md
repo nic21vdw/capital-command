@@ -1273,6 +1273,26 @@ but that is only a parameter fallback for the opt-in layout-variant helpers —
 it is NOT a shipped default, so don't "fix" it into `center` and change what
 the variants mean.
 
+## Which moments become Shorts, and how they open (`transcript-select.ts`, `virality.ts`, `channel-lessons.ts`)
+
+The 2026-11-01 audit of 558 Shorts found the auto clips were general musing
+with summary titles (median 181 views) while the ones that worked named one
+specific thing (median 332). Three rules hold that line:
+
+- THE CHANNEL'S OWN RESULTS ARE IN EVERY PROMPT. `channel-lessons.ts` gives the
+  picker, the virality judge and the title writer the best and worst recent
+  YouTube Shorts from the analytics store, falling back to a measured baseline
+  until 15 are measured. Never replace it with generic "viral" examples.
+- A CLIP OPENS ON ITS HOOK. The judge sees each clip as timed lines and returns
+  `openAt`; `matchLineTime` only accepts a time that is one of the clip's own
+  line starts, and `recutToHook` only moves the start later and never below the
+  length floor. The re-cut happens before render, so captions and the title
+  follow it.
+- PRODUCT ON SCREEN IS A TIEBREAK (`PRODUCT_BONUS`, 8), not a reason to pick a
+  weaker moment.
+- All three passes ask Claude through `claude -p` first (`clip-writer.ts`,
+  `CLIP_WRITER=off` to skip) and fall back to the configured models.
+
 ## Auto-framing a clip on the speaker (`subject.ts`, `framing.ts`)
 
 A short that shrinks a whole widescreen recording into the middle of a 9:16
@@ -1291,6 +1311,15 @@ takes the result.
   thing in the frame. Don't "simplify" it back to a per-frame skin search.
 - Per-frame tracking only searches INSIDE the region the clip-wide map found,
   so a face on the screen can never pull the crop across the frame.
+- THE FACE DETECTOR GOES FIRST (`face.ts`, `scripts/clips/face_track.py`). On
+  the basement camera the skin-and-motion map often finds nothing (a warm room
+  reads as skin wall to wall) and the clip shipped as a strip over blur. YuNet,
+  the same model and Python the story edit uses, finds the face in every camera
+  frame; the face that stays put across the clip is the speaker
+  (`pickSpeakerFace`), a face shorter than 10% of the frame is a camera overlay
+  (`speaker-stack`), and the crop holds still until the face drifts 18% of its
+  width (`holdThenMove`). No Python, OpenCV or model file returns null and the
+  skin detector below runs exactly as before. `CLIP_FACE_FRAMING=off` skips it.
 - Three modes, and the fallback is load-bearing: `subject-fill` (crop 9:16
   around the speaker, fill the frame, pan with them), `speaker-stack` (a small
   camera on a screenshare — lead with the DETECTED camera region instead of
