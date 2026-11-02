@@ -38,7 +38,7 @@ export const HostCard: React.FC<{ durationInFrames: number }> = ({ durationInFra
       </AbsoluteFill>
       <LowerThird
         name="Nic Vandewetering"
-        subtitle="Structural Engineer · Building CoLateral"
+        subtitle="Founder · Building CoLateral"
         durationInFrames={durationInFrames}
       />
     </AbsoluteFill>

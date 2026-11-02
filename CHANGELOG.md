@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Your on-screen name card no longer says structural engineer.** The lower third in the Free AI Builds intro and the signal-free-ai-builds video now reads "Founder, Building CoLateral", so new videos keep your engineering day job out of the CoLateral brand.
+
 ## 2026-11-01
 
 - **Shorts frame on your face and open on the point.** Clips from the basement camera are now cropped full height around your face (the same face detector the story edit uses) instead of shrinking the whole room into a strip over blur; screenshares with a small camera still lead with the camera. Each clip is re-cut to start on its strongest line, the clip picker skips general musing (motivation, how the stream is going) for moments about one specific tool, number, price, game or result, and titles must name that specific thing. The picker, the judge and the title writer now learn from your own best and worst Shorts in Performance, and run on Claude through your Claude Code login when it is there. Needs Python with OpenCV and `data/clips/bin/face_detection_yunet_2023mar.onnx` (both already used by the story edit); without them clips frame exactly as before. `CLIP_FACE_FRAMING=off` and `CLIP_WRITER=off` switch the two halves off.
