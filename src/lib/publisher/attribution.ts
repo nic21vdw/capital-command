@@ -3,7 +3,10 @@ import { DEFAULT_BRAND_KIT, type BrandChannel } from "@/lib/brand/defaults";
 
 export type AttributionPlatform = "youtube" | "instagram" | "tiktok" | "facebook" | "threads" | "x" | "linkedin";
 
-const pathFor = (channel: BrandChannel) => new URL(DEFAULT_BRAND_KIT.channels[channel].cta.url).pathname;
+const pathFor = (channel: BrandChannel) => {
+  const url = DEFAULT_BRAND_KIT.channels[channel].cta.url;
+  return url ? new URL(url).pathname : "/";
+};
 
 export const ATTRIBUTION_PATHS: Record<AttributionPlatform, string> = {
   youtube: pathFor("youtube"),
@@ -15,7 +18,9 @@ export const ATTRIBUTION_PATHS: Record<AttributionPlatform, string> = {
   linkedin: pathFor("linkedin")
 };
 
-export const YOUTUBE_LEAD_LINE = `${DEFAULT_BRAND_KIT.channels.youtube.cta.line}: ${DEFAULT_BRAND_KIT.channels.youtube.cta.url}`;
+const YOUTUBE_CTA = DEFAULT_BRAND_KIT.channels.youtube.cta;
+
+export const YOUTUBE_LEAD_LINE = YOUTUBE_CTA.url ? [YOUTUBE_CTA.line, YOUTUBE_CTA.url].filter(Boolean).join(": ") : "";
 
 const COLATERAL_LINK = /(?<![\w.@/=&?#%+~-])((?:https?:\/\/)?(?:www\.)?)colateralai\.com(?=$|[\s/?#]|,(?=https?:\/\/)|[\p{P}>]+(?:\s|$))((?:[/?#](?:(?!,https?:\/\/)\S)*)?)/giu;
 const PUNCTUATION = /[\p{P}>]/u;
@@ -69,6 +74,7 @@ export function attributeLinks(text: string, platform: AttributionPlatform, code
 
 export function youtubeDescription(text: string, code?: string): string {
   const body = attributeLinks(text, "youtube", code).trim();
+  if (!YOUTUBE_LEAD_LINE) return body;
   const firstLine = body.split("\n", 1)[0].trim();
   if (firstLine === YOUTUBE_LEAD_LINE || firstLine.startsWith(`${YOUTUBE_LEAD_LINE}?`)) return body;
   const leadLine = isPostCode(code) ? `${YOUTUBE_LEAD_LINE}?c=${code}` : YOUTUBE_LEAD_LINE;
