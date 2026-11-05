@@ -10,5 +10,6 @@ export const OWNER_IDENTITY: OwnerIdentity = {
   role: "",
   links: { site: "", youtube: "", x: "" },
   storyRule: "",
+  docsBaseUrl: "",
   alreadyOnYoutubeSeries: []
 };

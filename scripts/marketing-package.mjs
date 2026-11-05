@@ -62,6 +62,8 @@ export const OWNER_ONLY_PATHS = [
   "src/lib/brand/prompt-parity.before.json"
 ];
 
+export const SHIPPED_DOCS = ["docs/LINKEDIN_SETUP.md", "docs/INSTAGRAM_SETUP.md"];
+
 export const OWNER_ONLY_FILE_PATTERNS = [/\.test\.(ts|tsx|mjs|cjs|js)$/, /(^|\/)tiktok[^/]*\.txt$/i, /(^|\/)__snapshots__\//];
 
 export const SHIPPED_ROUTE_DIRS_ABSENT = [
@@ -130,6 +132,7 @@ export function walkFiles(root, skip = new Set(["node_modules", ".next", ".git"]
 }
 
 export function isOwnerOnly(file) {
+  if (SHIPPED_DOCS.includes(file)) return false;
   if (OWNER_ONLY_PATHS.some((path) => file === path || file.startsWith(`${path}/`))) return true;
   return OWNER_ONLY_FILE_PATTERNS.some((pattern) => pattern.test(file));
 }
@@ -267,7 +270,9 @@ export function stagePackage({ repo, out, ref = "HEAD" }) {
   for (const file of walkFiles(out)) {
     if (isOwnerOnly(file)) rmSync(join(out, file), { force: true });
   }
-  for (const path of OWNER_ONLY_PATHS) rmSync(join(out, path), { recursive: true, force: true });
+  for (const path of OWNER_ONLY_PATHS.filter((path) => !SHIPPED_DOCS.some((doc) => doc.startsWith(`${path}/`)))) {
+    rmSync(join(out, path), { recursive: true, force: true });
+  }
 
   const editionFile = join(out, EDITION_SOURCE);
   const edition = readFileSync(editionFile, "utf8");

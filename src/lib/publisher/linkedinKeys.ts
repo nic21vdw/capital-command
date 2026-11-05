@@ -1,3 +1,5 @@
+import { OWNER_IDENTITY } from "@/lib/brand/owner-identity";
+
 export const LINKEDIN_KEYS = {
   accessToken: "linkedin.accessToken",
   accessExpiresAt: "linkedin.accessExpiresAt",
@@ -15,7 +17,9 @@ export const LINKEDIN_PAGE_SCOPE = "w_organization_social";
 
 export const LINKEDIN_SETUP_DOC = "docs/LINKEDIN_SETUP.md";
 
-export const LINKEDIN_SETUP_DOC_URL = "https://github.com/nic21vdw/capital-command/blob/main/docs/LINKEDIN_SETUP.md";
+export const LINKEDIN_SETUP_DOC_URL = OWNER_IDENTITY.docsBaseUrl
+  ? `${OWNER_IDENTITY.docsBaseUrl}${LINKEDIN_SETUP_DOC}`
+  : "https://www.linkedin.com/developers/apps";
 
 export const LINKEDIN_POST_ATTEMPT_PREFIX = "posting:";
 
