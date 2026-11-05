@@ -16,6 +16,7 @@
 
 import { PERSONAL_GROUP_LABEL, isPersonalRoute } from "../personal-routes";
 import type { RouteEntry } from "./protocol";
+import { isRouteShipped } from "../edition";
 
 export const ROUTE_GROUPS = ["Import", "Formats", "Schedule", "Calendar", "Studio", "System"] as const;
 
@@ -52,7 +53,7 @@ export const CAPITAL_COMMAND_ROUTES: RouteEntry[] = [
   { path: "/music", label: "Music Studio", group: "Studio" },
 
   { path: "/settings", label: "Settings", group: "System" }
-];
+].filter((route) => isRouteShipped(route.path));
 
 /**
  * Pages that exist and are reachable, but are not sidebar destinations: they

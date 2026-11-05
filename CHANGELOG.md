@@ -14,6 +14,7 @@ already shipped.
 
 ## Unreleased
 
+- CoLateral Marketing can now be packaged as a free download for other people: `npm run package:marketing` builds a copy with no finance screens, no Segment Deck, none of your data or keys, and a blank brand kit, and refuses to finish if anything of yours slipped in. Your own app is unchanged.
 - **Your on-screen name card no longer says structural engineer.** The lower third in the Free AI Builds intro and the signal-free-ai-builds video now reads "Founder, Building CoLateral", so new videos keep your engineering day job out of the CoLateral brand.
 
 ## 2026-11-01

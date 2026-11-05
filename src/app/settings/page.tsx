@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
+import { isPublicEdition } from "@/lib/edition";
 import { SettingsPage } from "@/components/layout/settings-page";
 import { useAppData } from "@/components/providers/app-provider";
 import { useThemePreset } from "@/components/providers/theme-preset-provider";
@@ -76,12 +77,16 @@ export default function Page() {
         readOnly: hosted,
         hint: hosted ? "CoLateral is choosing the theme for this frame." : undefined
       },
-      {
-        id: "personalDashboard",
-        label: "Show personal finance screens",
-        value: data.settings.personalDashboard === true,
-        kind: "boolean"
-      },
+      ...(isPublicEdition()
+        ? []
+        : [
+            {
+              id: "personalDashboard",
+              label: "Show personal finance screens",
+              value: data.settings.personalDashboard === true,
+              kind: "boolean" as const
+            }
+          ]),
       {
         id: "publishingEnabled",
         label: "Let the app post at all",

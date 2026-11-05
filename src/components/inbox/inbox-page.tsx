@@ -234,7 +234,7 @@ export function InboxPage() {
         group: "Reply",
         destructive: true,
         disabled: !canSend,
-        hint: "Posts the draft publicly from Nic's account."
+        hint: "Posts the draft publicly from your account."
       },
       {
         id: "sendAnyway",
