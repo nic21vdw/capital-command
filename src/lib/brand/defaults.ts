@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { isPublicEdition } from "@/lib/edition";
+import { OWNER_IDENTITY } from "./owner-identity";
 
 export const BRAND_CHANNELS = [
   "youtube",
@@ -60,7 +62,7 @@ export const brandKitSchema = z.object({
     role: z.string().trim().max(200)
   }),
   links: z.object({
-    site: z.string().trim().min(1).max(300),
+    site: z.string().trim().max(300),
     youtube: z.string().trim().max(300),
     x: z.string().trim().max(300)
   }),
@@ -72,7 +74,6 @@ export const brandKitSchema = z.object({
         oneLiner: z.string().trim().min(1).max(600)
       })
     )
-    .min(1)
     .max(20),
   positioning: z.object({
     oneLiner: z.string().trim().min(1).max(600),
@@ -138,8 +139,8 @@ export type BrandKit = z.infer<typeof brandKitSchema>;
 
 export type BrandKitOverrides = Record<string, unknown>;
 
-const NAME = "Nic Vandewetering";
-const SITE = "https://colateralai.com";
+const NAME = OWNER_IDENTITY.name;
+const SITE = OWNER_IDENTITY.links.site;
 
 const DESCRIPTION =
   "CoLateral is a desktop agentic workspace for developers, creators and engineers, where AI agents, files and ideas share one project canvas.";
@@ -208,18 +209,14 @@ const textChannel = (label: string, guide: string, url: string) => ({
   rules: TEXT_POST_RULES
 });
 
-export const DEFAULT_BRAND_KIT: BrandKit = brandKitSchema.parse({
+export const OWNER_BRAND_KIT: BrandKit = brandKitSchema.parse({
   identity: {
     name: NAME,
-    firstName: "Nic",
-    handle: "@nicvandewetering",
-    role: "Founder and builder of CoLateral"
+    firstName: OWNER_IDENTITY.firstName,
+    handle: OWNER_IDENTITY.handle,
+    role: OWNER_IDENTITY.role
   },
-  links: {
-    site: SITE,
-    youtube: "https://www.youtube.com/@nicvandewetering",
-    x: "https://x.com/nic21vdw"
-  },
+  links: OWNER_IDENTITY.links,
   products: [
     {
       id: "colateral",
@@ -280,7 +277,7 @@ export const DEFAULT_BRAND_KIT: BrandKit = brandKitSchema.parse({
       "automation"
     ],
     fallbackHashtags: ["AI", "vibecoding", "coding", "buildinpublic", "startup"],
-    properNames: ["Claude", "Claude Code", "Opus", "Codex", "Warp", "Cursor", "Grok", "CoLateral", "Streamer.bot", "Remotion", "Vandewetering"],
+    properNames: ["Claude", "Claude Code", "Opus", "Codex", "Warp", "Cursor", "Grok", "CoLateral", "Streamer.bot", "Remotion", ...(OWNER_IDENTITY.surname ? [OWNER_IDENTITY.surname] : [])],
     titleExamples: [
       "Vibe Coding a SaaS With Claude in 30 Minutes",
       "This AI Coding Trick Saves Me Hours Every Week",
@@ -299,7 +296,7 @@ export const DEFAULT_BRAND_KIT: BrandKit = brandKitSchema.parse({
       "Never invent facts, numbers, users, prices, launch dates, sales, time savings, personal anecdotes or results. A goal is not a shipped feature: write \"I want\" or \"I'm building toward\", never \"you can now\" or \"it does\".",
       "Complete, grammatical sentences. Never a raw transcript fragment and never a thought that trails off.",
       "Nothing may promise something the app does not do.",
-      "{firstName}'s own story is fine: an engineer by day job who builds software and builds CoLateral in public. That is his background, not a product claim."
+      ...(OWNER_IDENTITY.storyRule ? [OWNER_IDENTITY.storyRule] : [])
     ],
     dashes: "strip",
     dashRule: "Never an em dash or an en dash. Not one, anywhere. Use a comma, a full stop, or a new line. It is the single clearest tell.",
@@ -513,6 +510,79 @@ export const DEFAULT_BRAND_KIT: BrandKit = brandKitSchema.parse({
   }
 });
 
+export const PUBLIC_CREATOR_NAME = "the creator";
+
+const NO_CTA = { line: "", url: "" };
+
+const PUBLIC_CHANNEL_RULES: Partial<Record<BrandChannel, string[]>> = {
+  "youtube-longform": ["No invented facts, links, or timestamps you were not given."],
+  carousel: [
+    "Write in the creator's own voice, first person, because the slides are posted from their account.",
+    "Plain, confident, human language: short words, active verbs.",
+    "Emojis are optional: at most one per slide, only where it adds meaning, and never in place of a word."
+  ]
+};
+
+const PUBLIC_CHANNEL_GUIDES: Partial<Record<BrandChannel, string>> = {
+  script: "Video script: spoken words for one of the creator's videos.",
+  launch:
+    "Product Hunt launch copy: write like the maker, not like a press release. Be concrete about what the product actually does."
+};
+
+export const PUBLIC_BRAND_KIT: BrandKit = brandKitSchema.parse({
+  ...OWNER_BRAND_KIT,
+  identity: { name: PUBLIC_CREATOR_NAME, firstName: PUBLIC_CREATOR_NAME, handle: "", role: "" },
+  links: { site: "", youtube: "", x: "" },
+  products: [],
+  positioning: {
+    oneLiner: "A creator sharing their own work in videos, short clips and posts.",
+    description: "A creator sharing their own work in videos, short clips and posts.",
+    buildStory: "",
+    audience: "",
+    tagline: "",
+    eyebrow: "",
+    trustline: "",
+    pillars: []
+  },
+  vocabulary: {
+    use: [],
+    keywords: [],
+    fallbackHashtags: [],
+    properNames: ["Claude", "ChatGPT", "YouTube", "TikTok", "Instagram", "Facebook", "Threads", "LinkedIn"],
+    titleExamples: []
+  },
+  voice: {
+    ...OWNER_BRAND_KIT.voice,
+    rules: [
+      "Write like the creator talking, not like a press release or a brand.",
+      "Never invent facts, numbers, users, prices, launch dates, sales, time savings, personal anecdotes or results.",
+      "Complete, grammatical sentences. Never a raw transcript fragment and never a thought that trails off."
+    ],
+    bannedClaims: [],
+    claimTriggers: [],
+    retiredNames: []
+  },
+  channels: Object.fromEntries(
+    BRAND_CHANNELS.map((channel) => {
+      const owner = OWNER_BRAND_KIT.channels[channel];
+      return [
+        channel,
+        {
+          ...owner,
+          guide: PUBLIC_CHANNEL_GUIDES[channel] ?? owner.guide,
+          cta: NO_CTA,
+          rules: PUBLIC_CHANNEL_RULES[channel] ?? owner.rules.filter((rule) => !/CoLateral|\{firstName\}/.test(rule))
+        }
+      ];
+    })
+  ),
+  carousel: { signature: { name: "", handle: "" } }
+});
+
+export const DEFAULT_BRAND_KIT: BrandKit = isPublicEdition() ? PUBLIC_BRAND_KIT : OWNER_BRAND_KIT;
+
 export function channelContext(kit: BrandKit): string {
-  return `The creator is ${kit.identity.name}, ${kit.identity.role.charAt(0).toLowerCase()}${kit.identity.role.slice(1)}. ${kit.positioning.description} ${kit.positioning.buildStory}`.trim();
+  const role = kit.identity.role ? `, ${kit.identity.role.charAt(0).toLowerCase()}${kit.identity.role.slice(1)}` : "";
+  const who = kit.identity.name === PUBLIC_CREATOR_NAME ? "" : `The creator is ${kit.identity.name}${role}.`;
+  return `${who} ${kit.positioning.description} ${kit.positioning.buildStory}`.trim();
 }

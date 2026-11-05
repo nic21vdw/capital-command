@@ -1,14 +1,13 @@
-// The "Yapping Until I Can Buy a Nicer Car" series is ALREADY a long-form
-// video on the channel. An edit of it booked back to YouTube spends a daily
-// upload slot to duplicate what is already there — 17 of them were booked and
-// had to be pulled by hand on 2026-08-20, and the pipeline makes more every
-// time a car yap is run through it. The Instagram vertical cut of one is a
-// different thing and is wanted; only the YouTube long-form booking is not.
+import { OWNER_IDENTITY } from "@/lib/brand/owner-identity";
 
-const CAR_YAP_TITLE = /Yapping\s+Until\s+I\s+Can\s+Buy\s+a\s+Nicer\s+Car/i;
+// One of the channel's recurring series (OWNER_IDENTITY.alreadyOnYoutubeSeries)
+// is ALREADY a long-form video on the channel. An edit of it booked back to
+// YouTube spends a daily upload slot to duplicate what is already there: 17 were
+// booked and pulled by hand on 2026-08-20. The Instagram vertical cut of one is
+// a different thing and is wanted; only the YouTube long-form booking is not.
 
 export function isCarYapTitle(title: string | undefined | null): boolean {
-  return CAR_YAP_TITLE.test(title ?? "");
+  return OWNER_IDENTITY.alreadyOnYoutubeSeries.some((series) => series.test(title ?? ""));
 }
 
 export const CAR_YAP_YOUTUBE_NOTE =

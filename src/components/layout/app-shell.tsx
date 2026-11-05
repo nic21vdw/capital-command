@@ -54,6 +54,7 @@ import { useAppData } from "@/components/providers/app-provider";
 import { useColateralBridge } from "@/components/providers/colateral-bridge-provider";
 import { StreamProvider, useStream } from "@/components/providers/stream-provider";
 import { PERSONAL_GROUP_LABEL, PERSONAL_NAV } from "@/lib/personal-routes";
+import { isRouteShipped } from "@/lib/edition";
 import { streamHref } from "@/lib/pipeline/streams";
 import { reconnectBlocker, signInVerifiable } from "@/lib/publisher/connections";
 import { PlatformIcon, PLATFORM_LABEL, type PlatformIconKey } from "@/components/ui/platform-icon";
@@ -158,7 +159,7 @@ const STUDIO_ITEMS: NavItem[] = [
   // Licensed music models (fal.ai) writing tracks into the shared library the
   // Long-Form Editor pulls from — a tool that feeds the flow, not a format.
   { href: "/music", label: "Music Studio", icon: Music4 }
-];
+].filter((item) => isRouteShipped(item.href));
 
 /**
  * The personal finance screens, listed only on an install that has asked for
@@ -166,7 +167,7 @@ const STUDIO_ITEMS: NavItem[] = [
  * portfolio, not part of the marketing flow, and a canvas agent never sees
  * them. The switch decides whether the group exists at all.
  */
-const PERSONAL_ITEMS: NavItem[] = PERSONAL_NAV.map((item) => ({ ...item, icon: WalletCards }));
+const PERSONAL_ITEMS: NavItem[] = PERSONAL_NAV.filter((item) => isRouteShipped(item.href)).map((item) => ({ ...item, icon: WalletCards }));
 const SETTINGS_ITEM: NavItem = { href: "/settings", label: "Settings", icon: Settings };
 
 function personalItemsFor(personalDashboard: boolean | undefined): NavItem[] {

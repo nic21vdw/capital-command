@@ -5,8 +5,8 @@
  *
  *  - `github` is where work lands. Agent sessions open pull requests and merge
  *    them there, so it is the first place a finished change exists.
- *  - `origin` is a local bare repository under `C:\Users\nic21\GitOrigin`, the
- *    backup hub for every one of Nic's repos. `backup-to-github.ps1` pulls
+ *  - `origin` is a local bare repository on the owner's machine, the backup
+ *    hub for every one of the owner's repos. `backup-to-github.ps1` pulls
  *    GitHub down into it on a schedule, so it FOLLOWS GitHub rather than
  *    leading it — and the production release pushes its changelog commit
  *    there, which is the one thing that ever moves it first.
