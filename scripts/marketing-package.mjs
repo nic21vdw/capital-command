@@ -46,6 +46,10 @@ export const OWNER_ONLY_PATHS = [
   "src/app/watchlist",
   "src/app/goals",
   "src/app/presentation",
+  "src/app/listening",
+  "src/app/outreach",
+  "src/app/api/listening",
+  "src/app/api/outreach",
   "src/app/api/finance",
   "src/app/api/market",
   "src/app/api/presentation",
@@ -72,6 +76,10 @@ export const SHIPPED_ROUTE_DIRS_ABSENT = [
   "src/app/watchlist",
   "src/app/goals",
   "src/app/presentation",
+  "src/app/listening",
+  "src/app/outreach",
+  "src/app/api/listening",
+  "src/app/api/outreach",
   "src/app/api/finance",
   "src/app/api/market"
 ];

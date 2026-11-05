@@ -125,7 +125,7 @@ export function parseClassifyReply(text: string): Map<number, Classification> {
 }
 
 function systemPrompt(): string {
-  const product = brandKit().products[0];
+  const product = brandKit().products[0] ?? { name: brandKit().identity.name, oneLiner: brandKit().positioning.oneLiner };
   const pitch = `${product.oneLiner.charAt(0).toLowerCase()}${product.oneLiner.slice(1).replace(/\.$/, "")}`;
   return [
     `You triage public social posts for ${product.name}, ${pitch}. People bring the AI subscriptions they already pay for and pay once, for a one-time licence.`,

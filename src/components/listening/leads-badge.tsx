@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { isRouteShipped } from "@/lib/edition";
 
 const POLL_MS = 60_000;
 
@@ -12,6 +13,7 @@ export function ListeningLeadsProvider({ children }: { children: React.ReactNode
   const refreshRef = useRef<() => void>(() => {});
 
   useEffect(() => {
+    if (!isRouteShipped("/listening")) return;
     let alive = true;
     const read = async () => {
       try {

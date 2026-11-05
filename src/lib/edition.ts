@@ -4,7 +4,7 @@ export type Edition = "owner" | "public";
 
 export const EDITION = "owner" as Edition;
 
-export const OWNER_ONLY_ROUTE_PATHS: readonly string[] = [...PERSONAL_ROUTE_PATHS, "/presentation"];
+export const OWNER_ONLY_ROUTE_PATHS: readonly string[] = [...PERSONAL_ROUTE_PATHS, "/presentation", "/listening", "/outreach"];
 
 export function isPublicEdition(edition: Edition = EDITION): boolean {
   return edition === "public";

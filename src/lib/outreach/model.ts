@@ -65,7 +65,8 @@ If it looks like a fit for your audience, I'd be happy to send you a free licenc
 Either way, thanks for the video.
 ${DEFAULT_BRAND_KIT.identity.firstName}`;
 
-const PRODUCT_PITCH = `${DEFAULT_BRAND_KIT.products[0].oneLiner.charAt(0).toLowerCase()}${DEFAULT_BRAND_KIT.products[0].oneLiner.slice(1).replace(/\.$/, "")}`;
+const PRODUCT_ONE_LINER = DEFAULT_BRAND_KIT.products[0]?.oneLiner ?? "";
+const PRODUCT_PITCH = `${PRODUCT_ONE_LINER.charAt(0).toLowerCase()}${PRODUCT_ONE_LINER.slice(1).replace(/\.$/, "")}`;
 
 export const THREAD_ANSWER_PLACEHOLDER = "[Answer their question here, in a sentence or two, before anything about CoLateral.]";
 

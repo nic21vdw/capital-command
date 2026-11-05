@@ -27,7 +27,7 @@ describe("the edition this checkout builds", () => {
 
 describe("the public edition", () => {
   it("ships no personal finance screen and no Segment Deck", () => {
-    for (const path of ["/finance", "/holdings", "/watchlist", "/goals", "/presentation", "/finance/"]) {
+    for (const path of ["/finance", "/holdings", "/watchlist", "/goals", "/presentation", "/listening", "/outreach", "/finance/"]) {
       expect(isRouteShipped(path, "public")).toBe(false);
     }
     for (const path of ["/", "/clips", "/carousels", "/uploading-center", "/settings"]) {
