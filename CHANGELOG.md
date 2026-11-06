@@ -14,6 +14,7 @@ already shipped.
 
 ## Unreleased
 
+- **A fresh install now says what each screen is missing and opens the setting that fixes it.** Music Studio, Voiceover, Sourceflow Agents, Outlier Radar, Inbox and Performance show one "needs setup" card with a button straight to the right row in Settings, and the new Settings > AI and services section takes the fal.ai, ElevenLabs, OpenAI, xAI, Product Hunt and DeepSeek keys without editing `.env`. The public edition no longer shows the update check, the backup line or the Listening quota.
 - **The red platform banner no longer repeats a token from an error.** If a broken account's error quoted a request link or an Authorization header, the banner and the Windows toast now show it with the token hidden. The Instagram comment webhook also stopped accepting a signature with extra characters stuck on the end. The API routes now have tests that try the wrong way in (foreign site, no confirm on a reply, forged webhook, a same-day booking, a second copy) and expects a refusal.
 - **The full test suite finishes in about half the time.** `npm test` now runs spec files in parallel instead of one at a time, and `npm run test:changed` runs only the specs touched by what your branch changed against `main`. The running app is unchanged.
 - **Cancellation checks keep unfinished synthetic exports out of the next test.** Each check now waits for its own work and assertions to settle before resetting shared test state. This changes validation only; the running app and export behavior are unchanged.
