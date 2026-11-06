@@ -1,5 +1,6 @@
 "use client";
 
+import { serviceSetupHref } from "@/lib/setup/services";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -92,7 +93,7 @@ interface AutopilotActionResponse {
 
 /** Where the Automations page lives; pausing and resuming happen there. */
 const AUTOMATIONS_HREF = "/automations";
-const ACCOUNTS_HREF = "/settings#accounts";
+const ACCOUNTS_HREF = "/settings?connect=threads#accounts";
 
 /** Threads' own limit — the only one that matters here. */
 const THREADS_LIMIT = 500;
@@ -446,7 +447,18 @@ export function XPostsPage() {
       </Modal>
 
       {reason ? (
-        <div className="mb-6 rounded-2xl border p-3 text-xs tone-warning tone-soft tone-edge tone-text">{reason}</div>
+        <div className="mb-6 rounded-2xl border p-3 text-xs tone-warning tone-soft tone-edge tone-text">
+          {reason}
+          {/built-in idea library/.test(reason) ? (
+            <>
+              {" "}
+              <Link href={serviceSetupHref("ai-writing")} className="font-medium underline underline-offset-2">
+                Add an AI key in Settings
+              </Link>{" "}
+              for a fallback when the free model is busy.
+            </>
+          ) : null}
+        </div>
       ) : null}
 
       <BlockedNotice status={autopilot.status} />

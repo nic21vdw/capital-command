@@ -28,6 +28,7 @@ function isValidSignature(rawBody: string, signatureHeader: string | null, appSe
   if (!signatureHeader?.startsWith("sha256=")) return false;
   const expected = createHmac("sha256", appSecret).update(rawBody).digest("hex");
   const provided = signatureHeader.slice("sha256=".length);
+  if (!/^[0-9a-f]{64}$/i.test(provided)) return false;
   const expectedBuffer = Buffer.from(expected, "hex");
   const providedBuffer = Buffer.from(provided, "hex");
   return expectedBuffer.length === providedBuffer.length && timingSafeEqual(expectedBuffer, providedBuffer);

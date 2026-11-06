@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { isPublicEdition } from "@/lib/edition";
 import { describeBackup, type BackupStatus, type BackupView } from "@/lib/backup/status";
 
 const UNREADABLE: BackupView = { text: "Last backup: unknown (the backup status could not be read)", warning: true };
@@ -25,7 +26,7 @@ export function useBackupView(): BackupView | null {
 }
 
 export function BackupStatusLine({ view }: { view: BackupView | null }) {
-  if (!view) return null;
+  if (!view || isPublicEdition()) return null;
   const Icon = view.warning ? AlertTriangle : ShieldCheck;
   return (
     <div className="mb-4">

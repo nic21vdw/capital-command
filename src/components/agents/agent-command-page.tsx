@@ -23,7 +23,10 @@ import { toast } from "sonner";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { NeedsSetup } from "@/components/ui/needs-setup";
 import { PageHeader } from "@/components/ui/page-header";
+import { serviceSetupHref } from "@/lib/setup/services";
+import Link from "next/link";
 import { Textarea } from "@/components/ui/textarea";
 import { ChannelIngestPanel } from "@/components/agents/channel-ingest-panel";
 import { VoiceConsole } from "@/components/agents/voice-console";
@@ -155,7 +158,7 @@ export function AgentCommandPage() {
     const text = prompt.trim();
     if (!text) return;
     if (!currentProvider?.configured) {
-      toast.error(`${currentProvider?.label ?? provider} needs its API key in .env.`);
+      toast.error(`${currentProvider?.label ?? provider} needs its API key. Add it in Settings, AI and services.`);
       return;
     }
     if (running) {
@@ -345,6 +348,12 @@ export function AgentCommandPage() {
         }
       />
 
+      {providers.length > 0 && providers.every((item) => !item.configured) ? (
+        <NeedsSetup title="The agent team needs an OpenAI or xAI key" href={serviceSetupHref("openai")} action="Add a key">
+          Sourceflow Agents think with ChatGPT or Grok, and neither has a key yet. Add one in Settings to run the team.
+        </NeedsSetup>
+      ) : null}
+
       <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)_320px]">
         <aside className="space-y-4">
           <Card>
@@ -375,7 +384,11 @@ export function AgentCommandPage() {
             </div>
             {!currentProvider?.configured ? (
               <p className="mt-3 rounded-lg tone-warning tone-edge tone-soft p-2.5 text-xs tone-text">
-                Add {provider === "grok" ? "XAI_API_KEY" : "OPENAI_API_KEY"} to the local .env file. Keys never enter the browser.
+                {currentProvider?.label ?? "This brain"} needs its API key.{" "}
+                <Link href={serviceSetupHref(provider === "grok" ? "xai" : "openai")} className="font-medium underline underline-offset-2">
+                  Add it in Settings
+                </Link>
+                . Keys never enter the browser.
               </p>
             ) : null}
           </Card>

@@ -1,3 +1,4 @@
+import { historyDetail } from "@/lib/automations/history";
 import { expiringConnections } from "@/lib/platform-health/expiry";
 import { currentFingerprint } from "@/lib/platform-health/fingerprint";
 import { activeAuthStates } from "@/lib/platform-health/store";
@@ -24,7 +25,7 @@ export async function platformHealth(now: Date = new Date()): Promise<PlatformHe
       displayName: accountDisplayName(state.platform, state.accountLabel),
       since: state.since,
       lastFailureAt: state.lastFailureAt,
-      reason: state.reason,
+      reason: historyDetail(state.reason),
       fixUrl: state.fixUrl,
       failures: state.failures
     }));
