@@ -5,7 +5,6 @@ import type { Edl, EdlSegment, Removal, SectionRole, Transition, Unit, VisualSam
 export const PUSH_FROM = 1;
 export const PUSH_TO = 1.08;
 export const PUSH_MIN_SEC = 3;
-export const PUSH_MAX_SEC = 6;
 export const MAX_ZOOM = 2;
 export const SECTION_AUDIO_LEAD_SEC = 0.3;
 const MIN_SEGMENT_FRAMES = 3;
@@ -196,14 +195,6 @@ export function retime(segments: EdlSegment[]): { segments: EdlSegment[]; runtim
     return next;
   });
   return { segments: out, runtimeSec: cursor };
-}
-
-export function sourceToTimeline(segments: EdlSegment[], sourceTime: number): number | null {
-  for (const segment of segments) {
-    if (!segment.enabled) continue;
-    if (sourceTime >= segment.in && sourceTime <= segment.out) return segment.timelineIn + (sourceTime - segment.in);
-  }
-  return null;
 }
 
 export type TimelineWord = { w: string; s: number; e: number };

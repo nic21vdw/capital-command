@@ -1,5 +1,5 @@
 import { differenceInCalendarMonths, parseISO } from "date-fns";
-import type { Goal, Holding, PortfolioSnapshot, WatchlistItem } from "@/types/domain";
+import type { Goal, Holding, PortfolioSnapshot } from "@/types/domain";
 
 export interface EnrichedHolding extends Holding {
   resolvedPrice: number;
@@ -152,11 +152,4 @@ export function getSimplePerformance(snapshots: PortfolioSnapshot[]) {
 
 export function getHoldingsMissingData(holdings: Holding[]) {
   return holdings.filter((holding) => !holding.currentPrice && !holding.manualPrice);
-}
-
-export function getWatchlistRiskSummary(items: WatchlistItem[]) {
-  return items.reduce<Record<number, number>>((acc, item) => {
-    acc[item.riskRating] = (acc[item.riskRating] ?? 0) + 1;
-    return acc;
-  }, {});
 }

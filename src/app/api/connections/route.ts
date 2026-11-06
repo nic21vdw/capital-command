@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { CONNECTIONS, CONNECTION_FIELD_NAMES } from "@/lib/publisher/connections";
+import { SERVICE_FIELD_NAMES } from "@/lib/setup/services";
+
+const SETUP_FIELD_NAMES = [...CONNECTION_FIELD_NAMES, ...SERVICE_FIELD_NAMES];
 import { CredentialStoreReadError, credentialSources, credentialsPresent, saveCredentials } from "@/lib/publisher/credentials";
 import { accountIdConfigured } from "@/lib/publisher/accounts";
 import { googleRedirectUri } from "@/lib/publisher/googleAuth";
@@ -41,8 +44,8 @@ function redirectUris(origin: string) {
 
 async function connectionState(origin: string) {
   const [present, sources, youtube, tiktok, spotify, linkedin] = await Promise.all([
-    credentialsPresent(CONNECTION_FIELD_NAMES),
-    credentialSources(CONNECTION_FIELD_NAMES),
+    credentialsPresent(SETUP_FIELD_NAMES),
+    credentialSources(SETUP_FIELD_NAMES),
     accountIdConfigured("youtube"),
     accountIdConfigured("tiktok"),
     spotifyConnected(),
@@ -70,7 +73,7 @@ export async function POST(request: Request) {
   // Only names this app actually reads. Without this the endpoint would write
   // any environment variable a request named, which is a way to reconfigure the
   // process from the browser rather than a way to connect an account.
-  const allowed = new Set(CONNECTION_FIELD_NAMES);
+  const allowed = new Set(SETUP_FIELD_NAMES);
   const updates: Record<string, string> = {};
   for (const [name, value] of Object.entries(values as Record<string, unknown>)) {
     if (!allowed.has(name)) {
@@ -86,7 +89,7 @@ export async function POST(request: Request) {
   const save = async () => {
     // Re-read ownership inside the control transaction. Environment-owned
     // fields must never be overridden or rewritten by Settings.
-    const sources = await credentialSources(CONNECTION_FIELD_NAMES);
+    const sources = await credentialSources(SETUP_FIELD_NAMES);
     const fromEnv = Object.keys(updates).filter((name) => sources[name] === "env");
     if (fromEnv.length > 0) {
       return NextResponse.json({

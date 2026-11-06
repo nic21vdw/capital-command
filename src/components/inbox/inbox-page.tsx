@@ -1,5 +1,7 @@
 "use client";
 
+import { NeedsSetup, anyAccountConnected, useSetupStatus } from "@/components/ui/needs-setup";
+import { accountSetupHref } from "@/lib/setup/services";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCheck, CheckCircle2, ExternalLink, Inbox as InboxIcon, Loader2, MessageSquareReply, Send, TriangleAlert } from "lucide-react";
@@ -65,6 +67,7 @@ function messageOf(error: unknown): string {
 }
 
 export function InboxPage() {
+  const setup = useSetupStatus();
   const [data, setData] = useState<InboxResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
@@ -333,6 +336,12 @@ export function InboxPage() {
           <RefreshButton onClick={() => void refresh()} busy={busy.refresh} />
         }
       />
+
+      {setup && !anyAccountConnected(setup) ? (
+        <NeedsSetup title="No account is connected yet" href={accountSetupHref()} action="Connect an account">
+          The inbox collects comments on your posts from YouTube, Instagram, Facebook and Threads. Connect one in Settings and new comments arrive here every 30 minutes.
+        </NeedsSetup>
+      ) : null}
 
       {loadError ? (
         <Card className="tone-danger tone-edge tone-soft mb-5">

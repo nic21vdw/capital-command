@@ -1,5 +1,7 @@
 "use client";
 
+import { NeedsSetup, anyAccountConnected, useSetupStatus } from "@/components/ui/needs-setup";
+import { accountSetupHref } from "@/lib/setup/services";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowDown, ArrowUp, AtSign, ExternalLink, Info, Loader2, RefreshCw } from "lucide-react";
@@ -460,6 +462,7 @@ function defaultDirection(sort: SortKey): PerformanceView["direction"] {
 }
 
 export function PerformancePage() {
+  const setup = useSetupStatus();
   const [report, setReport] = useState<AnalyticsReport | null>(null);
   const [state, setState] = useState<LoadState>("loading");
   const [view, setView] = useState<PerformanceView>(DEFAULT_VIEW);
@@ -652,6 +655,12 @@ export function PerformancePage() {
           </div>
         }
       />
+
+      {setup && !anyAccountConnected(setup) ? (
+        <NeedsSetup title="No account is connected yet" href={accountSetupHref()} action="Connect an account">
+          Performance reads views and engagement back from YouTube, Instagram, Facebook and Threads. Connect one in Settings and its posts show up here once they go out.
+        </NeedsSetup>
+      ) : null}
 
       {state === "error" && !report ? (
         <Card className="tone-danger tone-edge border text-sm text-white">

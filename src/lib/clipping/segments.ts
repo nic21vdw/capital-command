@@ -206,19 +206,6 @@ export function cutClipRanges(
   return cuts;
 }
 
-export function sourceTimeToClipOutput(sourceTime: number, ranges: ClipKeptRange[]): number | null {
-  if (ranges.length === 0) return null;
-  let output = 0;
-  for (const range of ranges) {
-    if (sourceTime >= range.start && sourceTime <= range.end) {
-      return round3(output + sourceTime - range.start);
-    }
-    if (sourceTime < range.start) return round3(output);
-    output += range.end - range.start;
-  }
-  return round3(output);
-}
-
 export function sourceToClipIntervals(
   sourceStart: number,
   sourceEnd: number,

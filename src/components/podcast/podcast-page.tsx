@@ -1,5 +1,7 @@
 "use client";
 
+import { accountSetupHref } from "@/lib/setup/services";
+import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Check, Copy, ExternalLink, Loader2, Pencil, RefreshCw, Trash2, TriangleAlert, Upload } from "lucide-react";
@@ -406,7 +408,17 @@ export function PodcastPage() {
             {state.blockers.map((blocker) => (
               <li key={blocker.code}>
                 <p className="tone-warning tone-text">{blocker.problem}</p>
-                <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">{blocker.fix}</p>
+                <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
+                  {blocker.fix}
+                  {blocker.code === "bucket" ? (
+                    <>
+                      {" "}
+                      <Link href={accountSetupHref("media-hosting")} className="text-[var(--accent)] underline underline-offset-2">
+                        Open Media hosting in Settings
+                      </Link>
+                    </>
+                  ) : null}
+                </p>
               </li>
             ))}
           </ul>

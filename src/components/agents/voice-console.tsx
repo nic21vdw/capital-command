@@ -344,7 +344,7 @@ export function VoiceConsole({ onWorkStarted }: { onWorkStarted?: () => void }) 
               </div>
             ) : !currentProvider?.configured ? (
               <p className="rounded-lg tone-warning tone-edge tone-soft p-2.5 text-xs tone-text">
-                OpenAI has no subscription route — ChatGPT Plus does not cover the realtime API, so this one needs pay-as-you-go credit and `OPENAI_API_KEY` in .env. Use Grok Voice to run on a subscription instead.
+                OpenAI has no subscription route - ChatGPT Plus does not cover the realtime API, so this one needs pay-as-you-go credit and an OpenAI key in Settings, AI and services. Use Grok Voice to run on a subscription instead.
               </p>
             ) : null}
           </div>

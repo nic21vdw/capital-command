@@ -1,4 +1,5 @@
 import { AlertTriangle } from "lucide-react";
+import { isPublicEdition } from "@/lib/edition";
 import { cn } from "@/lib/utils";
 import type { YoutubeQuota } from "@/lib/publisher/quota";
 import type { QuotaPurpose } from "@/lib/youtube/quotaLedger";
@@ -43,7 +44,7 @@ export function QuotaMeter({ quota }: { quota: YoutubeQuota }) {
         <div className="h-full bg-white/50 transition-[width]" style={{ width: width(otherUnits) }} />
       </div>
       <ul className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] tabular-nums text-[var(--muted-foreground)]">
-        {quota.split.map((entry) => (
+        {quota.split.filter((entry) => !(entry.purpose === "listening" && isPublicEdition())).map((entry) => (
           <li key={entry.purpose}>
             {`${PURPOSE_LABEL[entry.purpose]} ${entry.units.toLocaleString()}${entry.cap === undefined ? "" : `/${entry.cap.toLocaleString()}`}`}
           </li>

@@ -10,10 +10,6 @@
  */
 export const MIN_LONGFORM_SEC = 8 * 60;
 
-export function isLongformLength(durationSec: number): boolean {
-  return durationSec >= MIN_LONGFORM_SEC;
-}
-
 /** A runtime as "8m 05s" — rounding the seconds alone produced "4m 60s". */
 export function formatRuntime(durationSec: number): string {
   const whole = Math.round(Math.max(0, durationSec));

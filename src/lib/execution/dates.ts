@@ -95,14 +95,6 @@ export function formatLongDate(value: LocalDate): string {
   });
 }
 
-/** Compact date, e.g. "Jun 13". */
-export function formatShortDate(value: LocalDate): string {
-  return parseLocalDate(value).toLocaleDateString("en-CA", {
-    month: "short",
-    day: "numeric"
-  });
-}
-
 /** Range label for a week, e.g. "Jun 9 – Jun 15, 2026". */
 export function formatWeekRange(start: LocalDate): string {
   const end = addDays(start, 6);

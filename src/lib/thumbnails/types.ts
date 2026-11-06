@@ -181,15 +181,3 @@ export const INTENSITY_FACTOR: Record<Intensity, number> = {
 
 /** Sensible starting transform for the text block in manual layout. */
 export const DEFAULT_TEXT_TRANSFORM: Transform = { x: 0.32, y: 0.5, scale: 1, rotation: 0 };
-
-/** Spread a freshly added image around the right side of the canvas. */
-export function defaultImageTransform(index: number): Transform {
-  const spots: Transform[] = [
-    { x: 0.74, y: 0.5, scale: 1, rotation: 0 },
-    { x: 0.6, y: 0.34, scale: 0.7, rotation: -6 },
-    { x: 0.84, y: 0.68, scale: 0.7, rotation: 6 },
-    { x: 0.55, y: 0.72, scale: 0.6, rotation: -4 },
-    { x: 0.9, y: 0.3, scale: 0.6, rotation: 8 }
-  ];
-  return { ...spots[index % spots.length] };
-}

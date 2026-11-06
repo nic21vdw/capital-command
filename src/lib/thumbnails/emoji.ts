@@ -20,14 +20,6 @@ type Entry = { img: HTMLImageElement; ready: boolean; failed: boolean };
 const cache = new Map<string, Entry>();
 const listeners = new Set<() => void>();
 
-/** Subscribe to be notified when any Apple emoji image finishes loading. */
-export function subscribeEmojiLoaded(cb: () => void): () => void {
-  listeners.add(cb);
-  return () => {
-    listeners.delete(cb);
-  };
-}
-
 /**
  * Returns a decoded Apple emoji image ready to draw, or `null` if it isn't
  * available yet (in which case a load is kicked off once and subscribers are
