@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { chunkWords } from "@/lib/clipping/captions";
@@ -38,7 +39,11 @@ const TRANSCRIBE_OPTIONS = { chunk_length_s: 30, stride_length_s: 5, return_time
 // The pipeline is expensive to build (loads ~150 MB of weights), so it is
 // created once and shared. globalThis survives Next dev's per-route module
 // graphs, mirroring how job state is stored.
-type WhisperGlobal = typeof globalThis & { __whisperRunner?: Promise<ChunkRunner>; __whisperModelId?: string };
+type WhisperGlobal = typeof globalThis & {
+  __whisperRunner?: Promise<ChunkRunner>;
+  __whisperModelId?: string;
+  __whisperWindowTail?: Promise<void>;
+};
 const g = globalThis as WhisperGlobal;
 
 const workerPath = path.join(process.cwd(), "src", "lib", "clipping", "whisper-worker.mjs");
@@ -51,20 +56,22 @@ const workerPath = path.join(process.cwd(), "src", "lib", "clipping", "whisper-w
  * the worker can't start (no worker file in a packaged build, a spawn failure)
  * falls back to the old in-process runner rather than losing transcription.
  */
-async function startWorkerRunner(id: string): Promise<ChunkRunner | null> {
+async function startWorkerRunner(id: string, invalidate: () => void): Promise<ChunkRunner | null> {
   try {
     const { Worker } = await import("node:worker_threads");
     const worker = new Worker(workerPath, { workerData: { modelId: id, cacheDir: MODEL_CACHE_DIR } });
     const pending = new Map<number, { resolve: (chunks: WordChunk[]) => void; reject: (error: Error) => void }>();
     let seq = 0;
+    let runnerReady = false;
+    let workerFailure: Error | undefined;
 
     const fail = (error: Error) => {
+      workerFailure = error;
       for (const entry of pending.values()) entry.reject(error);
       pending.clear();
-      if (g.__whisperModelId === id) {
-        g.__whisperRunner = undefined;
-        g.__whisperModelId = undefined;
-      }
+      // Startup failure falls back within the same cached loading promise.
+      // Only a runner that was handed out can invalidate that cache.
+      if (runnerReady) invalidate();
     };
 
     worker.on("message", (message: { id?: number; chunks?: WordChunk[]; error?: string }) => {
@@ -80,23 +87,53 @@ async function startWorkerRunner(id: string): Promise<ChunkRunner | null> {
     // The worker must never be what keeps a CLI process alive.
     worker.unref();
 
-    const ready = await new Promise<{ ready: boolean; error?: string }>((resolve, reject) => {
-      worker.once("message", (message: { ready: boolean; error?: string }) => resolve(message));
-      worker.once("error", reject);
-    });
-    if (!ready.ready) {
-      await worker.terminate();
+    let ready: { ready: boolean; error?: string };
+    try {
+      ready = await new Promise<{ ready: boolean; error?: string }>((resolve, reject) => {
+        const cleanup = () => {
+          worker.off("message", onReady);
+          worker.off("error", onError);
+          worker.off("exit", onExit);
+        };
+        const onReady = (message: { ready?: boolean; error?: string }) => {
+          if (typeof message.ready !== "boolean") return;
+          cleanup();
+          resolve({ ready: message.ready, error: message.error });
+        };
+        const onError = (error: Error) => {
+          cleanup();
+          reject(error);
+        };
+        const onExit = () => onError(new Error("The transcription worker stopped before it was ready."));
+        worker.on("message", onReady);
+        worker.on("error", onError);
+        worker.on("exit", onExit);
+      });
+    } catch {
+      await worker.terminate().catch(() => undefined);
       return null;
     }
+    if (!ready.ready || workerFailure) {
+      await worker.terminate().catch(() => undefined);
+      return null;
+    }
+    runnerReady = true;
 
     return (audio) => {
+      // The worker can stop while FFmpeg is still decoding this window.
+      if (workerFailure) return Promise.reject(workerFailure);
       const messageId = (seq += 1);
       // The buffer is transferred, so hand the worker a copy the caller no
       // longer needs rather than detaching the caller's own array.
       const copy = audio.slice();
       return new Promise<WordChunk[]>((resolve, reject) => {
         pending.set(messageId, { resolve, reject });
-        worker.postMessage({ id: messageId, pcm: copy.buffer }, [copy.buffer]);
+        try {
+          worker.postMessage({ id: messageId, pcm: copy.buffer }, [copy.buffer]);
+        } catch (error) {
+          pending.delete(messageId);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        }
       });
     };
   } catch {
@@ -116,10 +153,18 @@ async function getRunner(): Promise<ChunkRunner> {
   const id = modelId();
   if (!g.__whisperRunner || g.__whisperModelId !== id) {
     g.__whisperModelId = id;
-    g.__whisperRunner = (async () => (await startWorkerRunner(id)) ?? (await inProcessRunner(id)))();
+    const loading: Promise<ChunkRunner> = (async () =>
+      (await startWorkerRunner(id, () => {
+        // An old worker may exit after a replacement of the same model starts.
+        if (g.__whisperRunner === loading) {
+          g.__whisperRunner = undefined;
+          g.__whisperModelId = undefined;
+        }
+      })) ?? (await inProcessRunner(id)))();
+    g.__whisperRunner = loading;
     // A failed load (offline, bad model id) must not poison later attempts.
-    g.__whisperRunner.catch(() => {
-      if (g.__whisperModelId === id) {
+    loading.catch(() => {
+      if (g.__whisperRunner === loading) {
         g.__whisperRunner = undefined;
         g.__whisperModelId = undefined;
       }
@@ -141,7 +186,7 @@ async function decodePcm(
   window: { startSec?: number; durationSec?: number } = {}
 ): Promise<Float32Array> {
   await mkdir(workDir, { recursive: true });
-  const pcmPath = path.join(workDir, `whisper-${Date.now()}.pcm`);
+  const pcmPath = path.join(workDir, `whisper-${randomUUID()}.pcm`);
   try {
     const args = ["-y"];
     if (window.startSec) args.push("-ss", window.startSec.toFixed(3));
@@ -286,6 +331,42 @@ export type TranscribeOptions = {
 };
 
 /**
+ * Shares one decode/inference slot across Next's module graphs. Queued windows
+ * retain only paths, not PCM/tensors. Releasing after each window lets another
+ * recording make progress between windows of a multi-hour source.
+ */
+async function transcribeWindow(
+  mediaPath: string,
+  workDir: string,
+  startSec: number,
+  durationSec: number
+): Promise<{ chunks: WordChunk[]; sampleCount: number }> {
+  const previous = g.__whisperWindowTail ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  g.__whisperWindowTail = current;
+  await previous;
+  try {
+    let transcribe: ChunkRunner;
+    try {
+      transcribe = await getRunner();
+    } catch (error) {
+      throw new Error(
+        `The local transcription model could not be loaded (${error instanceof Error ? error.message.slice(0, 160) : String(error)}). ` +
+          "The first run needs internet access to download the Whisper model; captions can still be added manually in the editor."
+      );
+    }
+    const audio = await decodePcm(mediaPath, workDir, { startSec, durationSec });
+    const sampleCount = audio.length;
+    const chunks = sampleCount >= PCM_RATE * 0.25 ? await transcribe(audio) : [];
+    return { chunks, sampleCount };
+  } finally {
+    release();
+    if (g.__whisperWindowTail === current) g.__whisperWindowTail = undefined;
+  }
+}
+
+/**
  * Transcribes a media file (video or audio) into caption segments with
  * word-level timing. Throws with an actionable message when transcription
  * is unavailable so callers can surface it as a job notice.
@@ -295,47 +376,30 @@ export async function transcribeMedia(
   workDir: string,
   options: TranscribeOptions = {}
 ): Promise<CaptionSegment[]> {
-  let transcribe: ChunkRunner;
-  try {
-    transcribe = await getRunner();
-  } catch (error) {
-    throw new Error(
-      `The local transcription model could not be loaded (${error instanceof Error ? error.message.slice(0, 160) : String(error)}). ` +
-        "The first run needs internet access to download the Whisper model; captions can still be added manually in the editor."
-    );
-  }
-
-  // The window plan needs the media duration; when the probe fails, fall back
-  // to a single whole-file decode (short/odd files, exactly the old behavior).
+  // Duration is only an upper bound. If probing fails, keep decoding bounded
+  // windows until EOF instead of allocating an entire multi-hour recording.
   let totalSec: number | null = null;
   try {
-    totalSec = await probeDuration(mediaPath);
+    const duration = await probeDuration(mediaPath);
+    if (Number.isFinite(duration) && duration > 0) totalSec = duration;
   } catch {
     totalSec = null;
   }
-  const capSec = options.maxSeconds && options.maxSeconds > 0 ? options.maxSeconds : null;
+  const capSec =
+    options.maxSeconds !== undefined && Number.isFinite(options.maxSeconds) && options.maxSeconds > 0
+      ? options.maxSeconds
+      : null;
   const targetSec = totalSec === null ? capSec : capSec === null ? totalSec : Math.min(totalSec, capSec);
 
   const allChunks: WordChunk[] = [];
   let decodedSamples = 0;
-  if (targetSec !== null && targetSec > DECODE_WINDOW_SEC) {
-    for (let offset = 0; offset < targetSec; offset += DECODE_WINDOW_SEC) {
-      const windowSec = Math.min(DECODE_WINDOW_SEC, targetSec - offset);
-      const audio = await decodePcm(mediaPath, workDir, { startSec: offset, durationSec: windowSec });
-      decodedSamples += audio.length;
-      if (audio.length >= PCM_RATE * 0.25) {
-        allChunks.push(...offsetWordChunks(await transcribe(audio), offset));
-      }
-      // The probed duration can overshoot the real audio (VBR headers); a
-      // short decode means the stream actually ended inside this window.
-      if (audio.length < (windowSec - 1) * PCM_RATE) break;
-    }
-  } else {
-    const audio = await decodePcm(mediaPath, workDir, targetSec !== null ? { durationSec: targetSec } : {});
-    decodedSamples = audio.length;
-    if (audio.length >= PCM_RATE * 0.25) {
-      allChunks.push(...(await transcribe(audio)));
-    }
+  for (let offset = 0; targetSec === null || offset < targetSec; offset += DECODE_WINDOW_SEC) {
+    const windowSec = targetSec === null ? DECODE_WINDOW_SEC : Math.min(DECODE_WINDOW_SEC, targetSec - offset);
+    const { chunks, sampleCount } = await transcribeWindow(mediaPath, workDir, offset, windowSec);
+    decodedSamples += sampleCount;
+    allChunks.push(...offsetWordChunks(chunks, offset));
+    // A short decode means EOF, even when VBR headers overstate the duration.
+    if (sampleCount < (windowSec - 1) * PCM_RATE) break;
   }
 
   if (decodedSamples < PCM_RATE * 0.5) {

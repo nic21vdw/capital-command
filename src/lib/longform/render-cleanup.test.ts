@@ -1,4 +1,4 @@
-import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { RenderCanceledError, runFfmpeg } from "@/lib/clipping/ffmpeg";
@@ -27,7 +27,7 @@ vi.mock("@/lib/longform/store", async (importOriginal) => {
 });
 
 const SOURCE_ID = "src-disk-1";
-const PROJECT_IDS = ["ok", "late-failure", "enospc", "stopped", "guarded", "unsavable"];
+const PROJECT_IDS = ["ok", "late-failure", "enospc", "stopped", "guarded", "unsavable", "seeked", "unseeked"];
 
 function spokenTranscript() {
   const words = ["hello", "there", "friend"].map((text, index) => ({ text, start: 70 + index, end: 71 + index }));
@@ -96,11 +96,14 @@ beforeAll(async () => {
 
 const ffmpeg = vi.mocked(runFfmpeg);
 const seenInWorkDir = new Set<string>();
+const seenBodyGraphs = new Map<string, string>();
 
 function fakeFfmpeg(options: { failOnCall?: number; error?: Error; hangOnCall?: number } = {}, projectId: string) {
   let call = 0;
   ffmpeg.mockImplementation(async (args, runOptions) => {
     call += 1;
+    const scriptIndex = args.indexOf("-filter_complex_script");
+    if (scriptIndex >= 0) seenBodyGraphs.set(projectId, await readFile(args[scriptIndex + 1], "utf8"));
     for (const name of await readdir(store.projectWorkDir(projectId))) seenInWorkDir.add(name);
     if (options.hangOnCall === call) {
       await new Promise<void>((_, reject) => {
@@ -135,6 +138,7 @@ async function run(projectId: string) {
 
 beforeEach(() => {
   seenInWorkDir.clear();
+  seenBodyGraphs.clear();
   ffmpeg.mockReset();
   vi.mocked(store.updateProject).mockClear();
   vi.stubEnv("RENDER_MIN_FREE_GB", "0");
@@ -225,6 +229,34 @@ describe("long-form export intermediates", () => {
     } finally {
       process.off("unhandledRejection", unhandled);
     }
+  });
+});
+
+
+describe("long-form body input seeking", () => {
+  it.each([
+    { id: "seeked", start: 7200.125, end: 7212.999, input: ["-ss", "7140.000", "-t", "73.999"], selector: "between(t,60.125,72.999)" },
+    { id: "unseeked", start: 30, end: 120, input: ["-t", "121.000"], selector: "between(t,30.000,120.000)" }
+  ])("uses the same $id body window for picture and audio", async ({ id, start, end, input, selector }) => {
+    const project = (await store.getProject(id))!;
+    await store.updateProject(id, {
+      durationSec: Math.max(120, end),
+      hook: { ...project.hook, enabled: false },
+      captions: { ...project.captions!, enabled: false },
+      segments: [{ id: "kept", start, end, kind: "speech", enabled: true }]
+    });
+    fakeFfmpeg({}, id);
+
+    const record = await run(id);
+
+    expect(record.status).toBe("done");
+    const bodyCall = ffmpeg.mock.calls.find(([args]) => args.includes("-filter_complex_script"))!;
+    expect(bodyCall[0].slice(0, bodyCall[0].indexOf("-i"))).toEqual(["-y", ...input]);
+    const graph = seenBodyGraphs.get(id)!;
+    expect(graph).toContain("[0:v]select='" + selector + "',setpts=N/FRAME_RATE/TB");
+    expect(graph).toContain("[0:a]aselect='" + selector + "',asetpts=N/SR/TB[aout]");
+    expect(graph).toContain("fps=30");
+    expect(await exportIntermediates(id)).toEqual([]);
   });
 });
 

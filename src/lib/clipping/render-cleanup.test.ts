@@ -220,6 +220,43 @@ describe("clip editor export scratch folder", () => {
     return (await readdir(workDir("editor"))).filter((name) => name.startsWith("export-"));
   }
 
+  it.each([
+    { name: "opaque H.264 crop", codec: "h264 (High), yuv420p", mode: "crop-fill", blur: false },
+    { name: "alpha-capable crop", codec: "vp9, yuva420p", mode: "crop-fill", blur: true },
+    { name: "unknown input crop", codec: "", mode: "crop-fill", blur: true },
+    { name: "visible center blur", codec: "h264 (High), yuv420p", mode: "center-blur", blur: true }
+  ] as const)("preserves composition for $name", async ({ codec, mode, blur }) => {
+    const graphs: string[] = [];
+    const videoGraphs: string[] = [];
+    ffmpeg.mockImplementation(async (args) => {
+      if (args.includes("-hide_banner")) {
+        return {
+          stdout: "",
+          stderr: codec ? `  Stream #0:0: Video: ${codec}, 1920x1080\n  Stream #0:1: Audio: aac, 48000 Hz` : "",
+          code: 1
+        };
+      }
+      const separate = args.filter((_, index) => args[index - 1] === "-filter_complex");
+      if (separate.length > 0) {
+        graphs.push(separate.join(";"));
+        videoGraphs.push(separate[0]);
+      }
+      await writeFile(args.at(-1) as string, Buffer.alloc(4096));
+      return { stdout: "", stderr: "", code: 0 };
+    });
+
+    const done = await exportSettled(startExport({ ...editorSpec(), compositionMode: mode }));
+
+    expect(done.status).toBe("done");
+    expect(graphs).toHaveLength(1);
+    expect(graphs[0].includes("boxblur=24:4")).toBe(blur);
+    expect(graphs[0]).toContain("split=2[__bg][__fg]");
+    expect(graphs[0]).toContain("[__bgb][__fgs]overlay=");
+    if (codec) expect(graphs[0]).toContain("[0:a]"); // Reusing the probe retains audio.
+    expect(videoGraphs[0]).not.toContain("loudnorm");
+    if (codec) expect(graphs[0]).toContain("loudnorm");
+  });
+
   it("deletes its subtitle and overlay scratch folder after a successful export", async () => {
     ffmpeg.mockImplementation(async (args) => {
       for (const name of await readdir(workDir("editor"))) seenInWorkDir.add(name);

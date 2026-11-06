@@ -1,9 +1,10 @@
 import { EventEmitter } from "node:events";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RenderCanceledError, parseVideoStreamInfo, probeVideoStream, runFfmpeg } from "@/lib/clipping/ffmpeg";
 
+type Emits = { emit: (event: string, ...args: unknown[]) => boolean };
 const spawned = vi.hoisted(() => ({ calls: 0, kills: 0, killMode: "close" as "close" | "error" | "false",
-  onSpawn: undefined as (() => void) | undefined, child: null as null | { emit: (event: string, ...args: unknown[]) => boolean } }));
+  onSpawn: undefined as (() => void) | undefined, child: null as null | (Emits & { stdout: Emits; stderr: Emits }) }));
 
 vi.mock("node:child_process", () => ({
   spawn: () => {
@@ -23,6 +24,14 @@ vi.mock("node:child_process", () => ({
     return child;
   }
 }));
+
+beforeEach(() => {
+  spawned.calls = 0;
+  spawned.kills = 0;
+  spawned.killMode = "close";
+  spawned.onSpawn = undefined;
+  spawned.child = null;
+});
 
 /** Parsing of `ffmpeg -i` stderr into display dimensions and duration. */
 
@@ -128,5 +137,81 @@ describe("probeVideoStream with a signal", () => {
     spawned.child?.emit("close", 0);
 
     await expect(probing).rejects.toThrow(/could not read the video dimensions/i);
+  });
+});
+
+describe("runFfmpeg subprocess lifecycle and buffers", () => {
+  it("cancels an abort that happened inside spawn before the listener was attached", async () => {
+    const controller = new AbortController();
+    spawned.onSpawn = () => controller.abort();
+
+    await expect(runFfmpeg([], { signal: controller.signal })).rejects.toBeInstanceOf(RenderCanceledError);
+    expect(spawned.calls).toBe(1);
+    expect(spawned.kills).toBe(1);
+  });
+
+  it("streams more than the capture limit without retaining stdout and flushes the last record", async () => {
+    let records = 0;
+    const result = runFfmpeg([], { captureStdout: false, onStdoutLine: () => { records += 1; } });
+    for (let i = 0; i < 220; i += 1) {
+      spawned.child?.stdout.emit("data", "x".repeat(20_000) + "\n");
+    }
+    spawned.child?.stdout.emit("data", "last");
+    spawned.child?.emit("close", 0);
+
+    await expect(result).resolves.toMatchObject({ stdout: "", code: 0 });
+    expect(records).toBe(221);
+    expect(spawned.kills).toBe(0);
+  });
+
+  it("rejects explicitly and stops the child instead of silently truncating captured stdout", async () => {
+    const result = runFfmpeg([]);
+    const rejected = expect(result).rejects.toThrow(/stdout exceeded its capture limit/);
+    spawned.child?.stdout.emit("data", "x".repeat(4 * 1024 * 1024 + 1));
+    await rejected;
+    expect(spawned.kills).toBe(1);
+  });
+
+  it.each(["stdout", "stderr"] as const)("bounds an unterminated %s callback line", async (stream) => {
+    const result = runFfmpeg([], { onLine: () => undefined, onStdoutLine: () => undefined });
+    const rejected = expect(result).rejects.toThrow(/oversized diagnostic line/);
+    spawned.child?.[stream].emit("data", "x".repeat(64 * 1024));
+    spawned.child?.[stream].emit("data", "x");
+    await rejected;
+    expect(spawned.kills).toBe(1);
+  });
+
+  it("turns a progress parser exception into a failed render and kills the child", async () => {
+    const parserError = new Error("broken progress parser");
+    const result = runFfmpeg([], { onLine: () => { throw parserError; } });
+    const rejected = expect(result).rejects.toBe(parserError);
+    expect(() => spawned.child?.stderr.emit("data", "frame=1\r")).not.toThrow();
+    await rejected;
+    expect(spawned.kills).toBe(1);
+  });
+
+  it("delivers CR/LF progress and a trailing record, then removes its abort listener", async () => {
+    const controller = new AbortController();
+    const onLine = vi.fn();
+    const result = runFfmpeg([], { onLine, signal: controller.signal });
+    spawned.child?.stderr.emit("data", "frame=1\rframe=2\nframe=");
+    spawned.child?.stderr.emit("data", "3");
+    spawned.child?.emit("close", 0);
+
+    await expect(result).resolves.toMatchObject({ code: 0 });
+    expect(onLine.mock.calls.map(([line]) => line)).toEqual(["frame=1", "frame=2", "frame=3"]);
+    controller.abort();
+    expect(spawned.kills).toBe(0);
+  });
+
+  it("cleans up on spawn errors and preserves the missing-binary message", async () => {
+    const controller = new AbortController();
+    const result = runFfmpeg([], { signal: controller.signal });
+    const rejected = expect(result).rejects.toThrow(/FFmpeg is not available/);
+    spawned.child?.emit("error", Object.assign(new Error("missing"), { code: "ENOENT" }));
+    spawned.child?.emit("close", -2);
+    await rejected;
+    controller.abort();
+    expect(spawned.kills).toBe(0);
   });
 });

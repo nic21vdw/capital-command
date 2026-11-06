@@ -52,8 +52,15 @@ export async function saveUploadFromStream(
   const id = crypto.randomUUID().slice(0, 12);
   await mkdir(uploadDir(id), { recursive: true });
   const dest = path.join(uploadDir(id), `${safeBaseName(fileName)}${extFromName(fileName, mime)}`);
-  await pipeline(Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(dest));
-  return { id, path: dest };
+  try {
+    await pipeline(Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(dest));
+    return { id, path: dest };
+  } catch (error) {
+    // The caller never receives the id on an interrupted request, so it cannot
+    // remove this partial file itself.
+    await deleteUpload(id);
+    throw error;
+  }
 }
 
 /** Best-effort cleanup when the enqueue after an upload fails. */

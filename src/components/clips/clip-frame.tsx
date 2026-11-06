@@ -7,6 +7,7 @@ import {
   DEFAULT_CENTER_BLUR_ZOOM
 } from "@/lib/clipping/centerBlur";
 import { cn } from "@/lib/utils";
+import { followPreviewPlayback, previewNeedsFill } from "@/lib/clipping/previewPlayback";
 
 /**
  * The center + blur composition, in the browser.
@@ -31,8 +32,8 @@ import { cn } from "@/lib/utils";
  *
  * The ref is forwarded to the foreground `<video>`, so callers drive playback
  * exactly as they would a plain video element; the blurred fill follows along
- * on its own (it shares the `src`, so it costs one cached response, and it
- * stays unloaded behind its poster until the clip actually plays).
+ * on its own only while it is visible and needed. A finished render already
+ * covering the frame uses a single video decoder; idle fills stay unloaded.
  */
 export type ClipFrameProps = Omit<React.VideoHTMLAttributes<HTMLVideoElement>, "src" | "poster" | "className"> & {
   src?: string;
@@ -50,9 +51,6 @@ export type ClipFrameProps = Omit<React.VideoHTMLAttributes<HTMLVideoElement>, "
    */
   zoom?: number;
 };
-
-/** Drift past this many seconds and the fill is visibly out of step; resync. */
-const MAX_FILL_DRIFT = 0.3;
 
 const FRAME_ASPECT: Record<NonNullable<ClipFrameProps["aspect"]>, number> = {
   "9/16": 9 / 16,
@@ -72,6 +70,7 @@ export const ClipFrame = forwardRef<HTMLVideoElement, ClipFrameProps>(function C
     clampCenterBlurZoom(zoom),
     videoAspect ? centerBlurCoverScale(videoAspect, FRAME_ASPECT[aspect]) : 1
   );
+  const needsFill = previewNeedsFill(videoAspect, FRAME_ASPECT[aspect], zoom);
   // A new file is a new shape: forget the old one during render (an effect that
   // calls setState is rejected by the build) so it can't crop the next poster.
   const [lastSrc, setLastSrc] = useState(src);
@@ -80,52 +79,18 @@ export const ClipFrame = forwardRef<HTMLVideoElement, ClipFrameProps>(function C
     setVideoAspect(null);
   }
 
-  // Both <video> elements are always mounted (a card can mount before its clip
-  // has any file at all), so the node the caller drives is stable from the
-  // first render and this never has to re-resolve.
+  // The foreground stays mounted even before a card has a file, so the node
+  // callers drive remains stable while its optional fill mounts or unmounts.
   useImperativeHandle(ref, () => fgRef.current as HTMLVideoElement, []);
 
-  // Keep the blurred fill locked to the clip. Same file, so it only needs
-  // nudging when playback starts or stops, or when a seek/buffering stall
-  // pulls the two apart.
+  // Wait for metadata before assigning the fill a source. Finished renders
+  // already cover the frame, so they never start a second video decoder.
   useEffect(() => {
     const fg = fgRef.current;
-    if (!fg) return;
-
-    const resync = () => {
-      const bg = bgRef.current;
-      if (!bg || Math.abs(bg.currentTime - fg.currentTime) <= MAX_FILL_DRIFT) return;
-      try {
-        bg.currentTime = fg.currentTime;
-      } catch {
-        // Seeking before the media is seekable throws; the next tick retries.
-      }
-    };
-    const onPlay = () => {
-      const bg = bgRef.current;
-      if (!bg) return;
-      // The fill stays unloaded until the clip is actually watched, so a grid
-      // of idle cards costs nothing beyond their posters.
-      bg.preload = "auto";
-      resync();
-      void bg.play().catch(() => undefined);
-    };
-    const onPause = () => {
-      bgRef.current?.pause();
-      resync();
-    };
-
-    fg.addEventListener("play", onPlay);
-    fg.addEventListener("pause", onPause);
-    fg.addEventListener("seeked", resync);
-    fg.addEventListener("timeupdate", resync);
-    return () => {
-      fg.removeEventListener("play", onPlay);
-      fg.removeEventListener("pause", onPause);
-      fg.removeEventListener("seeked", resync);
-      fg.removeEventListener("timeupdate", resync);
-    };
-  }, []);
+    const bg = bgRef.current;
+    if (!fg || !bg || videoAspect === null || !needsFill) return;
+    return followPreviewPlayback(fg, bg, document);
+  }, [src, needsFill, videoAspect]);
 
   return (
     <div
@@ -135,19 +100,22 @@ export const ClipFrame = forwardRef<HTMLVideoElement, ClipFrameProps>(function C
         className
       )}
     >
-      {/* blurred fill — scaled past the edges so the blur has no seam */}
-      <video
-        ref={bgRef}
-        src={src}
-        poster={poster}
-        preload="none"
-        muted
-        loop
-        playsInline
-        aria-hidden
-        tabIndex={-1}
-        className="pointer-events-none absolute inset-0 h-full w-full scale-125 object-cover blur-2xl brightness-[0.8]"
-      />
+      {/* The unloaded poster still fills unknown footage before metadata arrives. */}
+      {needsFill ? (
+        <video
+          key={src}
+          ref={bgRef}
+          src={videoAspect === null ? undefined : src}
+          poster={poster}
+          preload="none"
+          muted
+          loop
+          playsInline
+          aria-hidden
+          tabIndex={-1}
+          className="pointer-events-none absolute inset-0 h-full w-full scale-125 object-cover blur-2xl brightness-[0.8]"
+        />
+      ) : null}
       {/* the clip itself, punched in exactly as far as the render punches it */}
       <video
         ref={fgRef}

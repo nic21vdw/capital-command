@@ -20,7 +20,7 @@ import {
   remapClipOverlays
 } from "@/lib/clipping/segments";
 import { LAYOUT_MODE_PRESETS } from "@/lib/clipping/layouts";
-import { reframeChain, stackedLayoutChain } from "@/lib/clipping/render";
+import { isOpaqueReframeInput, reframeChain, stackedLayoutChain } from "@/lib/clipping/render";
 import { maybeAutoEnqueueExport } from "@/lib/publisher/enqueue";
 import { planSfxCues } from "@/lib/sfx/cues";
 import { resolveSoundPath } from "@/lib/sfx/sounds";
@@ -288,7 +288,7 @@ function fitChain(inLabel: string, outLabel: string, w: number, h: number): stri
   );
 }
 
-function sourceCompositionChain(spec: ExportSpec, w: number, h: number): string {
+function sourceCompositionChain(spec: ExportSpec, w: number, h: number, opaqueInput: boolean): string {
   const layoutPreset = LAYOUT_MODE_PRESETS[spec.compositionMode];
   if (layoutPreset && h > w) {
     return stackedLayoutChain(layoutPreset, undefined, w, h, spec.faceSource, spec.screenSource).replace(/\[vout\]$/, "[v0]");
@@ -297,7 +297,7 @@ function sourceCompositionChain(spec: ExportSpec, w: number, h: number): string 
     return fitChain("0:v", "v0", w, h);
   }
   if (spec.compositionMode === "crop-fill") {
-    return reframeChain("0:v", "v0", w, h, spec.reframe.scale, spec.reframe.offsetX, spec.reframe.offsetY);
+    return reframeChain("0:v", "v0", w, h, spec.reframe.scale, spec.reframe.offsetX, spec.reframe.offsetY, { opaqueInput });
   }
   return centerBlurChain("0:v", "v0", w, h, spec.reframe.scale, spec.reframe.offsetX, spec.reframe.offsetY);
 }
@@ -312,8 +312,15 @@ async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePa
   const dur = trimDuration(spec);
   if (dur < 0.05) throw new Error("Nothing to export — every timeline segment is cut.");
   const selectExpr = selectExpression(spec);
-  const hasAudio = preparation ? (await probePreparationMedia(basePath, preparation.signal)).hasAudio
-    : await hasAudioStream(basePath).catch(() => false);
+  // Reuse one probe for the audio check and the opacity guard. A filename or a
+  // job record alone cannot prove that the actual file has no alpha.
+  const probe = preparation
+    ? await probePreparationMedia(basePath, preparation.signal)
+    : await runFfmpeg(["-hide_banner", "-i", basePath], { allowFailure: true })
+      .then(({ stderr }) => ({ stderr, hasAudio: /Stream #\d+:\d+.*Audio/.test(stderr) }))
+      .catch(() => ({ stderr: "", hasAudio: false }));
+  const hasAudio = probe.hasAudio;
+  const opaqueInput = isOpaqueReframeInput(probe.stderr);
 
   const images = await writeOverlayImages(spec, dir, preparation?.images);
   const assPath = path.join(dir, "subs.ass");
@@ -370,7 +377,7 @@ async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePa
 
   // --- Video filtergraph ---
   const parts: string[] = [];
-  parts.push(sourceCompositionChain(spec, w, h));
+  parts.push(sourceCompositionChain(spec, w, h, opaqueInput));
   parts.push(`[v0]select='${selectExpr}',setpts=N/FRAME_RATE/TB[vcut]`);
   let last = "vcut";
   images.forEach((img, k) => {
@@ -397,6 +404,7 @@ async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePa
   // one delayed copy of a sound effect per hit), then a single amix folds
   // them together. A lone source skips the mix entirely.
   let audioMapped = false;
+  const audioParts: string[] = [];
   const fadeOutStart = Math.max(0, dur - spec.audio.fadeOut);
   const audioLabels: string[] = [];
   if (hasAudio) {
@@ -407,11 +415,11 @@ async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePa
     ];
     if (spec.audio.fadeIn > 0) af.push(`afade=t=in:st=0:d=${spec.audio.fadeIn}`);
     if (spec.audio.fadeOut > 0) af.push(`afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${spec.audio.fadeOut}`);
-    parts.push(`[0:a]${af.join(",")}[a0]`);
+    audioParts.push(`[0:a]${af.join(",")}[a0]`);
     audioLabels.push("[a0]");
   }
   if (musicIndex >= 0) {
-    parts.push(
+    audioParts.push(
       `[${musicIndex}:a]volume=${spec.audio.musicVolume.toFixed(3)},atrim=0:${dur.toFixed(2)},asetpts=N/SR/TB[am]`
     );
     audioLabels.push("[am]");
@@ -420,14 +428,14 @@ async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePa
     const base = `[${shot.index}:a]atrim=0:4,asetpts=PTS-STARTPTS,volume=${sfxVolume.toFixed(3)}`;
     if (shot.offsetsSec.length === 1) {
       const offMs = Math.round(shot.offsetsSec[0] * 1000);
-      parts.push(`${base}${offMs > 0 ? `,adelay=${offMs}|${offMs}` : ""}[s${shotIndex}_0]`);
+      audioParts.push(`${base}${offMs > 0 ? `,adelay=${offMs}|${offMs}` : ""}[s${shotIndex}_0]`);
       audioLabels.push(`[s${shotIndex}_0]`);
     } else {
       const splits = shot.offsetsSec.map((_, hit) => `[u${shotIndex}_${hit}]`).join("");
-      parts.push(`${base},asplit=${shot.offsetsSec.length}${splits}`);
+      audioParts.push(`${base},asplit=${shot.offsetsSec.length}${splits}`);
       shot.offsetsSec.forEach((offsetSec, hit) => {
         const offMs = Math.round(offsetSec * 1000);
-        parts.push(`[u${shotIndex}_${hit}]${offMs > 0 ? `adelay=${offMs}|${offMs}` : "anull"}[s${shotIndex}_${hit}]`);
+        audioParts.push(`[u${shotIndex}_${hit}]${offMs > 0 ? `adelay=${offMs}|${offMs}` : "anull"}[s${shotIndex}_${hit}]`);
         audioLabels.push(`[s${shotIndex}_${hit}]`);
       });
     }
@@ -439,7 +447,7 @@ async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePa
   // balance is what gets normalized, never each source separately.
   const master = (label: string) => `[${label}]${shortsAudioFilter()}[aout]`;
   if (audioLabels.length === 1) {
-    parts.push(master(audioLabels[0].slice(1, -1)));
+    audioParts.push(master(audioLabels[0].slice(1, -1)));
     audioMapped = true;
   } else if (audioLabels.length > 1) {
     // duration=first keeps the clip's own audio in charge of length; without
@@ -447,11 +455,13 @@ async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePa
     const tail = hasAudio
       ? `amix=inputs=${audioLabels.length}:duration=first:dropout_transition=0:normalize=0,${shortsAudioFilter()}[aout]`
       : `amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0,apad,atrim=0:${dur.toFixed(2)},${shortsAudioFilter()}[aout]`;
-    parts.push(`${audioLabels.join("")}${tail}`);
+    audioParts.push(`${audioLabels.join("")}${tail}`);
     audioMapped = true;
   }
 
-  const args = ["-y", ...inputs, "-filter_complex", parts.join(";"), "-map", "[vout]"];
+  const args = ["-y", ...inputs, "-filter_complex", parts.join(";")];
+  if (audioParts.length > 0) args.push("-filter_complex", audioParts.join(";"));
+  args.push("-map", "[vout]");
   if (audioMapped) args.push("-map", "[aout]");
   args.push("-r", String(settings.fps), "-t", dur.toFixed(2));
 
@@ -628,7 +638,7 @@ async function probePreparationMedia(file: string, signal?: AbortSignal) {
   assertNotAborted(signal);
   const video = parseVideoStreamInfo(stderr);
   if (!video || !video.durationSec || video.durationSec <= 0) throw new Error("Preparation media is not a probeable local video.");
-  return { ...video, durationSec: video.durationSec, hasAudio: /Stream #\d+:\d+.*Audio/.test(stderr) };
+  return { ...video, durationSec: video.durationSec, stderr, hasAudio: /Stream #\d+:\d+.*Audio/.test(stderr) };
 }
 
 async function preparationContext(

@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { FfmpegOptions } from "./ffmpeg";
 import {
   clampClipCount,
+  createEnergyCollector,
+  extractEnergy,
   createSilenceCollector,
   fallbackCandidates,
   MAX_CLIP_COUNT,
@@ -9,6 +12,9 @@ import {
   TARGET_CLIP_COUNT,
   type EnergyWindow
 } from "./analysis";
+
+const ffmpegRun = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/clipping/ffmpeg", () => ({ runFfmpeg: ffmpegRun }));
 
 function streamWindows(durationSec: number, rms = -24): EnergyWindow[] {
   const windows: EnergyWindow[] = [];
@@ -101,5 +107,53 @@ describe("createSilenceCollector", () => {
     expect(collector.ranges).toHaveLength(count);
     expect(collector.ranges[0]).toEqual({ start: 3, end: 4 });
     expect(collector.ranges[count - 1]).toEqual({ start: (count - 1) * 4 + 3, end: (count - 1) * 4 + 4 });
+  });
+});
+
+describe("createEnergyCollector", () => {
+  it("pairs timestamps with finite and silent RMS records and ignores unrelated lines", () => {
+    const collector = createEnergyCollector();
+    collector.onLine("lavfi.astats.Overall.RMS_level=-12");
+    collector.onLine("frame:0 pts:0 pts_time:0");
+    collector.onLine("lavfi.astats.Overall.RMS_level=-20.5");
+    collector.onLine("frame:1 pts:8000 pts_time:0.5");
+    collector.onLine("unrelated diagnostic");
+    collector.onLine("lavfi.astats.Overall.RMS_level=-inf");
+    collector.onLine("frame:2 pts:16000 pts_time:1");
+    collector.onLine("lavfi.astats.Overall.RMS_level=-120");
+    expect(collector.windows).toEqual([
+      { time: 0, rms: -20.5 },
+      { time: 0.5, rms: -90 },
+      { time: 1, rms: -90 }
+    ]);
+  });
+
+  it("retains early and late energy windows from an eight-hour recording", () => {
+    const collector = createEnergyCollector();
+    const count = 8 * 60 * 60 * 2;
+    for (let i = 0; i < count; i += 1) {
+      collector.onLine(`frame:${i} pts_time:${i / 2}`);
+      collector.onLine("lavfi.astats.Overall.RMS_level=-24");
+    }
+    expect(collector.windows).toHaveLength(count);
+    expect(collector.windows[0]).toEqual({ time: 0, rms: -24 });
+    expect(collector.windows[count - 1]).toEqual({ time: (count - 1) / 2, rms: -24 });
+  });
+});
+
+describe("extractEnergy streaming", () => {
+  it("uses stdout callbacks instead of asking FFmpeg to retain the analysis log", async () => {
+    ffmpegRun.mockImplementationOnce(async (_args: string[], options: FfmpegOptions) => {
+      expect(options.captureStdout).toBe(false);
+      options.onStdoutLine?.("frame:0 pts_time:0");
+      options.onStdoutLine?.("lavfi.astats.Overall.RMS_level=-18");
+      options.onStdoutLine?.("frame:1 pts_time:0.5");
+      options.onStdoutLine?.("lavfi.astats.Overall.RMS_level=-inf");
+      return { stdout: "", stderr: "", code: 0 };
+    });
+    await expect(extractEnergy("long-recording.mp3")).resolves.toEqual([
+      { time: 0, rms: -18 },
+      { time: 0.5, rms: -90 }
+    ]);
   });
 });
