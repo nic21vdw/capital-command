@@ -209,6 +209,7 @@ describe("runFfmpeg subprocess lifecycle and buffers", () => {
     const result = runFfmpeg([], { signal: controller.signal });
     const rejected = expect(result).rejects.toThrow(/FFmpeg is not available/);
     spawned.child?.emit("error", Object.assign(new Error("missing"), { code: "ENOENT" }));
+    spawned.child?.emit("close", -2);
     await rejected;
     controller.abort();
     expect(spawned.kills).toBe(0);
