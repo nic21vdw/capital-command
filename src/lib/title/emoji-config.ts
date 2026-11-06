@@ -96,8 +96,3 @@ export function loadEmojiConfig(): EmojiConfig {
   }
   return cached;
 }
-
-/** Test hook: drop the cached config so the next load re-reads disk. */
-export function resetEmojiConfigCache(): void {
-  cached = null;
-}

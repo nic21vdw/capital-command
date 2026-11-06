@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import path from "node:path";
 import { DEFAULT_ASPECT_RATIO, aspectSpec, slidePixelSize } from "@/lib/carousels/render";
 import { dataPath } from "@/lib/paths";
 import { imagePostAspectAllowed, imagePostWidth } from "@/lib/publisher/images";
@@ -31,10 +30,6 @@ export const DECK_SLIDE_QUALITY = 92;
 
 export function slideFileName(index: number): string {
   return `slide-${String(index + 1).padStart(2, "0")}${DECK_SLIDE_EXTENSION}`;
-}
-
-export function slideFilePath(carouselId: string, index: number): string {
-  return path.join(deckDir(carouselId), slideFileName(index));
 }
 
 export function deckRatio(carousel: Pick<Carousel, "aspectRatio">): CarouselAspectRatio {

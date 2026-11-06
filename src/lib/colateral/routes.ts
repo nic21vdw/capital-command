@@ -18,8 +18,6 @@ import { PERSONAL_GROUP_LABEL, isPersonalRoute } from "../personal-routes";
 import type { RouteEntry } from "./protocol";
 import { isRouteShipped } from "../edition";
 
-export const ROUTE_GROUPS = ["Import", "Formats", "Schedule", "Calendar", "Studio", "System"] as const;
-
 export const CAPITAL_COMMAND_ROUTES: RouteEntry[] = [
   { path: "/", label: "Stream Pipeline", group: "Import" },
 

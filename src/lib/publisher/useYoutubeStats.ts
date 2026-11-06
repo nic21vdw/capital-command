@@ -134,14 +134,3 @@ export function useYoutubeStats(targets: StatsTarget[]): Snapshot {
   }, [stable]);
   return useSyncExternalStore(subscribe, () => snapshot, () => SERVER_SNAPSHOT);
 }
-
-/** Test seam: forget everything. */
-export function resetYoutubeStatsStore() {
-  snapshot = { stats: {}, status: "loading", message: null, pending: false, refreshing: false, checkedAt: null };
-  inFlight = 0;
-  known.clear();
-  asked.clear();
-  queued.clear();
-  if (timer) clearTimeout(timer);
-  timer = null;
-}

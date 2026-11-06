@@ -42,12 +42,12 @@ AI writing (titles, captions, carousels, scripts, ideas, Threads posts) works wi
 - If startup fails, the launcher keeps the error visible. Check `build.log` and the server logs in the installation.
 - A server already listening on port 3000 is reused. Avoid manually starting a second server in the same installation.
 
-## Creator tools (Thumbnail Generator & Clip Generator)
+## Short Clips
 
-Both tools work out of the box:
+Short Clips lives in the sidebar and works out of the box. Thumbnails for a
+long-form edit are made on the Long-Form Video screen.
 
-- **Thumbnail Generator** runs entirely in your browser, with no setup. It is not in the sidebar; open <http://127.0.0.1:3000/thumbnails>.
-- **Short Clips** (the Clip Generator) turns a livestream VOD into ready-to-post shorts, with
+- **Short Clips** turns a livestream VOD into ready-to-post shorts, with
   **no uploads needed**. Paste a **YouTube or Twitch VOD link** and it:
   1. Downloads just the audio (so even a 90-minute stream is fast and never
      needs the whole multi-GB file).

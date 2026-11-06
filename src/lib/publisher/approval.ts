@@ -1,4 +1,4 @@
-import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
+import type { PlatformId, PlatformState } from "@/lib/publisher/types";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 
 export const REVIEW_CHANNELS = ["youtube", "instagram", "tiktok", "facebook", "threads", "linkedin"] as const;
@@ -121,12 +121,6 @@ export type LegHeld = (platform: PlatformId, leg: PlatformState) => boolean;
 
 export function heldFrom(policy: ReviewPolicy): LegHeld {
   return (platform, leg) => legAwaitingApproval(leg, platform, policy);
-}
-
-export function itemAwaitingApproval(item: QueueItem, policy: ReviewPolicy): boolean {
-  return (Object.entries(item.platforms) as [PlatformId, PlatformState][]).some(([platform, leg]) =>
-    legAwaitingApproval(leg, platform, policy)
-  );
 }
 
 export function threadsUnsent(item: ThreadsQueueItem): boolean {

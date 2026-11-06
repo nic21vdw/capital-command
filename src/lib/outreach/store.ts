@@ -9,5 +9,4 @@ import { createJsonStore } from "@/lib/storage/json-store";
 const store = createJsonStore("outreach.json", outreachStoreSchema, defaultOutreachStore);
 
 export const readOutreachStore = (): Promise<OutreachStore> => store.read();
-export const writeOutreachStore = (value: OutreachStore): Promise<void> => store.write(value);
 export const updateOutreachStore = (mutate: (value: OutreachStore) => OutreachStore | Promise<OutreachStore>) => store.update(mutate);

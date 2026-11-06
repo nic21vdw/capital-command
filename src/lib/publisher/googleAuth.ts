@@ -40,9 +40,6 @@ const SCOPE = [
 ].join(" ");
 const CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true";
 
-export const YOUTUBE_REFRESH_TOKEN_CACHE_KEY = youtubeRefreshTokenKey();
-export const YOUTUBE_CHANNEL_CACHE_KEY = youtubeChannelKey();
-
 /** Stable, user-safe reason recorded when Google revokes an OAuth grant. */
 export const YOUTUBE_RECONNECT_REQUIRED =
   "YouTube connection expired or was revoked. Reconnect YouTube to resume the upload automatically.";

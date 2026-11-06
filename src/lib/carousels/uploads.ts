@@ -36,8 +36,6 @@ export const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
 /** Instagram's own per-post ceiling, so a batch can always be posted as one carousel. */
 export const MAX_BATCH_IMAGES = 20;
 
-export const SUPPORTED_IMAGE_TYPES = Object.keys(EXTENSION_BY_TYPE);
-
 /** Stored image ids are `<uuid>.<ext>` — the shape a URL is allowed to name. */
 const ID_PATTERN = /^[0-9a-f-]{36}\.(png|jpe?g|webp|gif)$/i;
 

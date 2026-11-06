@@ -56,13 +56,6 @@ export function getFont(id: string): FontOption {
   return FONT_OPTIONS.find((font) => font.id === id) ?? FONT_OPTIONS[0];
 }
 
-/** A single Google Fonts stylesheet URL that pulls in every networked face. */
-export const GOOGLE_FONTS_HREF = `https://fonts.googleapis.com/css2?${FONT_OPTIONS.filter(
-  (font) => font.google
-)
-  .map((font) => `family=${font.google}`)
-  .join("&")}&display=swap`;
-
 /**
  * Ensures a font is ready for canvas rendering. The Canvas 2D API silently
  * falls back to a system font if the requested face has not finished loading,

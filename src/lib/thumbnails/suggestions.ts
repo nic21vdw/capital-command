@@ -62,18 +62,3 @@ export function overlayIdeas(title: string): string[] {
   const unique = [...new Set(ideas)].filter((idea) => idea.length >= 3 && idea.length <= 44);
   return unique.slice(0, 5);
 }
-
-/** Title framing treatments for the video itself (not the thumbnail). */
-export function titleTreatments(title: string): string[] {
-  const trimmed = title.trim();
-  if (!trimmed) return [];
-  const key = keyPhrase(trimmed);
-  const sentence = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
-  const treatments = [
-    sentence,
-    `${sentence} (What Actually Works)`,
-    `${key}: A Practical Walkthrough`,
-    `I Tried ${key} — Here's My Honest Take`
-  ];
-  return [...new Set(treatments)].filter((t) => t.length <= 100).slice(0, 4);
-}

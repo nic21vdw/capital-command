@@ -7,15 +7,7 @@ import { probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { listJobs } from "@/lib/clipping/jobs";
 import { readSourceMeta, saveSourceFromUrl, sourceFilePath } from "@/lib/clipping/sources";
 import { readSourceTranscript, transcribeSource } from "@/lib/clipping/source-transcript";
-import {
-  DEFAULT_PACE,
-  buildSegments,
-  hookCaptions,
-  paceDetection,
-  migrateCaptionPlacement,
-  planCaptions,
-  planHook
-} from "@/lib/longform/plan";
+import { DEFAULT_PACE, buildSegments, paceDetection, migrateCaptionPlacement, planCaptions, planHook } from "@/lib/longform/plan";
 import { reviewHook } from "@/lib/longform/hook-review";
 import { DEFAULT_HIGHLIGHT_OPTIONS, applyHighlight, buildHighlight } from "@/lib/longform/highlights";
 import { reviewPassageVisually, visionReviewConfigured } from "@/lib/longform/vision-review";
@@ -592,11 +584,6 @@ export async function startHighlightEdit(id: string, options: { targetSec?: numb
   return project;
 }
 
-/** Whether a best-of build is running in this process. */
-export function highlightBuildRunning(id: string): boolean {
-  return highlightBuilds.has(id);
-}
-
 /**
  * Swaps passages in or out of the best-of edit (and renames their chapters)
  * without re-reading the stream. Only `enabled` and `label` are taken from the
@@ -891,9 +878,4 @@ async function runAnalysis(project: LongformProject) {
   // AI titling call), so they run after the project is already usable — the
   // plan lands on the next poll rather than holding the editor closed.
   void planProjectTopics(project.id).catch(() => undefined);
-}
-
-/** Recomputes the hook captions from the stored transcript for a new hook window. */
-export function rebuildHookCaptions(project: LongformProject, hookStart: number, hookEnd: number) {
-  return hookCaptions(project.transcript, hookStart, hookEnd);
 }

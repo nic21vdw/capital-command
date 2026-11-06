@@ -12,7 +12,7 @@ import { setClipDescription } from "@/lib/clipping/editor";
 import { localDateKey } from "@/lib/x-strategy/analytics";
 import { defaultXStrategy } from "@/lib/storage/schemas";
 import { DEFAULT_THEME } from "@/lib/themes";
-import type { AppData, ContentItem, CreatorProfile, ExecutionCategory, ExecutionGoal, Expense, FbPost, Goal, Holding, ResearchNote, Settings, WatchlistItem, XActivity, XActivityType } from "@/types/domain";
+import type { AppData, CreatorProfile, ExecutionCategory, ExecutionGoal, Expense, FbPost, Goal, Holding, WatchlistItem } from "@/types/domain";
 
 interface BootstrapPayload {
   data: AppData;
@@ -449,25 +449,6 @@ export function makeWatchlistItem(input?: Partial<WatchlistItem>): WatchlistItem
   };
 }
 
-export function makeResearchNote(input?: Partial<ResearchNote>): ResearchNote {
-  const now = new Date().toISOString();
-  return {
-    id: input?.id ?? `note-${crypto.randomUUID()}`,
-    title: input?.title ?? "",
-    relatedTicker: input?.relatedTicker ?? "",
-    thesis: input?.thesis ?? "",
-    bullCase: input?.bullCase ?? "",
-    bearCase: input?.bearCase ?? "",
-    keyRisks: input?.keyRisks ?? "",
-    valuationThoughts: input?.valuationThoughts ?? "",
-    sourceLinks: input?.sourceLinks ?? [],
-    tags: input?.tags ?? [],
-    body: input?.body ?? "",
-    createdAt: input?.createdAt ?? now,
-    updatedAt: now
-  };
-}
-
 export function makeGoal(input?: Partial<Goal>): Goal {
   return {
     id: input?.id ?? `goal-${crypto.randomUUID()}`,
@@ -477,14 +458,6 @@ export function makeGoal(input?: Partial<Goal>): Goal {
     targetDate: input?.targetDate,
     monthlyContribution: input?.monthlyContribution,
     notes: input?.notes ?? ""
-  };
-}
-
-export function makeSettings(input?: Partial<Settings>): Settings {
-  return {
-    currency: input?.currency ?? "CAD",
-    themePreset: input?.themePreset ?? DEFAULT_THEME,
-    profile: input?.profile
   };
 }
 
@@ -500,27 +473,6 @@ export function makeExpense(input?: Partial<Expense>): Expense {
     currency: input?.currency ?? "USD",
     date: input?.date ?? now.slice(0, 10),
     active: input?.active ?? true,
-    notes: input?.notes ?? "",
-    createdAt: input?.createdAt ?? now,
-    updatedAt: now
-  };
-}
-
-export function makeContentItem(input?: Partial<ContentItem>): ContentItem {
-  const now = new Date().toISOString();
-  return {
-    id: input?.id ?? `content-${crypto.randomUUID()}`,
-    title: input?.title ?? "",
-    type: input?.type ?? "Video",
-    platform: input?.platform ?? "YouTube",
-    status: input?.status ?? "Idea",
-    publishDate: input?.publishDate,
-    url: input?.url ?? "",
-    views: input?.views,
-    likes: input?.likes,
-    comments: input?.comments,
-    watchHours: input?.watchHours,
-    revenue: input?.revenue,
     notes: input?.notes ?? "",
     createdAt: input?.createdAt ?? now,
     updatedAt: now
@@ -549,21 +501,6 @@ export function makeExecutionGoal(input?: Partial<ExecutionGoal>): ExecutionGoal
   };
 }
 
-export function makeCreatorProfile(input?: Partial<CreatorProfile>): CreatorProfile {
-  return {
-    channelName: input?.channelName ?? "",
-    handle: input?.handle ?? "",
-    platform: input?.platform ?? "YouTube",
-    subscribers: input?.subscribers ?? 0,
-    totalViews: input?.totalViews ?? 0,
-    watchHours: input?.watchHours ?? 0,
-    monetized: input?.monetized ?? false,
-    subscriberGoal: input?.subscriberGoal ?? 1000,
-    monthlyRevenueGoal: input?.monthlyRevenueGoal ?? 0,
-    updatedAt: new Date().toISOString()
-  };
-}
-
 export function makeFbPost(input?: Partial<FbPost>): FbPost {
   const now = new Date().toISOString();
   return {
@@ -585,20 +522,6 @@ export function makeFbPost(input?: Partial<FbPost>): FbPost {
     notes: input?.notes ?? "",
     createdAt: input?.createdAt ?? now,
     updatedAt: now
-  };
-}
-
-export function makeXActivity(input?: Partial<XActivity>): XActivity {
-  const now = new Date().toISOString();
-  return {
-    id: input?.id ?? `x-${crypto.randomUUID()}`,
-    type: (input?.type as XActivityType) ?? "reply",
-    date: input?.date ?? localDateKey(),
-    account: input?.account ?? "",
-    topic: input?.topic ?? "",
-    text: input?.text ?? "",
-    engagement: input?.engagement ?? "",
-    createdAt: input?.createdAt ?? now
   };
 }
 
