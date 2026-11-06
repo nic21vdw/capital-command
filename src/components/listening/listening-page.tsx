@@ -358,7 +358,6 @@ export function ListeningPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Studio"
         title="Listening"
         description="Hacker News, Reddit, YouTube and Bluesky posts where someone describes a problem CoLateral solves, scanned every two hours while the app is open. Each one is sorted into lead, mention, competitor or noise, with a sentiment and a score. Answer the leads you genuinely can help with; nothing is posted from here."
         actions={

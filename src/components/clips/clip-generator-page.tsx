@@ -53,6 +53,7 @@ import { cn, safeFilename } from "@/lib/utils";
 import { formatSlotTime } from "@/lib/timeFormat";
 import type { ClipCandidate, ClipJob, ClipJobStage, ClipJobStatus } from "@/lib/clipping/types";
 import type { CaptionPresetId } from "@/types/domain";
+import { EmptyState, LoadingState } from "@/components/ui/empty-state";
 
 const PRESET_STORAGE_KEY = "clips.captionPreset";
 const LENGTH_STORAGE_KEY = "clips.clipLength";
@@ -576,7 +577,6 @@ export function ClipGeneratorPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="Step 2 · Formats"
         title="Short Clips"
         description="Turn a stream into short, captioned clips ready for Shorts and Reels."
       />
@@ -776,7 +776,7 @@ export function ClipGeneratorPage() {
               </Button>
             </div>
             {!loaded && loadError ? null : !loaded ? (
-              <p className="text-sm text-[var(--muted-foreground)]">Loading...</p>
+              <LoadingState />
             ) : jobs.length === 0 ? (
               <p className="text-sm text-[var(--muted-foreground)]">
                 No streams yet. Paste a link or upload a recording above.
@@ -855,13 +855,12 @@ export function ClipGeneratorPage() {
 
         <div className="min-w-0 space-y-4">
           {!activeJob ? (
-            <Card className="flex min-h-[420px] flex-col items-center justify-center gap-3 text-center">
-              <Film className="h-9 w-9 text-[var(--accent)]" />
-              <p className="text-base font-semibold text-white">Ready for a stream</p>
-              <p className="max-w-md text-sm text-[var(--muted-foreground)]">
-                Add a stream on the left and the best moments will show up here, ready to open in the editor.
-              </p>
-            </Card>
+            <EmptyState
+              icon={Film}
+              className="min-h-[420px] max-lg:min-h-0"
+              title="Ready for a stream"
+              description="Add a stream on the left and the best moments will show up here, ready to open in the editor."
+            />
           ) : (
             <>
               <Card className="p-4">

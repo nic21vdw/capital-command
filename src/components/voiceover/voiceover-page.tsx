@@ -14,6 +14,7 @@ import { SERVICES, serviceReady, serviceSetupHref } from "@/lib/setup/services";
 import { Textarea } from "@/components/ui/textarea";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import type { Voiceover } from "@/types/domain";
+import { EmptyState } from "@/components/ui/empty-state";
 
 /** AI voiceover: typed dialogue synthesized in Nic's cloned voice (ElevenLabs). */
 
@@ -102,7 +103,6 @@ export function VoiceoverPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Studio"
         title="Voiceover"
         description="Type any dialogue and generate it in your own cloned voice — for narration, avatar dubbing, or quick VO drops into an edit."
       />
@@ -125,14 +125,7 @@ export function VoiceoverPage() {
       </Card>
 
       {voiceovers.length === 0 ? (
-        <Card>
-          <div className="flex flex-col items-center gap-3 py-12 text-center">
-            <Mic className="h-8 w-8 text-[var(--accent)]" />
-            <p className="text-sm text-[var(--muted-foreground)]">
-              {loading ? "Loading…" : "No voiceovers yet — type some dialogue above to generate one."}
-            </p>
-          </div>
-        </Card>
+        <EmptyState icon={Mic} loading={loading} title="No voiceovers yet" description="Type some dialogue above to generate one." />
       ) : (
         <div className="space-y-3">
           {voiceovers.map((voiceover) => (

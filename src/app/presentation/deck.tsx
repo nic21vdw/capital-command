@@ -5,6 +5,8 @@ import { Player, type PlayerRef } from "@remotion/player";
 import { ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Download, Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { PROJECTS, type Project } from "./projects";
 
@@ -185,35 +187,21 @@ export const PresentationDeck: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        {/* keyed so the title block re-plays the iOS push-in on every project switch */}
-        <div key={project.id} className="page-enter">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--accent)]">
-            {project.group ?? "Segment Deck"}
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold text-white">{project.name}</h1>
-          <p className="mt-1 text-sm text-[var(--muted-foreground)]">{project.description}</p>
-        </div>
-        <div className="flex flex-col items-end gap-2">
-          <button
-            type="button"
-            onClick={downloadSlide}
-            disabled={downloading}
-            title="Render this segment as an MP4 and download it"
-            className={cn(
-              "flex items-center gap-2 rounded-lg border px-3 py-2 max-sm:min-h-10 text-sm font-medium transition",
-              "border-[var(--accent)] text-white hover:bg-white/8",
-              "disabled:cursor-not-allowed disabled:opacity-60"
-            )}
-          >
-            {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4 text-[var(--accent)]" />}
-            {downloading ? "Rendering…" : "Download MP4"}
-          </button>
-          <p className="text-xs text-[var(--muted-foreground)]">
-            Slide {index + 1} / {slides.length} · ← → navigate · Space or click video to play/pause
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Segment Deck"
+        description={`${project.name}: ${project.description}`}
+        actions={
+          <>
+            <p className="text-xs text-[var(--muted-foreground)] max-sm:hidden">
+              Slide {index + 1} / {slides.length} · ← → navigate · Space or click video to play/pause
+            </p>
+            <Button variant="secondary" onClick={downloadSlide} disabled={downloading} title="Render this segment as an MP4 and download it">
+              {downloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+              {downloading ? "Rendering…" : "Download MP4"}
+            </Button>
+          </>
+        }
+      />
 
       {/* Project selector — every video is tied to a project; switch via
           this collapsible dropdown. */}

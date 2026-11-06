@@ -29,6 +29,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { cn } from "@/lib/utils";
 import type { KitSuggestionStatus, ScriptGraphic, VideoScript } from "@/types/domain";
+import { EmptyState } from "@/components/ui/empty-state";
 
 /** The full spoken script as one copyable text (client-side mirror of the server helper). */
 function scriptFullText(script: Pick<VideoScript, "title" | "sections">): string {
@@ -144,7 +145,6 @@ export function ScriptsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Studio"
         title="Scripts"
         description="Full scripts written in your voice, following your script framework — hook to CTA, with a production kit of suggested graphics and sound effects you accept or dismiss. Start from a saved idea in the Idea Lab, or straight from a title here."
         actions={
@@ -183,14 +183,7 @@ export function ScriptsPage() {
       {showFramework ? <FrameworkEditor initial={framework} onSaved={() => void refresh()} /> : null}
 
       {scripts.length === 0 ? (
-        <Card>
-          <div className="flex flex-col items-center gap-3 py-12 text-center">
-            <FileText className="h-8 w-8 text-[var(--accent)]" />
-            <p className="text-sm text-[var(--muted-foreground)]">
-              {loading ? "Loading…" : "No scripts yet — write one from a title above, or from a saved idea in the Idea Lab."}
-            </p>
-          </div>
-        </Card>
+        <EmptyState icon={FileText} loading={loading} title="No scripts yet" description="Write one from a title above, or from a saved idea in the Idea Lab." />
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {scripts.map((script) => (

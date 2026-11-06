@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PERSONAL_NAV } from "@/lib/personal-routes";
@@ -30,5 +30,25 @@ describe("page titles", () => {
 describe("personal page titles", () => {
   it.each(PERSONAL_NAV)("$href is titled with its nav label", ({ href, label }) => {
     expect(titleFor(href)).toBe(`${label} | CoLateral Marketing`);
+  });
+});
+
+function pageHeaderTitles(dir: string, found = new Set<string>()): Set<string> {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) pageHeaderTitles(full, found);
+    else if (entry.name.endsWith(".tsx")) {
+      for (const match of readFileSync(full, "utf8").matchAll(/<PageHeader\b[^>]*?\btitle="([^"]+)"/g)) found.add(match[1]);
+    }
+  }
+  return found;
+}
+
+describe("page headings", () => {
+  const headings = pageHeaderTitles(join(process.cwd(), "src"));
+  const screens = [...items, ...PERSONAL_NAV].filter((item) => item.href !== "/");
+
+  it.each(screens)("$href has a PageHeader headed with its nav label", ({ label }) => {
+    expect(headings).toContain(label);
   });
 });

@@ -81,7 +81,6 @@ export function SettingsPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-5">
       <PageHeader
-        eyebrow="Preferences"
         title="Settings"
         description="Your identity, connected channels and publishing controls."
       />

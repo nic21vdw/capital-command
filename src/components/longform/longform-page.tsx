@@ -20,6 +20,7 @@ import type { LongformProject } from "@/lib/longform/types";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { routeLabel } from "@/lib/colateral/routes";
 import { cn } from "@/lib/utils";
+import { EmptyState, LoadingState } from "@/components/ui/empty-state";
 
 // The Long-Form Editor home: drop in a raw recording and it comes back with a
 // viral hook plan, the dead space cut out, and a timeline to fine-tune —
@@ -413,7 +414,6 @@ export function LongformStudioPage() {
   return (
     <div className="min-w-0 space-y-6">
       <PageHeader
-        eyebrow="Step 2 · Formats"
         title="Long-Form Video"
         description="Turn a raw recording into a finished long-form upload."
       />
@@ -623,14 +623,9 @@ export function LongformStudioPage() {
         {/* Project list */}
         <div className="min-w-0 space-y-3">
           <h2 className="text-base font-semibold text-white">Your videos</h2>
-          {loading && <p className="text-sm text-[var(--muted-foreground)]">Loading…</p>}
+          {loading && <LoadingState />}
           {!loading && !loadError && projects.length === 0 && (
-            <Card className="flex flex-col items-center gap-2 py-12 text-center">
-              <Clapperboard className="h-8 w-8 text-[var(--muted-foreground)]" />
-              <p className="text-sm text-[var(--muted-foreground)]">
-                No projects yet — upload your first recording to see the magic.
-              </p>
-            </Card>
+            <EmptyState icon={Clapperboard} title="No videos yet" description="Add a recording on the left and its finished long-form edit will show up here." />
           )}
           <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
             {projects.map((project) => {
