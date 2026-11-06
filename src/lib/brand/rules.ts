@@ -227,9 +227,9 @@ export function promptBlockFor(kit: BrandKit, channel: BrandChannel, options: Pr
   const products = kit.products.map((product) => `${product.name} (${product.oneLiner.replace(/\.$/, "")})`).join(" and ");
   const lines: string[] = [
     `Brand kit for this piece (${config.label}). Follow it exactly.`,
-    `Who is speaking: ${expandTokens(channelContext(kit), kit)}`,
-    `Products you may name: ${products}.`
+    `Who is speaking: ${expandTokens(channelContext(kit), kit)}`
   ];
+  if (products) lines.push(`Products you may name: ${products}.`);
   if (kit.voice.retiredNames.length > 0) {
     lines.push(
       `Retired names, never use them: ${kit.voice.retiredNames.map((retired) => `${retired.name} (now ${retired.use})`).join(", ")}.`

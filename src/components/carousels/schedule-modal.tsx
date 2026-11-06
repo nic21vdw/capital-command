@@ -77,11 +77,11 @@ export function ScheduleModal({
     ? Object.fromEntries(CAROUSEL_PLATFORMS.map((p) => [p.id, links[p.id]?.connected ?? false]))
     : undefined;
 
-  const isBooked = Boolean(booking);
-  const closed = platformsClosedByBooking(isBooked);
-  // A booked deck's Instagram and Facebook are spoken for, so they never count as picked.
-  const platforms = activePlatformPicks(picked, isBooked);
-  const closeOnly = scheduleFooterMode(isBooked, picked) === "close-only";
+  const bookedOn = booking?.platforms ?? [];
+  const closed = platformsClosedByBooking(bookedOn);
+  // The networks a booked deck is already on are spoken for, so they never count as picked.
+  const platforms = activePlatformPicks(picked, bookedOn);
+  const closeOnly = scheduleFooterMode(bookedOn, picked) === "close-only";
 
   const togglePlatform = (id: CarouselPlatformId) =>
     setPlatforms((current) => (current.includes(id) ? current.filter((p) => p !== id) : [...current, id]));
@@ -102,8 +102,6 @@ export function ScheduleModal({
   };
 
   const plan = planCarouselSchedule(platforms, recurrence);
-  // A deck already in the queue cannot be booked a second time; reminders for other networks still can.
-  const blockedByBooking = isBooked && plan.book.length > 0;
   const zone = timeZone ?? "UTC";
   const bookable = plan.book.filter((id) => platformPostingMode(id, connected) === "automatic");
   const unlinked = plan.book.filter((id) => platformPostingMode(id, connected) === "reminder");
@@ -130,8 +128,9 @@ export function ScheduleModal({
               {booking.posted ? "This carousel has already posted." : `This carousel is already booked for ${bookedWhenInSentence(booking.publishAt, zone)}.`}
             </p>
             <p>
-              {bookedChipText(booking, zone)}. It can only be booked once: change its time or remove it in the Uploading
-              Center, or pick TikTok or YouTube below to save a reminder instead.
+              {bookedChipText(booking, zone)}. A network can only be booked once: change its time or remove it in the
+              Uploading Center. LinkedIn can still be added if it is not booked yet, and TikTok or YouTube below save a
+              reminder.
             </p>
           </div>
         ) : null}
@@ -234,13 +233,13 @@ export function ScheduleModal({
           </>
         )}
 
-        {books && !blockedByBooking ? (
+        {books ? (
           <p className="tone-info tone-edge tone-soft tone-text rounded-lg border p-2.5 text-[11px]">
             {label(bookable)} will be booked in the publish queue and post by themselves at that time. Nothing can be
             booked for today - the earliest is tomorrow.
           </p>
         ) : null}
-        {unlinked.length > 0 && !blockedByBooking ? (
+        {unlinked.length > 0 ? (
           <p className="tone-warning tone-edge tone-soft tone-text rounded-lg border p-2.5 text-[11px]">
             {sentence(unlinked)} {unlinked.length > 1 ? "aren't" : "isn't"} connected, so {unlinked.length > 1 ? "they are" : "it is"}{" "}
             saved as a reminder and you post the slides by hand. Connect {unlinked.length > 1 ? "them" : "it"} in Settings to
@@ -273,7 +272,7 @@ export function ScheduleModal({
             <Button
               variant={booking ? "secondary" : undefined}
               onClick={() => void create()}
-              disabled={saving || blockedByBooking}
+              disabled={saving}
               className="gap-1.5"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}

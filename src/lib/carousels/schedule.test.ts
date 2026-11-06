@@ -17,10 +17,12 @@ import {
 import type { Carousel } from "@/types/domain";
 
 describe("which carousel networks really post", () => {
-  it("lists only Instagram and Facebook, because the publisher refuses TikTok and YouTube pictures", () => {
-    expect(IMAGE_CAPABLE_PLATFORMS).toEqual(["instagram", "facebook"]);
+  it("lists Instagram, Facebook and LinkedIn, because the publisher refuses TikTok and YouTube pictures", () => {
+    expect(IMAGE_CAPABLE_PLATFORMS).toEqual(["instagram", "facebook", "linkedin"]);
     expect(DEFAULT_CAROUSEL_PLATFORMS).toEqual(["instagram", "facebook"]);
     expect(platformPostingMode("instagram")).toBe("automatic");
+    expect(platformPostingMode("linkedin")).toBe("automatic");
+    expect(platformPostingMode("linkedin", { linkedin: false })).toBe("reminder");
     expect(platformPostingMode("tiktok")).toBe("manual");
     expect(platformPostingMode("youtube")).toBe("manual");
   });
@@ -130,16 +132,31 @@ describe("connection-aware posting mode", () => {
 });
 
 describe("a deck that is already booked", () => {
-  it("closes both picture networks and leaves the reminder ones", () => {
-    expect(platformsClosedByBooking(true)).toEqual(["instagram", "facebook"]);
-    expect(platformsClosedByBooking(false)).toEqual([]);
-    expect(activePlatformPicks(["instagram", "facebook", "tiktok"], true)).toEqual(["tiktok"]);
-    expect(activePlatformPicks(["instagram", "facebook"], false)).toEqual(["instagram", "facebook"]);
+  it("closes Instagram and Facebook together once the deck is booked on either", () => {
+    expect(platformsClosedByBooking(["instagram", "facebook"])).toEqual(["instagram", "facebook"]);
+    expect(platformsClosedByBooking(["facebook"])).toEqual(["instagram", "facebook"]);
+    expect(platformsClosedByBooking([])).toEqual([]);
   });
 
-  it("offers Save only once a reminder network is picked", () => {
-    expect(scheduleFooterMode(true, ["instagram", "facebook"])).toBe("close-only");
-    expect(scheduleFooterMode(true, ["instagram", "facebook", "youtube"])).toBe("save");
-    expect(scheduleFooterMode(false, [])).toBe("save");
+  it("leaves LinkedIn open on a deck booked to Instagram and Facebook, so it can be added", () => {
+    expect(platformsClosedByBooking(["instagram", "facebook"])).not.toContain("linkedin");
+    expect(activePlatformPicks(["instagram", "facebook", "linkedin", "tiktok"], ["instagram", "facebook"])).toEqual(["linkedin", "tiktok"]);
+  });
+
+  it("closes LinkedIn once the deck is booked there, and leaves Instagram and Facebook open", () => {
+    expect(platformsClosedByBooking(["linkedin"])).toEqual(["linkedin"]);
+    expect(activePlatformPicks(["instagram", "facebook", "linkedin"], ["linkedin"])).toEqual(["instagram", "facebook"]);
+  });
+
+  it("keeps every pick on a deck that is not booked", () => {
+    expect(activePlatformPicks(["instagram", "facebook"], [])).toEqual(["instagram", "facebook"]);
+  });
+
+  it("offers Save only once an open network is picked", () => {
+    const booked = ["instagram", "facebook"];
+    expect(scheduleFooterMode(booked, ["instagram", "facebook"])).toBe("close-only");
+    expect(scheduleFooterMode(booked, ["instagram", "facebook", "youtube"])).toBe("save");
+    expect(scheduleFooterMode(booked, ["linkedin"])).toBe("save");
+    expect(scheduleFooterMode([], [])).toBe("save");
   });
 });

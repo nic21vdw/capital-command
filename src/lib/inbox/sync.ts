@@ -16,9 +16,11 @@ import {
   type PostCursor,
   type PublishedPost
 } from "@/lib/inbox/types";
-import { reserveYoutubeUnits, youtubeDailyUnits } from "@/lib/inbox/youtubeUnits";
+import { reserveInboxRead } from "@/lib/inbox/youtubeUnits";
 import { authFailureReason } from "@/lib/platform-health/auth";
 import { accountAuthBlocked, clearAuthState, recordAuthRejection } from "@/lib/platform-health/store";
+import { QUOTA_SAVED_MESSAGE } from "@/lib/youtube/quotaSpend";
+import type { QuotaLedger } from "@/lib/youtube/quotaLedger";
 
 export type PlatformStatus = "ok" | "not-connected" | "needs-scope" | "needs-auth" | "throttled" | "deferred" | "error";
 
@@ -40,7 +42,10 @@ export type SyncOptions = {
   posts?: PublishedPost[];
   platforms?: InboxPlatform[];
   force?: boolean;
+  quota?: Debiter;
 };
+
+type Debiter = Pick<QuotaLedger, "debit">;
 
 const MAX_POSTS_PER_PLATFORM = 40;
 const MAX_CONSECUTIVE_ERRORS = 3;
@@ -66,7 +71,7 @@ async function syncLane(
   lane: Lane,
   lanePosts: PublishedPost[],
   store: InboxStore,
-  ctx: { now: Date; force: boolean }
+  ctx: { now: Date; force: boolean; quota?: Debiter }
 ): Promise<LaneOutcome> {
   const { now } = ctx;
   const outcome: LaneOutcome = { report: { status: "ok", fetchedPosts: 0, added: 0 }, items: [], cursors: {} };
@@ -113,7 +118,6 @@ async function syncLane(
   }
 
   const metered = lane.platform === "youtube";
-  const dailyUnits = youtubeDailyUnits();
   let consecutiveErrors = 0;
   const scopeFailures = new Set<string>();
   let readOk = false;
@@ -127,7 +131,7 @@ async function syncLane(
         ...(metered
           ? {
               beforeRequest: async () => {
-                if (!(await reserveYoutubeUnits(now, 1, dailyUnits))) throw new FetchBudgetExhausted();
+                if (!(await reserveInboxRead(ctx.quota))) throw new FetchBudgetExhausted();
               }
             }
           : {})
@@ -135,7 +139,7 @@ async function syncLane(
       outcome.items.push(...result.items);
       if (result.budgetSpent) {
         outcome.report.status = "deferred";
-        outcome.report.detail = "Daily YouTube read budget used";
+        outcome.report.detail = `${QUOTA_SAVED_MESSAGE}: the inbox's read budget for today is used`;
         if (result.pages === 0) break;
       }
       outcome.report.fetchedPosts += 1;
@@ -204,7 +208,7 @@ function pruneCursors(cursors: Record<string, PostCursor>, now: Date): Record<st
 async function syncPlatform(
   platform: InboxPlatform,
   posts: PublishedPost[],
-  ctx: { now: Date; force: boolean }
+  ctx: { now: Date; force: boolean; quota?: Debiter }
 ): Promise<PlatformReport> {
   const { now } = ctx;
   const store = await readInbox();
@@ -231,7 +235,7 @@ async function syncPlatform(
       lane,
       posts.filter((post) => post.accountId === accountId),
       store,
-      { now, force: ctx.force }
+      { now, force: ctx.force, quota: ctx.quota }
     );
     outcomes.push(outcome);
     if (outcome.report.status === "ok" && outcome.report.fetchedPosts > 0) await clearAuthState(platform, accountId);
@@ -299,7 +303,7 @@ async function runSync(options: SyncOptions): Promise<SyncReport> {
     if (!wanted.includes(platform)) continue;
     const platformPosts = posts.filter((post) => post.platform === platform);
     if (platformPosts.length === 0) continue;
-    const result = await syncPlatform(platform, platformPosts, { now, force: options.force === true });
+    const result = await syncPlatform(platform, platformPosts, { now, force: options.force === true, quota: options.quota });
     report.platforms[platform] = result;
     report.added += result.added;
   }

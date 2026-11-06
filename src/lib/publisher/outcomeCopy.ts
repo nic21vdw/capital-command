@@ -17,7 +17,8 @@ const LABELS: Record<PlatformId, string> = {
   youtube: "YouTube",
   instagram: "Instagram",
   tiktok: "TikTok",
-  facebook: "Facebook"
+  facebook: "Facebook",
+  linkedin: "LinkedIn"
 };
 
 /**

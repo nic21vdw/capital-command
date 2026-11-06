@@ -12,8 +12,10 @@ import {
 import { PermanentError, TransientError, fetchJson, fetchRaw } from "@/lib/publisher/http";
 import { IMAGE_REFUSALS, isImagePost } from "@/lib/publisher/images";
 import { bareTags, composeDescription } from "@/lib/publisher/metadata";
+import { YOUTUBE_READ_UNITS, YOUTUBE_UNITS_PER_UPLOAD, YOUTUBE_UPDATE_UNITS } from "@/lib/publisher/quota";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
+import { debitUpload } from "@/lib/youtube/quotaSpend";
 import type {
   FinalizeOptions,
   PlatformAdapter,
@@ -124,6 +126,7 @@ function buildBody(input: PublishInput): { body: YoutubeBody; scheduled: boolean
 }
 
 async function writeYoutubeStatus(videoId: string, token: string, status: Record<string, unknown>): Promise<void> {
+  await debitUpload(YOUTUBE_UPDATE_UNITS);
   try {
     await fetchJson(`${VIDEOS_URL}?part=status`, {
       label: "YouTube privacy update",
@@ -153,6 +156,7 @@ export async function updateYoutubeVideoPublishAt(
     throw new PermanentError(`Cannot move YouTube video ${videoId} to a time that has already passed.`);
   }
   const token = await youtubeAccessToken(accountId);
+  await debitUpload(YOUTUBE_READ_UNITS);
   const current = await fetchJson<{ items?: Array<{ status?: Record<string, unknown> }> }>(
     `${VIDEOS_URL}?part=status&id=${encodeURIComponent(videoId)}`,
     { label: "YouTube video status read", method: "GET", headers: { Authorization: `Bearer ${token}` } }
@@ -166,6 +170,7 @@ export async function updateYoutubeVideoPublishAt(
     privacyStatus: "private",
     publishAt: toRfc3339Utc(publishAt)
   };
+  await debitUpload(YOUTUBE_UPDATE_UNITS);
   try {
     await fetchJson(`${VIDEOS_URL}?part=status`, {
       label: "YouTube schedule update",
@@ -181,6 +186,7 @@ export async function updateYoutubeVideoPublishAt(
 
 export async function updateYoutubeVideoTitle(videoId: string, title: string, accountId?: string): Promise<void> {
   const token = await youtubeAccessToken(accountId);
+  await debitUpload(YOUTUBE_READ_UNITS);
   const current = await fetchJson<{ items?: Array<{ snippet?: Record<string, unknown> }> }>(
     `${VIDEOS_URL}?part=snippet&id=${encodeURIComponent(videoId)}`,
     { label: "YouTube video snippet read", method: "GET", headers: { Authorization: `Bearer ${token}` } }
@@ -189,6 +195,7 @@ export async function updateYoutubeVideoTitle(videoId: string, title: string, ac
   if (!snippet) {
     throw new PermanentError(`YouTube video ${videoId} was not found — it may have been deleted from the channel.`);
   }
+  await debitUpload(YOUTUBE_UPDATE_UNITS);
   await fetchJson(`${VIDEOS_URL}?part=snippet`, {
     label: "YouTube title update",
     method: "PUT",
@@ -212,6 +219,7 @@ async function finalizeYoutube(item: QueueItem, state: PlatformState, options: F
     throw new PermanentError(`YouTube post for ${item.clipPath} has no video id recorded — cannot verify it went public.`);
   }
   const token = await youtubeAccessToken(item.accountId);
+  await debitUpload(YOUTUBE_READ_UNITS);
   const current = await fetchJson<{ items?: Array<{ status?: Record<string, unknown> }> }>(
     `${VIDEOS_URL}?part=status&id=${encodeURIComponent(state.postId)}`,
     { label: "YouTube video status check", method: "GET", headers: { Authorization: `Bearer ${token}` } }
@@ -284,6 +292,7 @@ export async function holdYoutubeVideoPrivate(
   accountId?: string
 ): Promise<"held" | "already-private" | "already-public" | "missing"> {
   const token = await youtubeAccessToken(accountId);
+  await debitUpload(YOUTUBE_READ_UNITS);
   const current = await fetchJson<{ items?: Array<{ status?: Record<string, unknown> }> }>(
     `${VIDEOS_URL}?part=status&id=${encodeURIComponent(videoId)}`,
     { label: "YouTube video status check", method: "GET", headers: { Authorization: `Bearer ${token}` } }
@@ -454,6 +463,7 @@ export const youtubeAdapter: PlatformAdapter = {
     }
 
     // Step 1: open a resumable session; the video's metadata goes here.
+    await debitUpload(YOUTUBE_UNITS_PER_UPLOAD);
     const init = await fetchRaw(UPLOAD_URL, {
       label: "YouTube resumable init",
       headers: {

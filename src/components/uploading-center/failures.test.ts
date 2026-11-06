@@ -69,7 +69,7 @@ describe("the strip's counts", () => {
   ]);
 
   it("counts per platform tab", () => {
-    expect(failureCounts(legs)).toEqual({ youtube: 2, instagram: 1, tiktok: 0, facebook: 0 });
+    expect(failureCounts(legs)).toEqual({ youtube: 2, instagram: 1, tiktok: 0, facebook: 0, linkedin: 0 });
   });
 
   it("names only the platforms with a connection failure to retry", () => {

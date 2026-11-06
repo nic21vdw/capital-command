@@ -12,6 +12,7 @@ import {
   type YoutubeStat,
   type YoutubeStatsResponse
 } from "@/lib/publisher/youtubeStatsShared";
+import { QuotaSavedError, debitOrSkip } from "@/lib/youtube/quotaSpend";
 
 /**
  * Views, likes and comments for the YouTube videos this app posted.
@@ -146,6 +147,10 @@ export async function resolveYoutubeStats(requests: StatsRequest[], deps: StatsD
         notConnected = true;
         continue;
       }
+      if (error instanceof QuotaSavedError) {
+        failure = failure ?? `${error.message} These numbers may be out of date.`;
+        continue;
+      }
       deps.failures.set(accountId, now.getTime());
       failure = failure ?? "YouTube could not be read right now, so these numbers may be out of date.";
     }
@@ -223,6 +228,7 @@ async function accountIsConnected(accountId: string): Promise<boolean> {
 
 async function fetchStatisticsFromYoutube(accountId: string, videoIds: string[]): Promise<Record<string, RawStats>> {
   try {
+    await debitOrSkip(1, "stats");
     const token = await youtubeAccessToken(accountId);
     const response = await fetchJson<{ items?: Array<{ id?: string; statistics?: Record<string, unknown> }> }>(
       `${API}/videos?part=statistics&id=${videoIds.map(encodeURIComponent).join(",")}&maxResults=${STATS_BATCH_SIZE}`,

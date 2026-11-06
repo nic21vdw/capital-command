@@ -31,6 +31,36 @@ describe("buildPlatformCopyPrompt", () => {
   });
 });
 
+describe("LinkedIn copy", () => {
+  it("asks for a professional, longer post with few hashtags", () => {
+    const prompt = buildPlatformCopyPrompt({ title: "Shipping a queue" }, "linkedin", "America/Toronto");
+    expect(prompt).toContain("LINKEDIN");
+    expect(prompt).toMatch(/professional/i);
+    expect(prompt).toMatch(/engineers|developers/i);
+    expect(prompt).toContain("under 1300 characters");
+    expect(prompt).toContain("about 3 hashtags");
+    expect(prompt).not.toContain("under 500 characters");
+  });
+
+  it("keeps a long caption that TikTok's limit would cut", () => {
+    const long = "A".repeat(1200);
+    const text = JSON.stringify({ caption: long, hashtags: ["#ai", "#dev", "#a", "#b", "#c", "#d"] });
+    expect(parsePlatformCopy(text, "linkedin")?.caption).toBe(long);
+    expect(parsePlatformCopy(text, "tiktok")?.caption).toHaveLength(500);
+    expect(parsePlatformCopy(text)?.caption).toHaveLength(500);
+  });
+
+  it("caps the hashtags at three in the fallback", () => {
+    expect(fallbackPlatformCopy({ title: "My Clip" }, "linkedin").hashtags).toHaveLength(3);
+  });
+
+  it("caps the hashtags a model returns at the platform's target", () => {
+    const text = JSON.stringify({ caption: "Post", hashtags: ["#ai", "#dev", "#a", "#b", "#c"] });
+    expect(parsePlatformCopy(text, "linkedin")?.hashtags).toEqual(["#ai", "#dev", "#a"]);
+    expect(parsePlatformCopy(text)?.hashtags).toHaveLength(5);
+  });
+});
+
 describe("parsePlatformCopy", () => {
   it("reads a fenced JSON object with caption, hashtags and a padded best time", () => {
     const text =

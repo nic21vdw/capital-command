@@ -10,7 +10,7 @@ export type PlatformLink = {
   blocker: string | null;
 };
 
-export type PlatformLinks = Partial<Record<"youtube" | "instagram" | "tiktok" | "facebook", PlatformLink>>;
+export type PlatformLinks = Partial<Record<"youtube" | "instagram" | "tiktok" | "facebook" | "linkedin", PlatformLink>>;
 
 type AccountRow = { platform: string; connected: boolean; needsReconnect?: boolean; blocker?: string | null };
 
@@ -19,7 +19,7 @@ export function linksFromAccounts(accounts: AccountRow[]): PlatformLinks {
   const links: PlatformLinks = {};
   for (const account of accounts) {
     const platform = account.platform as keyof PlatformLinks;
-    if (!["youtube", "instagram", "tiktok", "facebook"].includes(platform)) continue;
+    if (!["youtube", "instagram", "tiktok", "facebook", "linkedin"].includes(platform)) continue;
     const live = account.connected && !account.needsReconnect;
     const current = links[platform];
     if (live || !current) {

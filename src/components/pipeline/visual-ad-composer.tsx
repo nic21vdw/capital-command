@@ -680,7 +680,7 @@ function VisualAdDraft({
             </summary>
             <NextImage
               src={original.src}
-              alt="Original source for comparing Nic's face and the actual screen"
+              alt="Original source for comparing the face and the actual screen"
               width={original.width}
               height={original.height}
               unoptimized

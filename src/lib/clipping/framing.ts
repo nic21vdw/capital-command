@@ -86,10 +86,10 @@ function neutral(confidence: number, reason: string): ClipFraming {
  * without ever upscaling the source past {@link MAX_UPSCALE} or asking for a
  * window bigger than the source.
  */
-function cropWindow(subjectH: number, target: FramingTarget): { w: number; h: number } {
+export function cropWindow(subjectH: number, target: FramingTarget, fill = SUBJECT_FILL): { w: number; h: number } {
   const aspect = target.targetW / target.targetH;
   const minH = Math.max(0.3, (target.targetH / MAX_UPSCALE) / target.sourceH);
-  let h = clamp(subjectH / SUBJECT_FILL, Math.min(1, minH), 1);
+  let h = clamp(subjectH / fill, Math.min(1, minH), 1);
   let w = (h * target.sourceH * aspect) / target.sourceW;
   if (w > 1) {
     w = 1;

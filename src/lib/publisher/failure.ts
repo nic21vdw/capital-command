@@ -66,7 +66,8 @@ export const PLATFORM_LABELS: Record<PlatformId, string> = {
   youtube: "YouTube",
   instagram: "Instagram",
   tiktok: "TikTok",
-  facebook: "Facebook"
+  facebook: "Facebook",
+  linkedin: "LinkedIn"
 };
 
 /** The file is gone, so nothing on the platform side can help. */
@@ -267,7 +268,7 @@ export function describeWaiting(state: PlatformState, platform: PlatformId): { h
  * toast should ever ask a person to read.
  */
 const NOT_CONNECTED_ERROR =
-  /\b(youtube|tiktok|instagram|facebook)(?: account)? (?:is )?not (?:connected|configured)|\b(youtube|tiktok|instagram|facebook) credentials are not configured/i;
+  /\b(youtube|tiktok|instagram|facebook|linkedin)(?: account)? (?:is )?not (?:connected|configured)|\b(youtube|tiktok|instagram|facebook|linkedin) credentials are not configured/i;
 
 /** Where a not-connected message sends people: Settings, Accounts. */
 export const ACCOUNTS_SETTINGS_HREF = "/settings#accounts";

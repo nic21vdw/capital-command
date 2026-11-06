@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Facebook,
   Instagram,
+  Linkedin,
   Loader2,
   Music2,
   Play,
@@ -25,6 +26,9 @@ import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clip
 import { writeDraftProject } from "@/components/editor/drafts";
 import { useAppData } from "@/components/providers/app-provider";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
+import { refuse } from "@/lib/colateral/surface";
+import { usePlatformHealth } from "@/components/layout/use-platform-health";
+import { useBackupView } from "@/components/master-calendar/backup-status-line";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -40,6 +44,22 @@ import {
   awaitingSurface,
   parseEntryId
 } from "@/components/uploading-center/awaiting-surface";
+import { backupReading, brokenAccountsReading, queueStatusReadings, quotaReadings } from "@/components/uploading-center/agent-readings";
+import {
+  EMPTY_BOOK_DRAFT,
+  IDLE_BOOKING,
+  applyBookField,
+  bookControl,
+  bookFields,
+  bookingReading,
+  startBooking,
+  type BookDraft,
+  type BookScheduler,
+  type BookingContext,
+  type BookingRecord,
+  type ScheduleOutcome
+} from "@/components/uploading-center/book-clip";
+import { BookClipPanel } from "@/components/uploading-center/book-clip-panel";
 import { ClipQueue } from "@/components/uploading-center/clip-queue";
 import { NO_AI_CAPTION_SUMMARY_NOTE, zoneTimeLabel } from "@/components/uploading-center/schedule-summary";
 import { clipsNeedingCaption, nameClips, planAutoAssign, type ShortsCap } from "@/components/uploading-center/bulk";
@@ -78,6 +98,7 @@ import {
   SLOT_WINDOW_DAYS,
   copyPlatformFor,
   copyTargetLabel,
+  errorToast,
   platformTargetHints,
   platformTargetLabels,
   studioContentUrl,
@@ -93,6 +114,7 @@ import { noAccountConnected } from "@/lib/publisher/boardActions";
 import { ACCOUNTS_SETTINGS_HREF } from "@/lib/publisher/failure";
 import { buildAgenda } from "@/lib/publisher/agenda";
 import { formatClockTime, formatSlotDateTime } from "@/lib/timeFormat";
+import { visiblePlatformTabs } from "@/components/uploading-center/platform-tabs";
 import { publisherBannerLine } from "@/lib/publisher/publishOverview";
 import { EARLIEST_PUBLISH_DAY_OFFSET, addDaysToDateKey } from "@/lib/publisher/schedule";
 import { clearConnectFailure, rememberConnectFailure } from "@/lib/publisher/connectErrors";
@@ -111,6 +133,7 @@ const PLATFORM_TABS: Array<{ id: PlatformId; icon: typeof Youtube }> = [
   { id: "tiktok", icon: Music2 },
   { id: "instagram", icon: Instagram },
   { id: "facebook", icon: Facebook },
+  { id: "linkedin", icon: Linkedin },
 ];
 
 export function UploadingCenterPage() {
@@ -621,7 +644,7 @@ export function UploadingCenterPage() {
   );
 
   const handleSchedule = useCallback(
-    (clip: ReadyClip, override?: Partial<ClipDraft>) =>
+    (clip: ReadyClip, override?: Partial<ClipDraft>, hooks?: { onOutcome?: (outcome: ScheduleOutcome) => void }) =>
       schedule(
         clip,
         { ...draftFor(clip), ...override },
@@ -629,10 +652,44 @@ export function UploadingCenterPage() {
           // A caption written for an empty box lands in the box, so the card
           // shows what was booked instead of staying blank.
           onCaption: (caption) => putDraft(clip, { ...(draftBook.read()[clip.key] ?? draftFor(clip)), caption }),
+          onOutcome: hooks?.onOutcome,
         },
       ),
     [draftBook, draftFor, putDraft, schedule],
   );
+
+  const [bookDraft, setBookDraft] = useState<BookDraft>(EMPTY_BOOK_DRAFT);
+  const bookDraftRef = useRef(bookDraft);
+  const updateBookDraft = useCallback((next: BookDraft) => {
+    bookDraftRef.current = next;
+    setBookDraft(next);
+  }, []);
+  const [booking, setBooking] = useState<BookingRecord>(IDLE_BOOKING);
+  const bookingRef = useRef(booking);
+  const reportBooking = useCallback((record: BookingRecord) => {
+    bookingRef.current = record;
+    setBooking(record);
+  }, []);
+  const health = usePlatformHealth();
+  const backup = useBackupView();
+  const bookingContext = (inFlight: boolean): BookingContext<ReadyClip> => ({
+    clips: readyClips,
+    timezone,
+    now: new Date(),
+    publishingOn,
+    loaded,
+    busy: inFlight ? "booking" : busy,
+  });
+  const scheduleForBooking: BookScheduler<ReadyClip> = (clip, override, hooks) => handleSchedule(clip, override, hooks);
+  const pressBook = () => {
+    const started = startBooking(
+      bookDraftRef.current,
+      bookingContext(bookingRef.current.phase === "booking"),
+      scheduleForBooking,
+      reportBooking,
+    );
+    return started.ok ? (true as const) : refuse(started.reason);
+  };
 
   // "Edit clip" → open this clip in the Clip Editor (the mirror of the editor's
   // "Schedule Short" that lands back here). Resume the clip's most recently
@@ -952,7 +1009,10 @@ export function UploadingCenterPage() {
     [showBookedItem],
   );
 
-  const tabs = PLATFORM_TABS.map(({ id, icon }) => {
+  const itemCountByPlatform = new Map<PlatformId, number>(
+    PLATFORM_TABS.map(({ id }) => [id, itemsByPlatform.get(id)?.length ?? 0]),
+  );
+  const tabs = visiblePlatformTabs(PLATFORM_TABS, accounts, itemCountByPlatform).map(({ id, icon }) => {
     const activeAccount = activeAccountFor(id);
     // Connection status follows the account the tab is showing, not the
     // platform as a whole — each account connects on its own.
@@ -1049,7 +1109,7 @@ export function UploadingCenterPage() {
             onEditCaption={(item, caption) => void editQueueCaption(item, caption)}
             onRemove={(item) => void remove(item)}
             onRename={(item, title) => void renameQueueItem(item, title)}
-            youtubeQuotaFull={Boolean(overview && overview.quota.uploadsUsed >= overview.quota.budgetUploads)}
+            youtubeQuotaFull={Boolean(overview && overview.quota.remainingUploads <= 0)}
             isConnected={isAccountConnected}
             busy={busy}
             highlightedItemId={itemParam}
@@ -1113,6 +1173,7 @@ export function UploadingCenterPage() {
         options: jobsWithClips.map((job) => job.id),
       },
       ...awaitingParts.fields,
+      ...bookFields(bookDraft, readyClips, timezone),
     ],
     controls: [
       ...(loadError || accountsError ? [{ id: "retry-load", label: "Retry loading clips and schedule", group: "Recovery", disabled: refreshing || accountsRefreshing }] : []),
@@ -1142,6 +1203,7 @@ export function UploadingCenterPage() {
         disabled: !placingClip,
       },
       ...awaitingParts.controls,
+      bookControl(bookingContext(booking.phase === "booking")),
     ],
     readings: [
       { label: "Schedule data", value: loadError || accountsError ? `Needs retry: ${loadError ?? accountsError}` : loaded ? "Loaded" : "Loading…" },
@@ -1150,12 +1212,22 @@ export function UploadingCenterPage() {
       { label: "Failed captions", value: String(failedCaptionClips.length) },
       {
         label: "YouTube quota",
-        value: overview ? `${overview.quota.uploadsUsed}/${overview.quota.budgetUploads} uploads` : "—",
+        value: overview ? `${overview.quota.remainingUploads} uploads left` : "—",
       },
       { label: "Publishing", value: overview ? (overview.enabled ? "On" : "Off") : "—" },
       { label: "Shorts a day", value: shortsPerDay ? String(shortsPerDay) : "—" },
       { label: "Failed posts", value: String(failedLegs.length) },
       ...awaitingParts.readings,
+      bookingReading(booking),
+      ...queueStatusReadings(queueItems, new Date(), timezone),
+      brokenAccountsReading(health),
+      ...quotaReadings({
+        youtube: overview ? { used: overview.quota.uploadsUsed, budget: overview.quota.budgetUploads } : undefined,
+        shortsPerDay,
+        shortsByDay: shortsBooked,
+        todayKey: slots.find((slot) => slot.today)?.dateKey,
+      }),
+      backupReading(backup),
     ],
     setField: (id, value) => {
       const captionTarget = parseEntryId("caption", id);
@@ -1163,6 +1235,13 @@ export function UploadingCenterPage() {
         if (typeof value !== "string" || !value.trim()) return false;
         if (!approval.entries.some((entry) => entry.channel === captionTarget.channel && entry.id === captionTarget.id)) return false;
         return approval.saveCaption(captionTarget, value);
+
+      }
+      const booked = applyBookField(bookDraftRef.current, id, value, { clips: readyClips, timezone });
+      if (booked) {
+        if ("refused" in booked) return booked;
+        updateBookDraft(booked.draft);
+        return true;
       }
       if (id === "runPlatform") {
         if (typeof value !== "string" || !(value in PLATFORM_TARGET_LABELS)) return false;
@@ -1189,6 +1268,7 @@ export function UploadingCenterPage() {
       return false;
     },
     click: (id) => {
+      if (id === "book") return pressBook();
       if (id === "retry-load") {
         if (refreshing || accountsRefreshing) return false;
         void refresh();
@@ -1281,6 +1361,18 @@ export function UploadingCenterPage() {
             </button>
             {!publishingOn ? <PostingOffBanner /> : null}
             {publisherLine ? <PublisherStatusLine line={publisherLine} /> : null}
+            <BookClipPanel
+              draft={bookDraft}
+              onDraftChange={updateBookDraft}
+              clips={readyClips}
+              timezone={timezone}
+              control={bookControl(bookingContext(booking.phase === "booking"))}
+              record={booking}
+              onBook={() => {
+                const result = pressBook();
+                if (result !== true) errorToast(result.refused);
+              }}
+            />
             {failedLegs.length > 0 ? (
               <FailedStrip
                 legs={failedLegs}
@@ -1336,6 +1428,11 @@ export function UploadingCenterPage() {
                 aiCopyAvailable={aiCopyFellBack ? false : overview?.aiCopyAvailable}
                 onShowOnBoard={showBookedItem}
                 isConnected={isAccountConnected}
+                experiment={{
+                  accountIds: activeAccountIds,
+                  disabledReason: publishingOn ? undefined : "Posting is off - turn it on in Settings to book clips.",
+                  onBooked: () => refresh()
+                }}
               />
               <div id="schedule-board" className="min-w-0 scroll-mt-4">
                 {/* Said once above the board, not only on the empty day it used

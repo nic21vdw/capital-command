@@ -16,7 +16,26 @@
  * React wrapper pages actually call.
  */
 
+import { isPersonalRoute } from "../personal-routes";
 import { emptySurface, normalizeRoute, type PageSurface, type SurfaceControl, type SurfaceField, type SurfaceReading } from "./protocol";
+
+export interface SurfaceRefusal {
+  refused: string;
+}
+
+export function refuse(reason: string): SurfaceRefusal {
+  return { refused: reason };
+}
+
+export type HandlerOutcome = boolean | void | SurfaceRefusal;
+
+export function interpretOutcome(outcome: unknown): { refused: false } | { refused: true; reason: string } {
+  if (outcome === false) return { refused: true, reason: "" };
+  if (outcome && typeof outcome === "object" && typeof (outcome as SurfaceRefusal).refused === "string") {
+    return { refused: true, reason: (outcome as SurfaceRefusal).refused };
+  }
+  return { refused: false };
+}
 
 export interface SurfaceRegistration {
   route: string;
@@ -29,9 +48,9 @@ export interface SurfaceRegistration {
    * Write one field. Return false (or throw) when the value is refused; the
    * host reports the refusal rather than claiming a write that did not happen.
    */
-  setField?: (id: string, value: string | number | boolean | null) => boolean | void | Promise<boolean | void>;
+  setField?: (id: string, value: string | number | boolean | null) => HandlerOutcome | Promise<HandlerOutcome>;
   /** Press one control. Same contract as setField. */
-  click?: (id: string) => boolean | void | Promise<boolean | void>;
+  click?: (id: string) => HandlerOutcome | Promise<HandlerOutcome>;
 }
 
 type Listener = (route: string) => void;
@@ -56,6 +75,7 @@ function announce(route: string) {
  */
 export function registerSurface(registration: SurfaceRegistration): () => void {
   const route = normalizeRoute(registration.route);
+  if (isPersonalRoute(route)) return () => undefined;
   // Stored by reference and never copied: `useColateralSurface` hands over an
   // object whose properties are getters onto the live render, and a spread
   // here would freeze the page's values at the moment it mounted.

@@ -36,7 +36,8 @@ const PLATFORM_LABELS: Record<PlatformId, string> = {
   youtube: "YouTube",
   instagram: "Instagram",
   tiktok: "TikTok",
-  facebook: "Facebook"
+  facebook: "Facebook",
+  linkedin: "LinkedIn"
 };
 
 /** Calendar-day arithmetic on YYYY-MM-DD keys via UTC ms (never an instant). */
@@ -92,7 +93,7 @@ export function carouselIdFromQueuePath(filePath: string): string | undefined {
   return match?.[1];
 }
 
-const PLATFORM_ORDER: PlatformId[] = ["youtube", "instagram", "tiktok", "facebook"];
+const PLATFORM_ORDER: PlatformId[] = ["youtube", "instagram", "tiktok", "facebook", "linkedin"];
 
 /**
  * The card for one queue item. The tab is the platform that needs a look: the

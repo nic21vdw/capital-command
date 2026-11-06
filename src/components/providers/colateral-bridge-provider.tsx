@@ -27,10 +27,11 @@
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
-  APP_MESSAGE,
-  BRIDGE_PROTOCOL_VERSION,
   HOST_MESSAGE,
   appResult,
+  buildReadyMessage,
+  buildRouteMessage,
+  buildSurfaceMessage,
   createNotifier,
   normalizeChrome,
   parseHostMessage,
@@ -40,7 +41,7 @@ import {
   type PageSurface
 } from "@/lib/colateral/protocol";
 import { allRoutes, routeLabel } from "@/lib/colateral/routes";
-import { getRegistration, matchControl, matchField, onSurfaceChange, readSurface } from "@/lib/colateral/surface";
+import { getRegistration, interpretOutcome, matchControl, matchField, onSurfaceChange, readSurface } from "@/lib/colateral/surface";
 import { useHostTheme } from "@/components/providers/theme-preset-provider";
 
 /** Written on <html> so CSS can shed chrome without a prop drilled everywhere. */
@@ -193,8 +194,8 @@ export function ColateralBridgeProvider({ children }: { children: React.ReactNod
           continue;
         }
         try {
-          const outcome = await registration.setField(field.id, request.fields[name]);
-          if (outcome === false) refused.push(`"${field.label}" refused that value.`);
+          const outcome = interpretOutcome(await registration.setField(field.id, request.fields[name]));
+          if (outcome.refused) refused.push(outcome.reason || `"${field.label}" refused that value.`);
           else applied.push(field.label);
         } catch (error) {
           refused.push(`"${field.label}" threw: ${(error as Error)?.message || String(error)}`);
@@ -241,9 +242,14 @@ export function ColateralBridgeProvider({ children }: { children: React.ReactNod
         return;
       }
       try {
-        const outcome = await registration.click(control.id);
-        if (outcome === false) {
-          post(appResult(request.id, false, { error: `"${control.label}" did nothing.`, surface: currentSurface() }));
+        const outcome = interpretOutcome(await registration.click(control.id));
+        if (outcome.refused) {
+          post(
+            appResult(request.id, false, {
+              error: outcome.reason || `"${control.label}" did nothing.`,
+              surface: currentSurface()
+            })
+          );
           return;
         }
       } catch (error) {
@@ -263,16 +269,13 @@ export function ColateralBridgeProvider({ children }: { children: React.ReactNod
   const sendReady = useCallback(
     (id = "") => {
       post(
-        {
-          type: APP_MESSAGE.ready,
+        buildReadyMessage({
           id,
-          protocol: BRIDGE_PROTOCOL_VERSION,
-          app: "capital-command",
           route: pathnameRef.current || "/",
           title: routeLabel(pathnameRef.current || "/"),
           routes: allRoutes(),
           surface: currentSurface()
-        },
+        }),
         true
       );
     },
@@ -348,12 +351,13 @@ export function ColateralBridgeProvider({ children }: { children: React.ReactNod
   // The user clicked something in here; the card's header says the old page.
   useEffect(() => {
     if (!hosted) return;
-    post({
-      type: APP_MESSAGE.route,
-      route: pathname || "/",
-      title: routeLabel(pathname || "/"),
-      surface: readSurface(pathname || "/", routeLabel(pathname || "/"))
-    });
+    post(
+      buildRouteMessage({
+        route: pathname || "/",
+        title: routeLabel(pathname || "/"),
+        surface: readSurface(pathname || "/", routeLabel(pathname || "/"))
+      })
+    );
   }, [hosted, pathname, post]);
 
   // The visible page changed what it is reporting. Coalesced to one push per
@@ -369,7 +373,7 @@ export function ColateralBridgeProvider({ children }: { children: React.ReactNod
       const serialized = JSON.stringify(surface);
       if (serialized === last) return;
       last = serialized;
-      post({ type: APP_MESSAGE.surface, route: surface.route, surface });
+      post(buildSurfaceMessage(surface));
     };
     const release = onSurfaceChange(() => {
       if (scheduled) return;

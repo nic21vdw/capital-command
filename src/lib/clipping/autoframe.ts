@@ -1,3 +1,4 @@
+import { detectFaceFrames, pickSpeakerFace, planFaceFraming } from "@/lib/clipping/face";
 import { probeVideoStream } from "@/lib/clipping/ffmpeg";
 import { planFraming, type ClipFraming, type FramingTarget } from "@/lib/clipping/framing";
 import { detectSubjectTrack } from "@/lib/clipping/subject";
@@ -23,6 +24,9 @@ export async function planClipFraming(
       targetW,
       targetH
     };
+    const faces = await detectFaceFrames(inputPath);
+    const byFace = faces ? planFaceFraming(pickSpeakerFace(faces), target) : null;
+    if (byFace) return { framing: byFace, target };
     const track = await detectSubjectTrack(inputPath);
     return { framing: planFraming(track, target), target };
   } catch {

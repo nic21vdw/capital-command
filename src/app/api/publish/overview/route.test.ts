@@ -7,7 +7,10 @@ const state = vi.hoisted(() => ({
   aiCopy: true,
   task: { state: "ready", nextRunAt: "2026-10-10T12:05:00.000Z", lastRunAt: "2026-10-10T12:00:00.000Z", lastResult: 0, schedule: null } as
     | { state: string; nextRunAt: string | null; lastRunAt: string | null; lastResult: number | null; schedule: string | null }
-    | undefined
+    | undefined,
+  ledger: { day: "2026-10-10", spent: 1650, byPurpose: { upload: 1600, inbox: 50 } } as unknown,
+  ledgerFails: false,
+  quotaArgs: [] as unknown[]
 }));
 
 vi.mock("@/lib/publisher/config", () => ({
@@ -22,7 +25,20 @@ vi.mock("@/lib/publisher/config", () => ({
 }));
 vi.mock("@/lib/publisher/ai-copy", () => ({ platformCopyConfigured: () => state.aiCopy }));
 vi.mock("@/lib/publisher/queue", () => ({ publishQueue: () => ({ list: async () => [] }) }));
-vi.mock("@/lib/publisher/quota", () => ({ youtubeQuota: () => ({ uploadsUsed: 0 }) }));
+vi.mock("@/lib/publisher/quota", () => ({
+  youtubeQuota: (...args: unknown[]) => {
+    state.quotaArgs = args;
+    return { uploadsUsed: 0 };
+  }
+}));
+vi.mock("@/lib/youtube/quotaLedger", () => ({
+  youtubeQuotaLedger: {
+    snapshot: async () => {
+      if (state.ledgerFails) throw new Error("youtube-quota.json could not be read");
+      return state.ledger;
+    }
+  }
+}));
 vi.mock("@/lib/automations/store", () => ({ isAutomationPaused: async () => state.paused }));
 vi.mock("@/lib/automations/tasks", () => ({
   readAutomationTasks: async () => (state.task ? { publisher: state.task } : {})
@@ -39,7 +55,24 @@ describe("GET /api/publish/overview", () => {
     state.enabled = true;
     state.paused = false;
     state.aiCopy = true;
+    state.ledgerFails = false;
+    state.quotaArgs = [];
     state.task = { state: "ready", nextRunAt: "2026-10-10T12:05:00.000Z", lastRunAt: "2026-10-10T12:00:00.000Z", lastResult: 0, schedule: null };
+  });
+
+  it("hands the meter the shared ledger's snapshot, not a separate counter", async () => {
+    await get();
+
+    expect(state.quotaArgs[3]).toBe(state.ledger);
+  });
+
+  it("still answers, with the meter on the queue's own count, when the ledger cannot be read", async () => {
+    state.ledgerFails = true;
+
+    const body = await get();
+
+    expect(body.quota).toEqual({ uploadsUsed: 0 });
+    expect(state.quotaArgs[3]).toBeNull();
   });
 
   it("reports the shorts cap, the mirror and the publisher's state", async () => {

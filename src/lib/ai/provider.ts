@@ -52,6 +52,7 @@ export type AiRequest = {
   /** Sampling temperature; defaults to 0.2 for stable JSON. */
   temperature?: number;
   writer?: "claude-code";
+  writerSwitch?: string;
 };
 
 export type AiResult = {
@@ -394,10 +395,10 @@ async function runAnthropic(req: AiRequest): Promise<AiResult | null> {
 export async function runAi(req: AiRequest): Promise<AiResult | null> {
   if (req.writer === "claude-code") {
     const { claudeCodeEnabled, runClaudeCode } = await import("@/lib/ai/claudeCode");
-    if (claudeCodeEnabled()) {
+    if (claudeCodeEnabled(req.writerSwitch)) {
       const system = req.system?.trim() || "You return strict JSON.";
       const prompt = req.messages.map((message) => message.content).join("\n\n");
-      const text = await runClaudeCode({ system, prompt }).catch(() => null);
+      const text = await runClaudeCode({ system, prompt }, req.writerSwitch).catch(() => null);
       if (text) return { text, refused: false };
       console.warn("[ai] Claude Code did not answer — falling back to the configured models.");
     }

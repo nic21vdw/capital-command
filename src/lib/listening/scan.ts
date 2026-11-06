@@ -18,6 +18,7 @@ import {
 } from "@/lib/listening/model";
 import { parseBlueskyResponse, parseYoutubeComments, parseYoutubeSearch } from "@/lib/listening/parsers";
 import { quotaDate, quotaMinuteOfDay } from "@/lib/publisher/quota";
+import { ledgerConfig } from "@/lib/youtube/quotaLedger";
 
 /**
  * One scan: every term of every keyword group against each enabled source,
@@ -205,9 +206,7 @@ async function defaultYoutubeAuth(): Promise<YoutubeAuth | null> {
 
 function youtubeDailyUnits(deps: ScanDeps): number {
   if (deps.youtubeDailyUnits !== undefined) return deps.youtubeDailyUnits;
-  const raw = process.env.YOUTUBE_LISTENING_DAILY_UNITS?.trim();
-  const fromEnv = raw ? Number(raw) : Number.NaN;
-  return Number.isFinite(fromEnv) && fromEnv >= 0 ? fromEnv : YOUTUBE_DAILY_UNITS_DEFAULT;
+  return ledgerConfig().purposeCaps?.listening ?? YOUTUBE_DAILY_UNITS_DEFAULT;
 }
 
 async function getJson(source: ListeningSource, url: string, fetcher: typeof fetch, extraHeaders: Record<string, string> = {}): Promise<unknown> {
@@ -363,7 +362,7 @@ async function scanYoutube(terms: string[], ledger: YoutubeLedger, deps: ScanDep
   const headers: Record<string, string> = auth.token ? { Authorization: `Bearer ${auth.token}` } : {};
   const chunks = chunk(terms, YOUTUBE_TERMS_PER_QUERY);
   const publishedAfter = new Date(now.getTime() - YOUTUBE_LOOKBACK_SECONDS * 1000).toISOString();
-  const budgetNote = `Daily YouTube budget of ${budget} units is used up; it starts again after midnight Pacific.`;
+  const budgetNote = `YouTube quota saved for uploads: Listening's share of today's budget is used up; it starts again after midnight Pacific.`;
   const hits: ListeningHit[] = [];
   const videos = new Map<string, { id: string; title: string; term: string }>();
   let calls = 0;

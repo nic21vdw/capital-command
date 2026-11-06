@@ -16,6 +16,8 @@ import type { PlatformId, PlatformStatus } from "@/lib/publisher/types";
  *             once published; a full permalink is used as stored. The profile
  *             is not a fallback: no handle is kept on the machine, and a link
  *             to a guessed profile is worse than no link.
+ *   LinkedIn  the post URN LinkedIn returned (urn:li:share:... or urn:li:ugcPost:...),
+ *             which feed/update/<urn> opens once the post is published.
  *   TikTok    the stored id is a publish id, not something a URL can be made
  *             from. A full URL is used if one was ever stored.
  *
@@ -36,6 +38,9 @@ export function remoteUrlFor(
   }
   if (platform === "instagram" && status === "published" && /^(?=.*[A-Za-z_-])[A-Za-z0-9_-]{8,14}$/.test(id)) {
     return `https://www.instagram.com/p/${id}/`;
+  }
+  if (platform === "linkedin" && status === "published" && /^urn:li:(share|ugcPost):\d+$/.test(id)) {
+    return `https://www.linkedin.com/feed/update/${id}/`;
   }
   return null;
 }

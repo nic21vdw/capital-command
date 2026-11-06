@@ -349,37 +349,38 @@ describe("backup-status.json", () => {
 });
 
 describe("auto-detected folders", () => {
-  const profile = "C:\\Users\\nic21";
-  const consumer = "D:\\Personal OneDrive";
+  const profile = path.join(tmpdir(), "capital-backup-profile");
+  const consumer = path.join(tmpdir(), "Personal OneDrive");
+  const profileOneDrive = path.join(profile, "OneDrive");
   const isOneDrive = (candidate: string) => /onedrive/i.test(candidate);
 
   it("checks every Google Drive location before any OneDrive one", () => {
-    const candidates = defaultDriveCandidates({ USERPROFILE: profile, OneDrive: `${profile}\\OneDrive`, OneDriveConsumer: consumer });
+    const candidates = defaultDriveCandidates({ USERPROFILE: profile, OneDrive: profileOneDrive, OneDriveConsumer: consumer });
     const firstOneDrive = candidates.findIndex(isOneDrive);
 
     expect(candidates[0]).toBe("G:\\My Drive");
-    expect(candidates.slice(0, firstOneDrive)).toEqual(expect.arrayContaining([`${profile}\\Google Drive`, `${profile}\\My Drive`, "Z:\\My Drive"]));
+    expect(candidates.slice(0, firstOneDrive)).toEqual(expect.arrayContaining([path.join(profile, "Google Drive"), path.join(profile, "My Drive"), "Z:\\My Drive"]));
     expect(candidates.slice(firstOneDrive).some((candidate) => /My Drive|Google Drive/.test(candidate))).toBe(false);
   });
 
   it("tries %OneDrive% then %OneDriveConsumer% then the profile OneDrive folder, without repeating one", () => {
     expect(
-      defaultDriveCandidates({ USERPROFILE: profile, OneDrive: `${profile}\\OneDrive`, OneDriveConsumer: consumer }).filter(isOneDrive)
-    ).toEqual([`${profile}\\OneDrive`, consumer]);
+      defaultDriveCandidates({ USERPROFILE: profile, OneDrive: profileOneDrive, OneDriveConsumer: consumer }).filter(isOneDrive)
+    ).toEqual([profileOneDrive, consumer]);
 
     expect(defaultDriveCandidates({ USERPROFILE: profile, OneDrive: "E:\\Work OneDrive" }).filter(isOneDrive)).toEqual([
       "E:\\Work OneDrive",
-      `${profile}\\OneDrive`
+      profileOneDrive
     ]);
 
     expect(
-      defaultDriveCandidates({ USERPROFILE: profile, OneDrive: `${profile}\\OneDrive`, OneDriveConsumer: `${profile}\\OneDrive` }).filter(isOneDrive)
-    ).toEqual([`${profile}\\OneDrive`]);
+      defaultDriveCandidates({ USERPROFILE: profile, OneDrive: profileOneDrive, OneDriveConsumer: profileOneDrive }).filter(isOneDrive)
+    ).toEqual([profileOneDrive]);
   });
 
   it("skips OneDrive variables that are unset or blank", () => {
     expect(defaultDriveCandidates({ USERPROFILE: profile, OneDrive: "  ", OneDriveConsumer: undefined }).filter(isOneDrive)).toEqual([
-      `${profile}\\OneDrive`
+      profileOneDrive
     ]);
   });
 

@@ -5,10 +5,10 @@ import { platformCopyConfigured } from "@/lib/publisher/ai-copy";
 import { publisherConfig } from "@/lib/publisher/config";
 import type { PublisherAutomationOverview } from "@/lib/publisher/publishOverview";
 import { shortsLimit } from "@/lib/publisher/shortsCap";
-import { listeningUnitsToday } from "@/lib/listening/ledger";
 import { youtubeQuota } from "@/lib/publisher/quota";
 import { publishQueue } from "@/lib/publisher/queue";
 import { generateSlots, slotGrid } from "@/lib/publisher/slots";
+import { youtubeQuotaLedger } from "@/lib/youtube/quotaLedger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -98,6 +98,6 @@ export async function GET(request: NextRequest) {
     // or a provider name), so the bulk panel can say what "Schedule" will do
     // about captions instead of promising an AI that is not there.
     aiCopyAvailable: platformCopyConfigured(),
-    quota: youtubeQuota(items, now, config, await listeningUnitsToday(now))
+    quota: youtubeQuota(items, now, config, await youtubeQuotaLedger.snapshot().catch(() => null))
   });
 }

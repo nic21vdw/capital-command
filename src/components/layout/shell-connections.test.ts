@@ -109,9 +109,15 @@ describe("shell account status recovery", () => {
     const accounts = parseAccountRows({ accounts: [youtube, {
       id: "linkedin-primary", platform: "linkedin", primary: true, connected: true,
       youtube: null, profile: { title: "New platform account", thumbnail: null }
+    }, {
+      id: "bluesky-primary", platform: "bluesky", primary: true, connected: true,
+      youtube: null, profile: { title: "Unknown platform account", thumbnail: null }
     }] });
     const state = summarize(accounts);
     expect(state).toMatchObject({ loaded: true, error: null, channel: { title: "Test channel" } });
-    expect(state.others.map((row) => row.platform)).toEqual(["instagram", "tiktok", "facebook"]);
+    expect(state.others.map((row) => row.platform)).toEqual(["instagram", "tiktok", "facebook", "linkedin"]);
+    expect(state.others.find((row) => row.platform === "linkedin")).toMatchObject({
+      connected: 1, profile: { title: "New platform account", thumbnail: null }
+    });
   });
 });

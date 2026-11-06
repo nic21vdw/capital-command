@@ -44,8 +44,8 @@ const holdAll = normalizeReviewPolicy(Object.fromEntries(REVIEW_CHANNELS.map((ch
 
 describe("review policy", () => {
   it("is auto on every channel by default", () => {
-    expect(REVIEW_CHANNELS).toEqual(["youtube", "instagram", "tiktok", "facebook", "threads"]);
-    expect(Object.values(DEFAULT_REVIEW_POLICY)).toEqual(["auto", "auto", "auto", "auto", "auto"]);
+    expect(REVIEW_CHANNELS).toEqual(["youtube", "instagram", "tiktok", "facebook", "threads", "linkedin"]);
+    expect(Object.values(DEFAULT_REVIEW_POLICY)).toEqual(["auto", "auto", "auto", "auto", "auto", "auto"]);
     expect(policyHolds(DEFAULT_REVIEW_POLICY)).toBe(false);
   });
 
@@ -142,6 +142,7 @@ describe("the saved policy", () => {
     expect(state.policy).toEqual(HOLD_EVERYTHING);
     expect(state.error).toMatch(/could not be read/i);
     expect(readReviewPolicy()).toEqual(HOLD_EVERYTHING);
+    expect(legAwaitingApproval(leg(), "linkedin", state.policy)).toBe(true);
   });
 
   it("holds every channel when the file is valid JSON but not a policy", async () => {

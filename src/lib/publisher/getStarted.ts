@@ -77,6 +77,8 @@ export function nextStep(connection: Connection, status: ConnectionStatus, state
     case "instagram":
     case "facebook":
       return "Needs a one-time developer step - open for the steps.";
+    case "linkedin":
+      return "Set LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET (steps in docs/LINKEDIN_SETUP.md), then sign in.";
     case "threads":
       return "Paste a long-lived Threads access token.";
     case "media-hosting":

@@ -205,7 +205,7 @@ export async function POST(request: NextRequest) {
         ticker: item.ticker,
         name: item.name,
         assetClass: item.assetClass,
-        account: "Wealthsimple TFSA",
+        account: "Investment account",
         quantity: 0,
         averageCost: item.targetBuyPrice ?? item.currentPrice ?? 0,
         currentPrice: item.currentPrice,

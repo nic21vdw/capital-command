@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { PERSONAL_GROUP_LABEL, PERSONAL_NAV, PERSONAL_ROUTE_PATHS, isPersonalRoute } from "../personal-routes";
 import { normalizeRoute } from "./protocol";
 import { CAPITAL_COMMAND_ROUTES, CAPITAL_COMMAND_SECONDARY_ROUTES, allRoutes, isKnownRoute, routeLabel } from "./routes";
 
@@ -105,6 +106,67 @@ describe("the card's route list against the app's sidebar", () => {
     expect(stubs).toEqual([]);
     for (const retired of ["/youtube", "/creator", "/notes", "/thumbnails", "/insights", "/goals", "/holdings", "/watchlist"]) {
       expect(isKnownRoute(retired)).toBe(false);
+    }
+  });
+});
+
+describe("personal finance is off the marketing surface", () => {
+  const componentSources = [
+    "finance/finance-page.tsx",
+    "finance/finances-page.tsx",
+    "holdings/holdings-page.tsx",
+    "watchlist/watchlist-page.tsx",
+    "goals/goals-page.tsx",
+    "dashboard/insights-page.tsx"
+  ].map((file) => ({ file, source: readFileSync(path.resolve(__dirname, "../../components", file), "utf8") }));
+
+  it("names every personal path", () => {
+    expect([...PERSONAL_ROUTE_PATHS]).toEqual(["/finance", "/holdings", "/watchlist", "/goals"]);
+    expect(PERSONAL_NAV).toEqual([{ href: "/finance", label: "Personal Finance" }]);
+    expect(PERSONAL_GROUP_LABEL).toBe("Personal");
+  });
+
+  it("recognises a personal path however it is written", () => {
+    expect(isPersonalRoute("/finance")).toBe(true);
+    expect(isPersonalRoute("/finance/")).toBe(true);
+    expect(isPersonalRoute("/holdings?tab=1")).toBe(true);
+    expect(isPersonalRoute("/clips")).toBe(false);
+    expect(isPersonalRoute("/")).toBe(false);
+  });
+
+  it("is in neither the card's route list nor its secondary list", () => {
+    for (const personal of PERSONAL_ROUTE_PATHS) {
+      expect(isKnownRoute(personal), personal).toBe(false);
+      expect(allRoutes().some((route) => route.path === personal), personal).toBe(false);
+    }
+    expect(allRoutes().some((route) => /finance/i.test(route.label))).toBe(false);
+  });
+
+  it("calls the page Personal if the host ever asks what it is", () => {
+    expect(routeLabel("/finance")).toBe("Personal");
+    expect(routeLabel("/holdings")).toBe("Personal");
+  });
+
+  it("keeps every page on disk, so it is still reachable by URL", () => {
+    for (const personal of PERSONAL_ROUTE_PATHS) {
+      expect(() => readFileSync(path.resolve(__dirname, "../../app", personal.slice(1), "page.tsx"), "utf8"), personal).not.toThrow();
+    }
+  });
+
+  it("is not a sidebar entry in the marketing groups", () => {
+    expect(sidebarEntries().filter((entry) => isPersonalRoute(entry.href))).toEqual([]);
+  });
+
+  it("is a collapsed Personal group in the sidebar, built from the personal nav", () => {
+    expect(SHELL).toContain("PERSONAL_NAV");
+    expect(SHELL).toContain("PERSONAL_GROUP_LABEL");
+    expect(SHELL).not.toMatch(/href:\s*"\/finance"/);
+  });
+
+  it("declares nothing to the canvas from any of its components, and none of them were deleted", () => {
+    for (const { file, source } of componentSources) {
+      expect(source.length, file).toBeGreaterThan(200);
+      expect(source, file).not.toContain("useColateralSurface");
     }
   });
 });

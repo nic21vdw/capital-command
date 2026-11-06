@@ -5,6 +5,7 @@ import { youtubeRefreshTokenFor } from "@/lib/publisher/googleAuth";
 import { fetchJson } from "@/lib/publisher/http";
 import { parseIso8601Duration } from "@/lib/ingest/classify";
 import type { ChannelUpload } from "@/lib/ingest/types";
+import { debitOrSkip } from "@/lib/youtube/quotaSpend";
 
 /**
  * Reads the channel's recent uploads for the daily ingest scan.
@@ -127,6 +128,7 @@ export async function scanChannelUploads(
 
   let channelId: string | null = null;
   try {
+    await debitOrSkip(1, "ingest");
     const channels = await fetchJson<{
       items?: Array<{ id?: string; contentDetails?: { relatedPlaylists?: { uploads?: string } } }>;
     }>(`${API}/channels?part=id,contentDetails&mine=true`, {
@@ -138,6 +140,7 @@ export async function scanChannelUploads(
     const uploadsPlaylist = channels.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
     if (!uploadsPlaylist) return { configured: true, needsReconnect: false, channelId, uploads: [] };
 
+    await debitOrSkip(1, "ingest");
     const playlist = await fetchJson<{ items?: Array<{ contentDetails?: { videoId?: string } }> }>(
       `${API}/playlistItems?part=contentDetails&playlistId=${encodeURIComponent(uploadsPlaylist)}&maxResults=${MAX_VIDEOS}`,
       { label: "YouTube uploads playlist", method: "GET", headers: auth }
@@ -149,6 +152,7 @@ export async function scanChannelUploads(
 
     // maxWidth makes YouTube return embedHeight for the video's real aspect —
     // the only aspect signal available without owner-only fileDetails.
+    await debitOrSkip(1, "ingest");
     const details = await fetchJson<{ items?: VideoResource[] }>(
       `${API}/videos?part=snippet,status,contentDetails,liveStreamingDetails,player&id=${ids.join(",")}` +
         `&maxWidth=480&maxResults=${MAX_VIDEOS}`,

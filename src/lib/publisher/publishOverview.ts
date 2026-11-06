@@ -123,6 +123,7 @@ export function platformTargetHint(
   if (target === "all") return `Books ${names.youtube}, ${names.tiktok}, ${names.instagram} and ${names.facebook} at this slot.`;
   if (target === "instagram") return `Books ${names.instagram}; the post goes to the ${names.facebook} Page too.`;
   if (target === "facebook") return `Books the ${names.facebook} Page only.`;
+  if (target === "linkedin") return `Books ${names.linkedin} only; it posts as the profile or company page chosen in Settings > Accounts.`;
   if (mirror?.enabled && target === mirror.lead) {
     const others = mirror.targets.filter((platform) => platform !== mirror.lead).map((platform) => names[platform]);
     if (others.length > 0) {
