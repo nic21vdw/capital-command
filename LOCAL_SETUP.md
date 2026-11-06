@@ -12,6 +12,10 @@ git clone https://github.com/nic21vdw/capital-command.git
 
 Open that checkout and double-click **`CoLateral Marketing.bat`**. The launcher uses the existing production startup script, installs missing dependencies, builds when needed, waits for the server to be ready and opens the app in its own window at <http://127.0.0.1:3000>.
 
+On macOS or Linux there is no launcher. From the checkout run `cp .env.example .env`, `npm ci`, `npm run build` and `npm start`, then open <http://127.0.0.1:3000>. `npm run dev` also works and is quicker to start, but compiles each screen the first time you open it.
+
+If you were given the public edition (a zip, not a clone), this file is not in it: start it with `Start CoLateral Marketing.bat` on Windows or `./start.sh` on macOS and Linux, which do the same steps as above.
+
 Run `npm run app:shortcut` from that production checkout to create the CoLateral Marketing Desktop and Start Menu shortcuts. Existing launchers and saved shortcuts remain compatible.
 
 ## Everyday use and updates
@@ -21,6 +25,15 @@ Open the app with the launcher or shortcut. Closing the app window leaves the se
 Finished source changes wait on `main`. They reach the running app when you choose **Check for updates**, then **Install and restart**. You can also double-click `Update CoLateral Marketing.bat`. Opening the app does not silently install every merged change.
 
 Development belongs in a separate sandbox worktree on port 3100; the production checkout stays on `main`. Read `AGENTS.md` before starting another server, registering scheduled tasks, or touching live queues.
+
+## Connecting accounts and keys
+
+The app opens with nothing connected, and every screen still loads. A screen that needs something you have not set up yet says what it needs and has a button that opens the right place in Settings:
+
+- **Settings > Accounts** for the platforms it posts to (YouTube, TikTok, Instagram, Facebook, LinkedIn, Threads), Spotify, and the storage bucket Instagram, Facebook and the podcast feed need.
+- **Settings > AI and services** for the optional paid services: OpenAI or xAI (Sourceflow Agents), fal.ai (Music Studio), ElevenLabs (Voiceover), Product Hunt (live stats on Launch Pad) and a DeepSeek key as a fallback for AI writing.
+
+AI writing (titles, captions, carousels, scripts, ideas, Threads posts) works without any key on a free model. Keys entered in Settings are saved to `data\credentials.json` on your PC and are used straight away, with no restart. A value set in `.env` always wins over one saved in Settings, so edit those in `.env`.
 
 ## Troubleshooting
 
@@ -40,8 +53,9 @@ long-form edit are made on the Long-Form Video screen.
      needs the whole multi-GB file).
   2. Reads the **full transcript end-to-end** and picks the strongest
      self-contained moments from **anywhere in the stream** (not just the start).
-     This uses Claude when `ANTHROPIC_API_KEY` is set in `.env`; without a key it
-     falls back to whole-stream audio-energy analysis (still fully offline).
+     This asks Claude Code when it is installed and signed in on the PC, then the
+     app's AI writer, which runs on a free model with no key; if no model answers
+     it falls back to whole-stream audio-energy analysis (still fully offline).
   3. Downloads only those ranges and renders each as a **9:16 vertical short**
      (Shorts/Reels/TikTok), rendering several clips in parallel so the whole
      job finishes much faster.

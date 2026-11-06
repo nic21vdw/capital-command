@@ -54,7 +54,7 @@ import { useAppData } from "@/components/providers/app-provider";
 import { useColateralBridge } from "@/components/providers/colateral-bridge-provider";
 import { StreamProvider, useStream } from "@/components/providers/stream-provider";
 import { PERSONAL_GROUP_LABEL, PERSONAL_NAV } from "@/lib/personal-routes";
-import { isRouteShipped } from "@/lib/edition";
+import { isPublicEdition, isRouteShipped } from "@/lib/edition";
 import { streamHref } from "@/lib/pipeline/streams";
 import { reconnectBlocker, signInVerifiable } from "@/lib/publisher/connections";
 import { PlatformIcon, PLATFORM_LABEL, type PlatformIconKey } from "@/components/ui/platform-icon";
@@ -1269,7 +1269,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
           </SidebarScroll>
 
           <div className="mt-3 space-y-1.5 border-t border-[var(--border)] pt-3">
-            <UpdateCheckButton collapsed={sidebarCollapsed} />
+            {isPublicEdition() ? null : <UpdateCheckButton collapsed={sidebarCollapsed} />}
             <NavLink
               item={SETTINGS_ITEM}
               active={settingsActive}
@@ -1282,7 +1282,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
       <main id="main-content" tabIndex={-1} className={cn("min-w-0 flex-1 focus:outline-none", frame && "app-frame-pane")}>
         {/* Above everything, on every page: a release waiting on `dev` is the
             one thing worth interrupting whatever is on screen for. */}
-        <UpdateBanner />
+        {isPublicEdition() ? null : <UpdateBanner />}
         {!hosted && <NarrowChrome key={`navigation:${pathname}`} pathname={pathname} />}
         {/* Keyed on the route so each navigation pushes the new page in with an
             iOS-style transition. Query-param changes (e.g. tab switches) keep

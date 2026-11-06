@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
       title,
       script,
       status: "failed",
-      error: "ELEVENLABS_API_KEY / ELEVENLABS_VOICE_ID are not set — add them to .env to generate voiceover.",
+      error: "Voiceover needs an ElevenLabs API key and voice ID. Add them in Settings, AI and services.",
       createdAt: now,
       updatedAt: now
     }) as Voiceover;

@@ -1,5 +1,7 @@
 "use client";
 
+import { serviceSetupHref } from "@/lib/setup/services";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, ExternalLink, Loader2, Plus, RefreshCw, Rocket, Trash2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
@@ -498,9 +500,11 @@ export function LaunchPage() {
 
             {!config.productHuntConfigured ? (
               <p className="mt-4 text-xs text-[var(--muted-foreground)]">
-                Live stats need a <span className="text-white">PRODUCT_HUNT_TOKEN</span> in <span className="text-white">.env.local</span>{" "}
-                — create a developer token under your Product Hunt account&apos;s API dashboard. Everything else on this page works
-                without it.
+                Live stats need a Product Hunt developer token.{" "}
+                <Link href={serviceSetupHref("product-hunt")} className="text-[var(--accent)] underline underline-offset-2">
+                  Add it in Settings
+                </Link>
+                . Everything else on this page works without it.
               </p>
             ) : null}
           </Card>
