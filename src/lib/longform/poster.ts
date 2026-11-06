@@ -24,10 +24,6 @@ export function generatedThumbnailName(exportId: string) {
   return `thumb-${exportId}.png`;
 }
 
-export function generatedThumbnailPath(projectId: string, exportId: string) {
-  return path.join(projectOutputDir(projectId), generatedThumbnailName(exportId));
-}
-
 export function posterExport(project: LongformProject): LongformExportRecord | null {
   const done = project.exports.filter((record) => record.status === "done" && record.file);
   if (done.length === 0) return null;

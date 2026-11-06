@@ -55,12 +55,6 @@ const SENTENCE_END = /[.!?]["')\]]?$/;
 /** A passage whose screen is blank this much of the time is not worth watching. */
 const BLANK_DROP_RATIO = 0.5;
 
-export const HIGHLIGHT_TARGETS = [
-  { id: "tight", label: "12 min", sec: 12 * 60 },
-  { id: "standard", label: "20 min", sec: 20 * 60 },
-  { id: "deep", label: "30 min", sec: 30 * 60 }
-] as const;
-
 export const DEFAULT_HIGHLIGHT_OPTIONS = {
   /** The runtime the edit aims for. Twenty minutes: long enough to be a real video, short enough to finish. */
   targetSec: 20 * 60,

@@ -302,7 +302,3 @@ export function buildLaunchPlan(launch: ProductLaunch, today: string): LaunchPla
 
 /** Every task id either list can hold. */
 export const ALL_LAUNCH_TASK_IDS: string[] = [...LAUNCH_PLAYBOOK, ...DIRECTORY_PLAYBOOK].map((task) => task.id);
-
-export function phaseTitle(phase: LaunchPhase) {
-  return PHASE_TITLES[phase];
-}

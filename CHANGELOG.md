@@ -14,6 +14,7 @@ already shipped.
 
 ## Unreleased
 
+- **About 4,000 lines of old screens nobody could open are gone.** The old Thumbnail Generator, Research notes, YouTube Studio, Creator, the old portfolio home page with its quote of the day, and the free voice panel had no route that showed them any more, so they are deleted along with helpers only they used. Every sidebar screen works as before, and the Personal Finance heading now matches its sidebar name.
 - **Cancellation checks keep unfinished synthetic exports out of the next test.** Each check now waits for its own work and assertions to settle before resetting shared test state. This changes validation only; the running app and export behavior are unchanged.
 - CoLateral Marketing can now be packaged as a free download for other people: `npm run package:marketing` builds a copy with no finance screens, no Segment Deck, none of your data or keys, and a blank brand kit, and refuses to finish if anything of yours slipped in. Your own app is unchanged.
 - **Your on-screen name card no longer says structural engineer.** The lower third in the Free AI Builds intro and the signal-free-ai-builds video now reads "Founder, Building CoLateral", so new videos keep your engineering day job out of the CoLateral brand.

@@ -29,7 +29,7 @@ export function FinancesPage() {
       <div className="space-y-6">
         <PageHeader
           eyebrow="Not enabled"
-          title="Personal finance"
+          title="Personal Finance"
           description="Billing, holdings, watchlist, goals and insights are turned off on this install."
         />
         <Card>

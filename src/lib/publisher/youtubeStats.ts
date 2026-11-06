@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { dataPath } from "@/lib/paths";
 import { atomicWriteJson } from "@/lib/storage/atomic-json";
-import { primaryAccountId } from "@/lib/publisher/accounts";
 import { youtubeAccessToken } from "@/lib/publisher/adapters/youtube";
 import { publisherConfig } from "@/lib/publisher/config";
 import { isYoutubeReconnectRequired, isYoutubeScopeInsufficient, youtubeRefreshTokenFor } from "@/lib/publisher/googleAuth";
@@ -255,8 +254,3 @@ export const liveStatsDeps: StatsDeps = {
   fetchStatistics: fetchStatisticsFromYoutube,
   failures
 };
-
-/** The primary YouTube account, for a request that names only video ids. */
-export function defaultYoutubeAccount(): string {
-  return primaryAccountId("youtube");
-}

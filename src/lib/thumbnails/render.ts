@@ -2,7 +2,7 @@ import { getStyle } from "@/lib/thumbnails/backgrounds";
 import { getAppleEmojiImage } from "@/lib/thumbnails/emoji";
 import { getFont, type FontOption } from "@/lib/thumbnails/fonts";
 import { lineWidth, tokenizeHighlights, wrapTokens, type Line, type Token } from "@/lib/thumbnails/text";
-import type { ImageLayer, Palette, Sticker, TextEmphasis, TextPosition, ThumbnailOptions, Transform } from "@/lib/thumbnails/types";
+import type { ImageLayer, Palette, Sticker, TextEmphasis, TextPosition, ThumbnailOptions } from "@/lib/thumbnails/types";
 import { effectiveOpacity, effectiveScaleY, INTENSITY_FACTOR, THUMB_HEIGHT as H, THUMB_WIDTH as W } from "@/lib/thumbnails/types";
 
 const SIZE_BASE: Record<ThumbnailOptions["size"], number> = {
@@ -311,25 +311,6 @@ function drawImageLayer(ctx: CanvasRenderingContext2D, layer: ImageLayer, palett
 /** Box size of an emoji glyph at scale 1, in canvas pixels. */
 const EMOJI_SIZE = 150;
 
-/**
- * Half-width/half-height of a sticker's bounding box at its current scale, kept
- * in sync with `drawSticker` so selection and hit-testing line up with the art.
- */
-function stickerHalfExtents(s: Sticker): { halfW: number; halfH: number } {
-  const scale = s.scale;
-  switch (s.type) {
-    case "circle":
-      return { halfW: 158 * scale, halfH: 122 * scale };
-    case "arrow":
-      return { halfW: 112 * scale, halfH: 40 * scale };
-    case "badge":
-      return { halfW: 106 * scale, halfH: 106 * scale };
-    case "emoji":
-    default:
-      return { halfW: (EMOJI_SIZE / 2) * scale, halfH: (EMOJI_SIZE / 2) * scale };
-  }
-}
-
 function drawSticker(ctx: CanvasRenderingContext2D, s: Sticker) {
   const cx = s.x * W;
   const cy = s.y * H;
@@ -397,91 +378,6 @@ function drawSticker(ctx: CanvasRenderingContext2D, s: Sticker) {
   ctx.restore();
 }
 
-/* -------------------------- layout & hit-testing -------------------------- */
-
-/** Axis-aligned-in-local-space bounds of a layer, in canvas pixels. */
-export type LayoutBox = {
-  id: string;
-  kind: "text" | "image" | "sticker";
-  cx: number;
-  cy: number;
-  halfW: number;
-  halfH: number;
-  rotation: number;
-};
-
-let measureCtx: CanvasRenderingContext2D | null = null;
-function getMeasureCtx(): CanvasRenderingContext2D {
-  if (!measureCtx) {
-    const canvas = typeof document !== "undefined" ? document.createElement("canvas") : null;
-    if (!canvas) throw new Error("Canvas is not available in this environment.");
-    measureCtx = canvas.getContext("2d");
-    if (!measureCtx) throw new Error("Canvas 2D is not supported in this browser.");
-  }
-  return measureCtx;
-}
-
-/**
- * Geometry of every movable layer in manual layout — images first (bottom),
- * text last (top). Used for both rendering order and hit-testing.
- */
-export function computeLayout(options: ThumbnailOptions): LayoutBox[] {
-  const boxes: LayoutBox[] = [];
-
-  options.images.forEach((layer) => {
-    const aspect = layer.image.height / layer.image.width;
-    const w = IMAGE_BASE_WIDTH * layer.transform.scale;
-    const h = IMAGE_BASE_WIDTH * effectiveScaleY(layer.transform) * aspect;
-    boxes.push({
-      id: layer.id,
-      kind: "image",
-      cx: layer.transform.x * W,
-      cy: layer.transform.y * H,
-      halfW: w / 2,
-      halfH: h / 2,
-      rotation: layer.transform.rotation
-    });
-  });
-
-  const text = options.uppercase ? options.text.toUpperCase() : options.text;
-  if (text.trim()) {
-    const ctx = getMeasureCtx();
-    const font = getFont(options.fontId);
-    const tokens = tokenizeHighlights(text.trim());
-    const textStyle: TextStyle = { bold: options.bold, italic: options.italic, underline: options.underline };
-    const { fontSize, lines } = fitTokens(ctx, tokens, SIZE_BASE[options.size] * options.textTransform.scale, W * 0.8, font, textStyle);
-    const lineHeight = fontSize * 1.14;
-    ctx.font = fontSpec(font, fontSize, textStyle);
-    const measure = (t: string) => ctx.measureText(t).width;
-    const widest = Math.max(0, ...lines.map((line) => lineWidth(line, measure)));
-    boxes.push({
-      id: "text",
-      kind: "text",
-      cx: options.textTransform.x * W,
-      cy: options.textTransform.y * H,
-      halfW: widest / 2 + 24,
-      halfH: (lines.length * lineHeight) / 2 + 16,
-      rotation: options.textTransform.rotation
-    });
-  }
-
-  // Stickers sit on top of everything else, so they hit-test first.
-  options.stickers.forEach((sticker) => {
-    const { halfW, halfH } = stickerHalfExtents(sticker);
-    boxes.push({
-      id: sticker.id,
-      kind: "sticker",
-      cx: sticker.x * W,
-      cy: sticker.y * H,
-      halfW,
-      halfH,
-      rotation: sticker.rotation
-    });
-  });
-
-  return boxes;
-}
-
 /* ------------------------------- main render ------------------------------ */
 
 /** Renders one 1280x720 thumbnail into the provided canvas (optionally scaled). */
@@ -532,206 +428,11 @@ export function renderThumbnail(canvas: HTMLCanvasElement, options: ThumbnailOpt
   for (const sticker of options.stickers) drawSticker(ctx, sticker);
 }
 
-/** Pixels (canvas space) the rotation handle sits above the box's top edge. */
-export const ROTATE_OFFSET = 46;
-/** Hit radius (canvas space) around a corner/rotation handle. */
-export const HANDLE_RADIUS = 22;
-
 /** The four resize corners. */
 export type Corner = "nw" | "ne" | "sw" | "se";
-export type HandleHit = Corner | "rotate";
-
-/** Local-space (unrotated, box-centered) positions of every handle. */
-function handlePositions(box: LayoutBox): Record<HandleHit, { x: number; y: number }> {
-  return {
-    nw: { x: -box.halfW, y: -box.halfH },
-    ne: { x: box.halfW, y: -box.halfH },
-    sw: { x: -box.halfW, y: box.halfH },
-    se: { x: box.halfW, y: box.halfH },
-    rotate: { x: 0, y: -box.halfH - ROTATE_OFFSET }
-  };
-}
-
-/** Transform a canvas-space point into the box's local (unrotated) frame. */
-function toLocal(box: LayoutBox, px: number, py: number): { x: number; y: number } {
-  const angle = (-box.rotation * Math.PI) / 180;
-  const dx = px - box.cx;
-  const dy = py - box.cy;
-  return { x: dx * Math.cos(angle) - dy * Math.sin(angle), y: dx * Math.sin(angle) + dy * Math.cos(angle) };
-}
-
-/**
- * Renders the thumbnail plus interactive editing chrome (selection outline,
- * resize corners, and a rotation handle) for the selected layer. Returns the
- * layout for hit-testing.
- */
-export function renderEditor(canvas: HTMLCanvasElement, options: ThumbnailOptions, selectedId: string | null): LayoutBox[] {
-  renderThumbnail(canvas, options);
-  const ctx = canvas.getContext("2d");
-  const layout = computeLayout(options);
-  if (!ctx) return layout;
-
-  const selected = layout.find((box) => box.id === selectedId);
-  if (selected) {
-    const accent = "#7ee9f2";
-    ctx.save();
-    ctx.translate(selected.cx, selected.cy);
-    ctx.rotate((selected.rotation * Math.PI) / 180);
-
-    // Selection outline.
-    ctx.strokeStyle = accent;
-    ctx.lineWidth = 4;
-    ctx.setLineDash([14, 10]);
-    ctx.strokeRect(-selected.halfW, -selected.halfH, selected.halfW * 2, selected.halfH * 2);
-    ctx.setLineDash([]);
-
-    // Rotation handle: a stalk rising from the top edge to a round grip.
-    const rot = handlePositions(selected).rotate;
-    ctx.beginPath();
-    ctx.moveTo(0, -selected.halfH);
-    ctx.lineTo(rot.x, rot.y);
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(rot.x, rot.y, 12, 0, Math.PI * 2);
-    ctx.fillStyle = "#0b0e08";
-    ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = accent;
-    ctx.stroke();
-
-    // Resize corners.
-    ctx.fillStyle = accent;
-    for (const corner of ["nw", "ne", "sw", "se"] as Corner[]) {
-      const p = handlePositions(selected)[corner];
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 11, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-  return layout;
-}
-
-/** Hit-test a canvas-space point against a layout box, accounting for rotation. */
-export function hitTest(box: LayoutBox, px: number, py: number): boolean {
-  const local = toLocal(box, px, py);
-  return Math.abs(local.x) <= box.halfW && Math.abs(local.y) <= box.halfH;
-}
-
-/**
- * If `px`/`py` (canvas space) lands on one of the selected box's handles,
- * return which one; otherwise null. Used to start a resize or rotate gesture.
- */
-export function hitTestHandle(box: LayoutBox, px: number, py: number): HandleHit | null {
-  const local = toLocal(box, px, py);
-  const handles = handlePositions(box);
-  let best: HandleHit | null = null;
-  let bestDist = HANDLE_RADIUS;
-  for (const key of Object.keys(handles) as HandleHit[]) {
-    const p = handles[key];
-    const dist = Math.hypot(local.x - p.x, local.y - p.y);
-    if (dist <= bestDist) {
-      best = key;
-      bestDist = dist;
-    }
-  }
-  return best;
-}
-
-/* --------------------------------- variants ------------------------------- */
-
-export type VariantSpec = {
-  label: string;
-  options: ThumbnailOptions;
-};
-
-/** Small deterministic PRNG so generated variants are reproducible. */
-function mulberry32(seed: number): () => number {
-  return () => {
-    seed |= 0;
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-const VARIANT_COUNT = 10;
-
-/**
- * Builds ten variants of the current setup. The first keeps the user's layout;
- * the rest place the text and images at varied positions and rotations.
- */
-export function buildVariants(base: ThumbnailOptions): VariantSpec[] {
-  const style = getStyle(base.style);
-  const paletteCount = style.palettes.length;
-  const emphasisCycle: TextEmphasis[] = ["highlight-bar", "outline", "boxed", "clean"];
-
-  return Array.from({ length: VARIANT_COUNT }, (_, i) => {
-    const paletteIndex = (base.paletteIndex + i) % paletteCount;
-    const emphasis = i === 0 ? base.emphasis : emphasisCycle[(emphasisCycle.indexOf(base.emphasis) + i) % emphasisCycle.length];
-
-    if (i === 0) {
-      return {
-        label: `Variant A — ${style.palettes[paletteIndex].name}`,
-        options: { ...base, paletteIndex, emphasis }
-      };
-    }
-
-    const rand = mulberry32(i * 101 + 7);
-    const between = (min: number, max: number) => min + rand() * (max - min);
-
-    const textTransform: Transform = {
-      x: between(0.24, 0.5),
-      y: between(0.22, 0.78),
-      scale: between(0.85, 1.25),
-      rotation: rand() < 0.45 ? between(-9, 9) : 0
-    };
-
-    const images = base.images.map((layer, index) => ({
-      ...layer,
-      transform: {
-        x: between(0.45, 0.92),
-        y: between(0.2, 0.82),
-        scale: between(0.45, 1) * (index === 0 ? 1.1 : 1),
-        rotation: between(-14, 14)
-      }
-    }));
-
-    return {
-      label: `Variant ${String.fromCharCode(65 + i)} — ${style.palettes[paletteIndex].name}`,
-      options: { ...base, paletteIndex, emphasis, manualLayout: true, textTransform, images }
-    };
-  });
-}
 
 export function renderToDataUrl(options: ThumbnailOptions, format: "png" | "jpeg" = "png", scale = 1): string {
   const canvas = document.createElement("canvas");
   renderThumbnail(canvas, options, scale);
-  return canvas.toDataURL(format === "png" ? "image/png" : "image/jpeg", 0.92);
-}
-
-/**
- * Render the thumbnail at an explicit pixel size. The 1280×720 composition is
- * scaled to fill the requested dimensions, so the export matches the on-screen
- * preview exactly (at 16:9 it's pixel-proportional; other ratios stretch to fit).
- */
-export function renderToSizedDataUrl(
-  options: ThumbnailOptions,
-  width: number,
-  height: number,
-  format: "png" | "jpeg" = "png"
-): string {
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(width));
-  canvas.height = Math.max(1, Math.round(height));
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Canvas 2D is not supported in this browser.");
-  // Paint the composition full-res, then blit it scaled to the target size so
-  // the export matches the preview regardless of the requested dimensions.
-  const full = document.createElement("canvas");
-  renderThumbnail(full, options, 2);
-  ctx.drawImage(full, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL(format === "png" ? "image/png" : "image/jpeg", 0.92);
 }
