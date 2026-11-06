@@ -4,6 +4,7 @@ import path from "node:path";
 import { dataPath } from "@/lib/paths";
 import { writeAppData } from "@/lib/storage/store";
 import type { AppData, ClipProject } from "@/types/domain";
+import { isActiveClipProject } from "./project-visibility";
 
 /**
  * Image overlays used to carry their picture inline as a data URL. One
@@ -142,6 +143,7 @@ export async function externalizeAllOverlays(
   let changed = false;
   const next = await Promise.all(
     projects.map(async (project) => {
+      if (!isActiveClipProject(project)) return project;
       const moved = await externalizeProjectOverlays(project);
       if (moved !== project) changed = true;
       return moved;

@@ -19,6 +19,8 @@ export type PipelinePost = {
 };
 
 export type PipelineRunStatus =
+  /** A Site source saved for preparation; no download, render or schedule has started. */
+  | "draft"
   /** The source video is still downloading from the pasted link. */
   | "ingesting"
   /** The source exists; stages are fanning out and advancing. */
@@ -28,6 +30,8 @@ export type PipelineRunStatus =
 
 export type PipelineRun = {
   id: string;
+  /** Durable source command receipt in this existing ledger, never a second queue. */
+  marketingSource?: import("./marketing-drafts").MarketingSourceState;
   /** Display name — the stream title once known, otherwise what was typed. */
   name: string;
   status: PipelineRunStatus;

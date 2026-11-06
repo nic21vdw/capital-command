@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { bulkBookingLabel, bulkBookingParts, planAutoAssign, type ShortsCap } from "@/components/uploading-center/bulk";
 import { ClipCard, HashtagChip, SUGGESTED_HASHTAGS } from "@/components/uploading-center/clip-card";
+import type { ExperimentContext } from "@/components/uploading-center/experiment-panel";
 import { captionSummary, hashtagSummary, runHashtags, type RunDefaults } from "@/components/uploading-center/run-defaults";
 import {
   PLATFORM_TARGET_LABELS,
@@ -67,7 +68,8 @@ export function ClipQueue({
   timeZone,
   aiCopyAvailable,
   onShowOnBoard,
-  isConnected
+  isConnected,
+  experiment
 }: {
   jobs: ClipJob[];
   activeJob: ClipJob | null;
@@ -128,6 +130,8 @@ export function ClipQueue({
   onShowOnBoard?: (item: QueueItem) => void;
   /** Whether a post's account on a platform is connected (the booked row's status words). */
   isConnected?: (platform: PlatformId, accountId: string) => boolean;
+  /** Test titles on each card: the accounts the posts go to, why testing is unavailable, and what to do once it books. */
+  experiment?: ExperimentContext;
 }) {
   const autoAssigning = busy === "auto-assign";
   const writingCaptions = busy === "captions-all";
@@ -407,6 +411,7 @@ export function ClipQueue({
               onTailorCaption={() => onTailorCaption(clip)}
               tailoring={busy === `tailor:${clip.key}` || writingCaptions}
               captionError={captionFailures[clip.key]}
+              experiment={experiment}
             />
           ))}
         </div>

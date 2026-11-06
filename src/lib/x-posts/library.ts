@@ -25,7 +25,7 @@ export const POST_LIBRARY: LibraryPost[] = [
     format: "framework",
     topic: "one real task before more screens",
     text: "Before adding another screen to your AI app, try one real task from start to finish. The awkward step tells you what to build next.",
-    threadsVariant: "Watching a build stream can make the next feature feel obvious. Try the small workflow yourself first: put something in, get a result, fix a mistake. The point where you hesitate is a useful place to spend your next session."
+    threadsVariant: "Watching a build stream can make the next feature feel obvious. Try the small tool yourself first: put something in, get a result, fix a mistake. The point where you hesitate is a useful place to spend your next session."
   },
   {
     format: "question",

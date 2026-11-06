@@ -18,7 +18,8 @@ import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { ClipEditor } from "@/components/editor/clip-editor";
 import { clearDraftProject, readDraftProject, writeDraftProject } from "@/components/editor/drafts";
 import { EditorExportsProvider } from "@/components/editor/exports-provider";
-import { clipProjectReadKey, currentClipProjectDetail, loadClipLibrary, loadFullClipProject, selectClipProject } from "@/components/editor/clip-library";
+import { clipProjectReadKey, currentClipProjectDetail, loadClipLibrary, loadClipProjectForEditor, selectClipProject } from "@/components/editor/clip-library";
+import { activeClipProjects } from "@/lib/clipping/project-visibility";
 import { WorkflowLoadNotice } from "@/components/marketing/workflow-load-notice";
 import { workflowLoadMessage } from "@/lib/marketing/workflow-resource";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
@@ -64,7 +65,7 @@ function projectFromClip(
 
 export function ClipEditorPage() {
   const { data, mutate, loading } = useAppData();
-  const projects = data.clipProjects;
+  const projects = useMemo(() => activeClipProjects(data.clipProjects), [data.clipProjects]);
   const searchParams = useSearchParams();
   // Allow deep-linking straight into a project (e.g. from the Clip Generator).
   const [openSelection, setOpenSelection] = useState(() => ({ id: searchParams.get("open"), generation: 0 }));
@@ -123,7 +124,6 @@ export function ClipEditorPage() {
     confirmed: boolean;
   } | null>(null);
   const [projectAttempt, setProjectAttempt] = useState(0);
-  const needsCaptions = Boolean(openProject?.captionsOmitted);
   const openProjectId = openProject?.id ?? null;
   const readKey = clipProjectReadKey(openProject, openSelection.generation, projectAttempt);
   const loadedForOpen = currentClipProjectDetail(loadedProject, readKey);
@@ -135,7 +135,7 @@ export function ClipEditorPage() {
       let project: ClipProject | null = null;
       let error: string | null = null;
       try {
-        project = needsCaptions ? await loadFullClipProject(openProjectId, controller.signal) : await Promise.resolve(openProject);
+        project = await loadClipProjectForEditor(openProject!, controller.signal);
       } catch (cause) {
         error = workflowLoadMessage(cause);
       }
@@ -145,9 +145,9 @@ export function ClipEditorPage() {
       cancelled = true;
       controller.abort();
     };
-  }, [draftReady, loadedForOpen, needsCaptions, openProject, openProjectId, readKey, selectedProject.confirmed]);
+  }, [draftReady, loadedForOpen, openProject, openProjectId, readKey, selectedProject.confirmed]);
   const editorProject = draftReady ? loadedForOpen?.project ?? null : null;
-  const captionsError = needsCaptions ? loadedForOpen?.error ?? null : null;
+  const captionsError = loadedForOpen?.error ?? null;
 
   const jobsById = useMemo(() => new Map(jobs.map((job) => [job.id, job])), [jobs]);
   const renderableJobs = useMemo(

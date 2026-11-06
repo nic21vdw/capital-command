@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowDown, ArrowUp, AtSign, ExternalLink, Info, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -8,8 +8,13 @@ import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { ExperimentsSection } from "@/components/performance/experiments-section";
+import { SuggestedSlotsCard } from "@/components/performance/suggested-slots-card";
 import { PlatformIcon } from "@/components/ui/platform-icon";
 import { Select } from "@/components/ui/select";
+import type { BestTimesResponse } from "@/lib/analytics/bestTimesApi";
+import { cadenceFromSuggestion } from "@/lib/analytics/bestTimesApply";
+import { accountOptionKey, defaultAccountKey } from "@/lib/analytics/bestTimesView";
 import type { PlatformTotals, PostRow, SortKey } from "@/lib/analytics/query";
 import type { AnalyticsReport } from "@/lib/analytics/report";
 import { PERFORMANCE_RANGES, PERFORMANCE_SORTS, buildPerformanceSurface, type PerformanceRange } from "@/lib/analytics/surface";
@@ -25,6 +30,7 @@ import {
   type PerformanceView
 } from "@/lib/analytics/view";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
+import type { ExperimentReport } from "@/lib/experiments/evaluate";
 import { compactCount } from "@/lib/publisher/youtubeStatsShared";
 import { cn } from "@/lib/utils";
 
@@ -327,7 +333,8 @@ export function PerformanceBody({
   onPlatform,
   onRange,
   onMore,
-  empty
+  empty,
+  extras
 }: {
   derived: DerivedPerformance;
   view: PerformanceView;
@@ -337,6 +344,7 @@ export function PerformanceBody({
   onRange: (range: PerformanceRange) => void;
   onMore: () => void;
   empty: boolean;
+  extras?: ReactNode;
 }) {
   const { rows, top, totals } = derived;
   return (
@@ -344,6 +352,7 @@ export function PerformanceBody({
       <TotalsSection title="Last 7 days" totals={totals.last7} />
       <TotalsSection title="Last 28 days" totals={totals.last28} />
       <TopCards rows={top} />
+      {extras}
 
       <section aria-label="All posts">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
@@ -459,6 +468,10 @@ export function PerformancePage() {
   const wasRunning = useRef(false);
   const [reloads, setReloads] = useState(0);
   const reload = useCallback(() => setReloads((count) => count + 1), []);
+  const [experiments, setExperiments] = useState<{ state: LoadState; reports: ExperimentReport[] }>({ state: "loading", reports: [] });
+  const [bestTimes, setBestTimes] = useState<{ state: LoadState; report: BestTimesResponse | null }>({ state: "loading", report: null });
+  const [slotsTarget, setSlotsTarget] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -477,6 +490,36 @@ export function PerformancePage() {
       });
     return () => controller.abort();
   }, [wantsAll, reloads]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/experiments", { cache: "no-store", signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<{ experiments: ExperimentReport[] }>;
+      })
+      .then((body) => setExperiments({ state: "ready", reports: body.experiments }))
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setExperiments((current) => (current.state === "ready" ? current : { state: "error", reports: [] }));
+      });
+    return () => controller.abort();
+  }, [reloads]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/analytics/best-times", { cache: "no-store", signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<BestTimesResponse>;
+      })
+      .then((body) => setBestTimes({ state: "ready", report: body }))
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setBestTimes((current) => (current.state === "ready" ? current : { state: "error", report: null }));
+      });
+    return () => controller.abort();
+  }, [reloads]);
 
   const running = report?.sync.running ?? false;
   useEffect(() => {
@@ -506,6 +549,34 @@ export function PerformancePage() {
     reload();
   }, [reload]);
 
+  const selectedSlots = useMemo(() => {
+    const accounts = bestTimes.report?.accounts ?? [];
+    return accounts.find((account) => accountOptionKey(account) === slotsTarget) ?? accounts.find((account) => accountOptionKey(account) === defaultAccountKey(accounts)) ?? null;
+  }, [bestTimes.report, slotsTarget]);
+
+  const applySuggestedSlots = useCallback(async () => {
+    const input = selectedSlots ? cadenceFromSuggestion(selectedSlots) : null;
+    if (!input || applying) return false;
+    setApplying(true);
+    try {
+      const response = await fetch("/api/automations/cadence", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input)
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+      toast.success("Posting times updated. Posts already booked keep the time they have.");
+      reload();
+      return true;
+    } catch (error) {
+      toast.error(`Could not change the posting times: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    } finally {
+      setApplying(false);
+    }
+  }, [applying, reload, selectedSlots]);
+
   const now = useMemo(() => (report ? new Date(report.generatedAt) : new Date(0)), [report]);
   const derived = useMemo(() => (report ? derivePerformance(report, view, now) : null), [report, view, now]);
 
@@ -517,7 +588,15 @@ export function PerformancePage() {
     );
   }, []);
 
-  const surface = buildPerformanceSurface({ state, report, now, view, shown: derived?.rows.length ?? 0 });
+  const surface = buildPerformanceSurface({
+    state,
+    report,
+    now,
+    view,
+    shown: derived?.rows.length ?? 0,
+    experiments: { ...experiments, timeZone: bestTimes.report?.timeZone },
+    slots: { state: bestTimes.state, report: bestTimes.report, target: selectedSlots ? accountOptionKey(selectedSlots) : null, applying }
+  });
   useColateralSurface({
     route: "/performance",
     title: "Performance",
@@ -536,9 +615,18 @@ export function PerformancePage() {
         setView((current) => ({ ...current, sort: text as SortKey, direction: defaultDirection(text as SortKey) }));
         return true;
       }
+      if (id === "slots-account" && bestTimes.report?.accounts.some((account) => accountOptionKey(account) === text)) {
+        setSlotsTarget(text);
+        return true;
+      }
       return false;
     },
     click: (id) => {
+      if (id === "use-slots") {
+        if (!selectedSlots || !cadenceFromSuggestion(selectedSlots) || applying) return false;
+        void applySuggestedSlots();
+        return true;
+      }
       if (id !== "sync-now" || running) return false;
       void syncNow();
       return true;
@@ -601,6 +689,19 @@ export function PerformancePage() {
           }}
           onMore={() => setShown((current) => current + PAGE_SIZE)}
           empty={report.posts.length === 0}
+          extras={
+            <>
+              <SuggestedSlotsCard
+                state={bestTimes.state}
+                report={bestTimes.report}
+                target={selectedSlots ? accountOptionKey(selectedSlots) : null}
+                onTarget={setSlotsTarget}
+                applying={applying}
+                onApply={() => void applySuggestedSlots()}
+              />
+              <ExperimentsSection state={experiments.state} reports={experiments.reports} timeZone={bestTimes.report?.timeZone ?? "UTC"} />
+            </>
+          }
         />
       ) : null}
     </div>

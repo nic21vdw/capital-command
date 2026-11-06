@@ -8,8 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { LinkedinAuthorPicker } from "@/components/layout/linkedin-author-picker";
 import { PlatformIcon, type PlatformIconKey } from "@/components/ui/platform-icon";
 import { CONNECTIONS, type Connection, type ConnectionField } from "@/lib/publisher/connections";
+import type { ThreadsCredentialRecovery } from "@/lib/threads/credentialRecovery";
 import {
   clearConnectFailure,
   explainConnectError,
@@ -40,6 +42,7 @@ type ConnectionState = {
   connected: Record<string, boolean>;
   /** The redirect URI to register in each provider's console. */
   redirectUris?: Record<string, string>;
+  threadsRecovery?: ThreadsCredentialRecovery;
 };
 
 const PLATFORM_COLORS: Record<string, string> = {
@@ -48,6 +51,7 @@ const PLATFORM_COLORS: Record<string, string> = {
   spotify: "text-[#75dc91] bg-[#1db954]/15",
   instagram: "text-[#f58fbd] bg-[#e1306c]/15",
   facebook: "text-[#7fb4ff] bg-[#1877f2]/15",
+  linkedin: "text-[#6db4ff] bg-[#0a66c2]/20",
   threads: "text-white bg-white/10",
   "media-hosting": "text-[#9fd3ff] bg-[#4f9bff]/15"
 };
@@ -275,17 +279,37 @@ function FailureNote({ connection, raw, onDismiss }: { connection: Connection; r
   );
 }
 
+export function ThreadsRecoveryNotice({ recovery }: { recovery?: ThreadsCredentialRecovery }) {
+  return (
+    <div className="mb-4 space-y-2 rounded-lg border border-amber-300/20 bg-amber-300/10 p-3 text-xs text-amber-100" role="status">
+      <p className="font-semibold">Recover the Threads connection</p>
+      <p>{recovery?.control === "paused"
+        ? "Last checked: Threads is paused. The server checks the saved pause again when saving."
+        : recovery?.control === "unreadable"
+          ? "The saved pause state could not be read. Repair the automation controls before changing credentials."
+          : "Pause Threads in Automations before changing credentials, then refresh the pause state here."}</p>
+      {recovery?.envOwnedFields.length ? (
+        <p>{recovery.envOwnedFields.join(", ")} {recovery.envOwnedFields.length === 1 ? "is" : "are"} set in .env. Settings cannot replace {recovery.envOwnedFields.length === 1 ? "it" : "them"}. The owner must replace credentials at their source and restart the app while Threads stays paused.</p>
+      ) : <p>Paste a replacement token here only after pausing. Saving credentials does not verify them.</p>}
+      <p>Pausing cannot recall a provider request already in flight. Review pending, failed and uncertain sends on Threads Autopilot before separately resuming. Saving does not run or retry the queue.</p>
+      <Link href="/automations" className="inline-flex py-1 text-[var(--accent)] hover:underline">Open Automations</Link>
+    </div>
+  );
+}
+
 /** One credential input: masked, never showing the saved value, and honest about where it lives. */
 function FieldInput({
   field,
   state,
   drafts,
-  setDrafts
+  setDrafts,
+  disabled = false
 }: {
   field: ConnectionField;
   state: ConnectionState;
   drafts: Record<string, string>;
   setDrafts: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  disabled?: boolean;
 }) {
   const present = Boolean(state.present[field.name]);
   const source = state.sources?.[field.name] ?? null;
@@ -299,18 +323,18 @@ function FieldInput({
         type="password"
         autoComplete="off"
         spellCheck={false}
-        disabled={fromEnv}
+        disabled={fromEnv || disabled}
         value={drafts[field.name] ?? ""}
         placeholder={fromEnv ? "Set in .env" : present ? "Saved" : "Enter value"}
         onChange={(event) => setDrafts((current) => ({ ...current, [field.name]: event.target.value }))}
       />
       {field.hint ? <span className="mt-1 block">{field.hint}</span> : null}
       {fromEnv ? (
-        <span className="mt-1 block text-amber-200/90">Set in .env - edit it there.</span>
+        <span className="mt-1 block text-amber-200/90">{field.name.startsWith("THREADS_") ? "Environment-owned. Follow the recovery steps above before replacing it." : "Set in .env - edit it there."}</span>
       ) : present ? (
         <>
           {source === "saved" ? <span className="mt-1 block">Saved in Settings.</span> : null}
-          <button type="button" className="mt-1 text-[var(--accent)] hover:underline" onClick={() => setDrafts((current) => ({ ...current, [field.name]: "" }))}>
+          <button type="button" disabled={disabled} className="mt-1 text-[var(--accent)] hover:underline disabled:opacity-50" onClick={() => setDrafts((current) => ({ ...current, [field.name]: "" }))}>
             {field.name in drafts && !drafts[field.name] ? "Will remove when saved" : "Remove saved value"}
           </button>
         </>
@@ -431,8 +455,9 @@ export function ConnectionsSettings() {
         body: JSON.stringify({ values })
       });
       const body = (await response.json()) as ConnectionState & { error?: string };
+      if (body.threadsRecovery) setState((current) => ({ ...current, threadsRecovery: body.threadsRecovery }));
       if (!response.ok) throw new Error(body.error ?? String(response.status));
-      setState({ present: body.present, sources: body.sources, connected: body.connected, redirectUris: body.redirectUris });
+      setState({ present: body.present, sources: body.sources, connected: body.connected, redirectUris: body.redirectUris, threadsRecovery: body.threadsRecovery });
       setDrafts((current) => {
         const next = { ...current };
         for (const field of connection.fields) delete next[field.name];
@@ -440,7 +465,9 @@ export function ConnectionsSettings() {
       });
       setFailures(clearConnectFailure(connection.id));
       toast.success(
-        connection.oauth
+        connection.id === "threads"
+          ? "Threads credentials saved without verification. Saving did not resume delivery."
+          : connection.oauth
           ? state.connected[connection.id] ? "Credentials saved." : "Credentials saved. Sign in to finish connecting."
           : "Saved, but not verified: nothing here checks it until a post goes out."
       );
@@ -487,6 +514,7 @@ export function ConnectionsSettings() {
           const connected = ready && state.connected[connection.id];
           const open = expanded === connection.id;
           const dirty = connection.fields.some((field) => field.name in drafts);
+          const threadsSaveBlocked = connection.id === "threads" && (loadFailed || state.threadsRecovery?.control !== "paused");
           // A pasted token is only a token: nothing here proves it works, so a
           // platform with no sign-in never turns green on save.
           const status = connectionStatus(connection, state, { loaded, loadFailed });
@@ -532,9 +560,15 @@ export function ConnectionsSettings() {
                             "Add the credentials for this account and save them."}
                   </p>
                   {redirectUri ? <RedirectUri connection={connection} uri={redirectUri} /> : null}
+                  {connection.id === "threads" ? (
+                    <>
+                      <ThreadsRecoveryNotice recovery={loadFailed ? undefined : state.threadsRecovery} />
+                      <Button variant="secondary" className="mb-4" onClick={() => void load()}>Refresh pause state</Button>
+                    </>
+                  ) : null}
                   <div className="grid gap-3 sm:grid-cols-2">
                     {requiredFields(connection).map((field) => (
-                      <FieldInput key={field.name} field={field} state={state} drafts={drafts} setDrafts={setDrafts} />
+                      <FieldInput key={field.name} field={field} state={state} drafts={drafts} setDrafts={setDrafts} disabled={threadsSaveBlocked} />
                     ))}
                   </div>
                   {connection.fields.some((field) => field.optional) ? (
@@ -542,22 +576,37 @@ export function ConnectionsSettings() {
                       <summary className="cursor-pointer text-white/90 max-sm:flex max-sm:min-h-10 max-sm:items-center">Optional fields</summary>
                       <div className="mt-3 grid gap-3 sm:grid-cols-2">
                         {connection.fields.filter((field) => field.optional).map((field) => (
-                          <FieldInput key={field.name} field={field} state={state} drafts={drafts} setDrafts={setDrafts} />
+                          <FieldInput key={field.name} field={field} state={state} drafts={drafts} setDrafts={setDrafts} disabled={threadsSaveBlocked} />
                         ))}
                       </div>
                     </details>
                   ) : null}
-                  {connection.manualNote ? <p className="mt-4 text-xs text-amber-200/90">{connection.manualNote}</p> : null}
+                  {connection.manualNote && connection.id !== "threads" ? <p className="mt-4 text-xs text-amber-200/90">{connection.manualNote}</p> : null}
+                  {connection.setup ? (
+                    <p className={cn("mt-4 text-xs", ready ? "text-[var(--muted-foreground)]" : "text-amber-200/90")}>
+                      {ready ? null : <>{connection.setup.whenUnset}{" "}</>}
+                      <a href={connection.setup.href} target="_blank" rel="noreferrer" className="text-[var(--accent)] hover:underline">
+                        Setup guide: {connection.setup.doc}
+                      </a>
+                    </p>
+                  ) : null}
                   {connection.notes?.map((note) => (
                     <p key={note} className="mt-2 text-xs text-[var(--muted-foreground)]">{note}</p>
                   ))}
+                  {connection.id === "linkedin" && connected ? <LinkedinAuthorPicker /> : null}
                   <div className="mt-5 flex flex-wrap items-center gap-2">
-                    <Button onClick={() => void save(connection)} disabled={!dirty || saving === connection.id}>
+                    <Button onClick={() => void save(connection)} disabled={!dirty || saving === connection.id || threadsSaveBlocked}>
                       {saving === connection.id ? "Saving..." : "Save credentials"}
                     </Button>
                     {connection.oauth && ready ? (
                       <a href={connection.oauth.href} className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] bg-white/5 px-4 py-2 text-sm font-medium text-white hover:bg-white/10">
                         {connected ? "Reconnect" : connection.oauth.label}
+                        <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                      </a>
+                    ) : null}
+                    {connection.id === "linkedin" && ready ? (
+                      <a href="/api/auth/linkedin?pages=1" className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] bg-white/5 px-4 py-2 text-sm font-medium text-white hover:bg-white/10">
+                        Connect with company pages
                         <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                       </a>
                     ) : null}

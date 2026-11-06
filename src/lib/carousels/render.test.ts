@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { attachSlideImages, IMAGE_SLIDE_LAYOUT } from "@/lib/carousels/imageSlides";
+import { attachSlideBackdrops, attachSlideImages, IMAGE_SLIDE_LAYOUT } from "@/lib/carousels/imageSlides";
 import { aspectSpec, COLATERAL_THEME, FRAME_POSITION, FRAME_ZOOM, renderSlideCanvas, setSlideSignature, setSlideTheme, SLIDE_THEMES, slideLayout } from "@/lib/carousels/render";
 import { attachHookBackdrop } from "@/lib/carousels/imageSlides";
 import type { CarouselSlide } from "@/types/domain";
@@ -15,6 +15,7 @@ type Painted = { x: number; y: number; w: number; h: number };
 
 const drawnText: Drawn[] = [];
 const drawnImages: Painted[] = [];
+const drawnRects: Painted[] = [];
 
 const CHROME = /^(\d+\/\d+|CoLateral|colateralai\.com|Try it at colateralai\.com|\d{2}|WHAT'S NEXT|Swipe|Next|Follow .*)$/;
 const isCopy = (line: Drawn) => !CHROME.test(line.text.trim());
@@ -28,7 +29,7 @@ function recordingContext() {
     textAlign: "left" as CanvasTextAlign,
     createLinearGradient: () => gradient,
     createRadialGradient: () => gradient,
-    fillRect: () => undefined,
+    fillRect: (x: number, y: number, w: number, h: number) => drawnRects.push({ x, y, w, h }),
     fill: () => undefined,
     // Roughly proportional, so wrapText splits long copy like a real font would.
     measureText: (text: string) => ({ width: text.length * 24 }),
@@ -51,6 +52,7 @@ function recordingContext() {
 beforeEach(() => {
   drawnText.length = 0;
   drawnImages.length = 0;
+  drawnRects.length = 0;
   Object.assign(globalThis, {
     document: {
       createElement: () => {
@@ -158,6 +160,68 @@ describe("photo slide geometry", () => {
   });
 });
 
+describe("centered copy under a picture", () => {
+  const centeredCopy = { id: "centered", heading: "A **Shared Plan**", body: "Keep the brief beside the draft." };
+
+  function expectCenteredLines(width: number) {
+    const lines = new Map<number, Drawn[]>();
+    for (const line of drawnText.filter(isCopy)) lines.set(line.y, [...(lines.get(line.y) ?? []), line]);
+    expect(lines.size).toBeGreaterThan(0);
+    for (const parts of lines.values()) {
+      const left = Math.min(...parts.map((part) => part.x));
+      const right = Math.max(...parts.map((part) => part.x + part.text.length * 24));
+      expect((left + right) / 2).toBeCloseTo(width / 2, 5);
+    }
+  }
+
+  it("centers each complete line, including its bold segments, in a photo band", async () => {
+    setSlideSignature({ name: "", handle: "" });
+    const [slide] = attachSlideImages([centeredCopy], [{ id: "center.png", url: "/center.png" }]);
+    await renderSlideCanvas(slide, 1, 4, "portrait");
+    expectCenteredLines(portrait.width);
+    const rule = drawnRects.find((rect) => rect.w === 64 && rect.h === 4);
+    expect(rule).toBeDefined();
+    expect(rule!.x + rule!.w / 2).toBe(portrait.width / 2);
+  });
+
+  it("keeps framed copy on the center axis in portrait, square and story frames", async () => {
+    setSlideSignature({ name: "", handle: "" });
+    // Use the widescreen recording this layout is intended for. A 3:2 photo
+    // on a square can correctly select the existing full-slide template.
+    Object.assign(globalThis, {
+      Image: class {
+        width = 1920;
+        height = 1080;
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        set src(_value: string) { setTimeout(() => this.onload?.(), 0); }
+      }
+    });
+    const [slide] = attachSlideBackdrops([centeredCopy], [{ id: "frame-center.png", url: "/frame-center.png" }]);
+    for (const ratio of ["portrait", "square", "story"] as const) {
+      drawnText.length = 0;
+      await renderSlideCanvas(slide, 1, 4, ratio);
+      expectCenteredLines(aspectSpec(ratio).width);
+    }
+  });
+
+  it("centers the final button as a whole below a photo's copy", async () => {
+    setSlideSignature({ name: "", handle: "" });
+    const [slide] = attachSlideImages([centeredCopy], [{ id: "final-center.png", url: "/final-center.png" }]);
+    await renderSlideCanvas(slide, 3, 4, "portrait");
+    const button = drawnText.find((line) => line.text === "Try it at colateralai.com")!;
+    const textWidth = button.text.length * 24;
+    const left = button.x - 24 - 40 - 16;
+    expect(left + (24 * 2 + 40 + 16 + textWidth) / 2).toBe(portrait.width / 2);
+  });
+
+  it("retains the existing alignment on a plain slide", async () => {
+    setSlideSignature({ name: "", handle: "" });
+    await renderSlideCanvas(centeredCopy, 1, 4, "portrait");
+    expect(drawnText.find((line) => line.text === "A")?.x).toBe(88);
+  });
+});
+
 /**
  * Emoji are the one thing on a slide that is not drawn with the slide's font.
  * The server has no emoji font at all, so a glyph left to `fillText` there is
@@ -231,16 +295,15 @@ describe("a framed still", () => {
     layers: [{ id: "l", type: "image", src: "/frame.jpg", x: 0, y: 0, width: 1, height: 1, fit: "frame" }]
   };
 
-  it("draws the picture grown into the space above the copy, over a bed that fills the slide", async () => {
+  it("retains the complete sharp frame over a bed that fills the slide", async () => {
     await renderSlideCanvas(framed, 0, 6, "portrait");
     expect(drawnImages).toHaveLength(2);
     const [bed, picture] = drawnImages;
-    // The stub image is 1200x800; contained in 1080 wide that is 1080x720, and
-    // there is room above the copy for the whole zoom.
-    expect(picture.w).toBeCloseTo(1080 * FRAME_ZOOM, 5);
-    expect(picture.h).toBeCloseTo(720 * FRAME_ZOOM, 5);
-    // Grown from the middle, so what is lost is a strip off each side.
-    expect(picture.x).toBeCloseTo((1080 - picture.w) / 2, 5);
+    expect(FRAME_ZOOM).toBe(1);
+    // A 1200x800 source contained in a 1080-wide slide is 1080x720.
+    expect(picture.w).toBeCloseTo(1080, 5);
+    expect(picture.h).toBeCloseTo(720, 5);
+    expect(picture.x).toBeCloseTo(0, 5);
     // The bed overfills, so a blur cannot fade the slide's own edges out.
     expect(bed.w).toBeGreaterThan(1080);
     expect(bed.h).toBeGreaterThan(1350);
@@ -315,14 +378,15 @@ describe("where a framed still sits", () => {
     expect(picture.y).toBeCloseTo((1350 - picture.h) * FRAME_POSITION, 5);
   });
 
-  it("grows the still into the space above the copy, cropping the sides evenly", async () => {
+  it("keeps both source edges inside the slide", async () => {
     await renderSlideCanvas(framed, 1, 8, "portrait");
     const [, picture] = drawnImages;
-    expect(picture.w).toBeCloseTo(1080 * FRAME_ZOOM, 5);
-    expect(picture.x).toBeCloseTo((1080 - picture.w) / 2, 5);
+    expect(picture.w).toBeCloseTo(1080, 5);
+    expect(picture.x).toBeCloseTo(0, 5);
+    expect(picture.x + picture.w).toBeCloseTo(1080, 5);
   });
 
-  it("takes less zoom rather than crossing the copy band on a squarer frame", async () => {
+  it("keeps a widescreen frame complete above a square copy band", async () => {
     Object.assign(globalThis, {
       Image: class {
         width = 1920;
@@ -338,9 +402,10 @@ describe("where a framed still sits", () => {
     const layer = { ...framed.layers![0], src: "/frame-capped.jpg" };
     await renderSlideCanvas({ ...framed, layers: [layer] }, 1, 8, "square");
     const [, picture] = drawnImages;
-    expect(picture.w).toBeGreaterThan(1080);
-    expect(picture.w).toBeLessThan(1080 * FRAME_ZOOM);
-    expect(picture.y + picture.h).toBeCloseTo(0.6 * 1080, 5);
+    expect(picture.w).toBeCloseTo(1080, 5);
+    expect(picture.x).toBeCloseTo(0, 5);
+    expect(picture.h).toBeCloseTo(1080 * 9 / 16, 5);
+    expect(picture.y + picture.h).toBeLessThan(0.6 * 1080);
   });
 
   it("clears the copy band at every ratio the deck can be posted at", async () => {
@@ -365,6 +430,8 @@ describe("where a framed still sits", () => {
       const spec = aspectSpec(ratio);
       const [, picture] = drawnImages;
       expect(picture.y + picture.h).toBeLessThanOrEqual(0.6 * spec.height);
+      expect(picture.x).toBeGreaterThanOrEqual(0);
+      expect(picture.x + picture.w).toBeLessThanOrEqual(spec.width);
     }
   });
 });

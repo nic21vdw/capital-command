@@ -37,7 +37,8 @@ const NAMES: Record<PlatformId, string> = {
   youtube: "YouTube",
   instagram: "Instagram",
   tiktok: "TikTok",
-  facebook: "Facebook"
+  facebook: "Facebook",
+  linkedin: "LinkedIn"
 };
 
 /** The result for a request the server refused (nothing was booked). */
@@ -133,6 +134,16 @@ export function summarizeSchedule(results: PlatformResult[]): {
 export function zoneTimeLabel(timeZone: string): string {
   if (!timeZone.includes("/")) return timeZone;
   return `${(timeZone.split("/").pop() ?? timeZone).replace(/_/g, " ")} time`;
+}
+
+export function instantLabel(instant: Date, timeZone: string): string {
+  const make = (zone: string) =>
+    new Intl.DateTimeFormat("en-US", { timeZone: zone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  try {
+    return `${make(timeZone).format(instant)} (${timeZone})`;
+  } catch {
+    return `${make("UTC").format(instant)} (UTC)`;
+  }
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

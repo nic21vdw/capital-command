@@ -52,6 +52,13 @@ afterEach(() => {
 });
 
 describe("pipeline and podcast heartbeat", () => {
+  it("never advances a managed preparation even if its stored legacy status is running", async () => {
+    vi.mocked(listRuns).mockResolvedValue([
+      { id: "managed", name: "Synthetic managed source", status: "running", marketingSource: { ownerId: "owner" }, unattended: true, posts: [{ platform: "threads", text: "synthetic" }] },
+    ] as never);
+    expect(await advancePipelineOnce()).toBe(0);
+    expect(runOverview).not.toHaveBeenCalled();
+  });
   it("drains due podcasts even with zero live pipeline runs", async () => {
     startPipelineHeartbeat();
     await vi.advanceTimersByTimeAsync(8_000);

@@ -7,9 +7,11 @@
  * make re-runs idempotent (an already-published platform is never retried).
  */
 
-export type PlatformId = "youtube" | "instagram" | "tiktok" | "facebook";
+export type PlatformId = "youtube" | "instagram" | "tiktok" | "facebook" | "linkedin";
 
-export const ALL_PLATFORMS: PlatformId[] = ["youtube", "instagram", "tiktok", "facebook"];
+export const ALL_PLATFORMS: PlatformId[] = ["youtube", "instagram", "tiktok", "facebook", "linkedin"];
+
+export const DEFAULT_PLATFORMS: PlatformId[] = ALL_PLATFORMS.filter((platform) => platform !== "linkedin");
 
 /** Desired visibility of the finished post, mapped per platform. */
 export type Visibility = "public" | "private" | "unlisted";
@@ -218,6 +220,41 @@ export type QueueItem = {
    * what those posts have always used.
    */
   tiktok?: TiktokPostOptions;
+  /** Private workspace coordination lives on this same authoritative queue row. Always publication-blocked. */
+  marketing?: MarketingState;
+};
+
+export type MarketingCommandResult = {
+  jobId: string;
+  revision: number;
+  operation: "adopt" | "review" | "request_edits" | "retry" | "claim" | "record_outcome";
+  persisted: true;
+  reviewed: boolean;
+  workerState?: MarketingWorker["state"];
+  attemptId?: string;
+};
+export type MarketingWorker = {
+  attemptId: string;
+  fence: number;
+  state: "claimed" | "prepared" | "failed_before_send" | "uncertain" | "accepted" | "published";
+  claimedAt: string;
+  target?: import("@/lib/integrations/marketing/safety").Target;
+  postId?: string;
+  publishedUrl?: string;
+  publishedUrlVerified?: boolean;
+};
+export type MarketingState = {
+  schema: 1;
+  ownerId: string;
+  revision: number;
+  fingerprint: string;
+  publication: "blocked";
+  review?: { target: import("@/lib/integrations/marketing/safety").Target; at: string };
+  edit?: { instructions: string; at: string };
+  worker?: MarketingWorker;
+  /** Retained in the row so deletion cannot erase command/delivery dedupe. */
+  deletedAt?: string;
+  commands: Record<string, { requestHash: string; result: MarketingCommandResult }>;
 };
 
 export type PostResult = {

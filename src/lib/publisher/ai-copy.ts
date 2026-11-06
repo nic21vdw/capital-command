@@ -37,6 +37,11 @@ export type CopySource = {
 };
 
 const MAX_CAPTION_CHARS = 500;
+const PLATFORM_CAPTION_LIMIT: Partial<Record<PlatformId, number>> = { linkedin: 1300 };
+
+function captionLimit(platform?: PlatformId): number {
+  return (platform && PLATFORM_CAPTION_LIMIT[platform]) || MAX_CAPTION_CHARS;
+}
 
 export function platformCopyConfigured(): boolean {
   return aiConfigured();
@@ -64,7 +69,9 @@ export function buildPlatformCopyPrompt(
   timezone: string
 ): string {
   const lines: string[] = [
-    `You are writing the post copy for a single short-form vertical clip being posted to ${platform.toUpperCase()}.`,
+    platform === "linkedin"
+      ? "You are writing the post copy for a single post being published to LINKEDIN."
+      : `You are writing the post copy for a single short-form vertical clip being posted to ${platform.toUpperCase()}.`,
     "",
     brandPromptBlock(platform),
     ""
@@ -75,7 +82,7 @@ export function buildPlatformCopyPrompt(
   lines.push(
     "",
     `Return ONLY a JSON object: {"caption": string, "hashtags": string[], "bestTime": "HH:mm", "note": string}`,
-    `- "caption": tailored for ${platform}, under ${MAX_CAPTION_CHARS} characters, no clickbait lies, no emoji spam.`,
+    `- "caption": tailored for ${platform}, under ${captionLimit(platform)} characters, no clickbait lies, no emoji spam.`,
     `- "hashtags": about ${brandHashtagPolicy(platform).target} hashtags with the # prefix, ordered strongest first.`,
     `- "bestTime": a strong local time to post on ${platform} in 24h "HH:mm" (timezone ${timezone}).`,
     `- "note": one short sentence on the angle or timing choice.`
@@ -89,7 +96,7 @@ export function parsePlatformCopy(text: string, platform: PlatformId = "youtube"
   const candidate = fenced ? fenced[1] : text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
   try {
     const parsed = JSON.parse(candidate) as Record<string, unknown>;
-    const caption = typeof parsed.caption === "string" ? applyBrandRules(parsed.caption, platform).slice(0, MAX_CAPTION_CHARS) : "";
+    const caption = typeof parsed.caption === "string" ? applyBrandRules(parsed.caption, platform).slice(0, captionLimit(platform)) : "";
     if (!caption) return null;
     const hashtags = Array.isArray(parsed.hashtags)
       ? normalizeHashtags(
@@ -112,7 +119,7 @@ export function parsePlatformCopy(text: string, platform: PlatformId = "youtube"
 export function fallbackPlatformCopy(source: CopySource, platform: PlatformId): PlatformCopy {
   const base = source.title?.trim() || source.topic?.trim() || "New clip";
   const hashtags = normalizeHashtags(brandKit().vocabulary.fallbackHashtags, brandHashtagPolicy(platform).target);
-  return { caption: applyBrandRules(base, platform).slice(0, MAX_CAPTION_CHARS), hashtags, source: "fallback" };
+  return { caption: applyBrandRules(base, platform).slice(0, captionLimit(platform)), hashtags, source: "fallback" };
 }
 
 /**

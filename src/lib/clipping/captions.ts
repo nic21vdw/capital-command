@@ -29,11 +29,11 @@ export const formatVttTime = (s: number) => clock(s, ".");
 
 /** ASS uses centiseconds: `H:MM:SS.cc`. */
 export function formatAssTime(seconds: number): string {
-  const s = Math.max(0, seconds);
-  const hh = Math.floor(s / 3600);
-  const mm = Math.floor((s % 3600) / 60);
-  const ss = Math.floor(s % 60);
-  const cs = Math.round((s - Math.floor(s)) * 100);
+  const total = Math.round(Math.max(0, seconds) * 100);
+  const hh = Math.floor(total / 360_000);
+  const mm = Math.floor((total % 360_000) / 6000);
+  const ss = Math.floor((total % 6000) / 100);
+  const cs = total % 100;
   return `${hh}:${pad(mm)}:${pad(ss)}.${pad(cs)}`;
 }
 
@@ -374,6 +374,8 @@ export function buildAss(
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
     `Style: Default,${fontName},${fontSize},${primary},${assColor(style.highlightColor)},${boxOutline},${back},${bold},${italic},0,0,100,100,0,0,${borderStyle},${outlineWidth},${style.shadow},${assAlignment(style)},40,40,${marginV},1`,
+    // Explicit text overlays have their own background, independent of captions.
+    "Style: Overlay,Arial,18,&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,0,0,0,0,100,100,0,0,1,0,2,5,0,0,0,1",
     // Dedicated watermark style: drop-shadow outline (BorderStyle 1), never an
     // opaque caption box, so the CoLateral lockup stays legible on any frame.
     `Style: Watermark,${titleFont},${Math.max(10, Math.round(height * 0.03))},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,2,1,40,40,40,1`,
@@ -412,29 +414,30 @@ export function buildAss(
     events.push(`Dialogue: ${glow ? 1 : 0},${times},Default,,0,0,0,,${posTag}${text}`);
   };
   for (const seg of segments) {
-    if (!seg.enabled || !seg.text.trim()) continue;
+    if (!seg.enabled || !seg.text.trim() || seg.end <= seg.start) continue;
 
     if (highlightCurrentWord && seg.words.length > 0) {
-      // Word-synced captions the way clip apps burn them: one dialogue event
-      // per spoken word showing the WHOLE phrase, with the current word
-      // re-colored (and popped slightly larger). "karaoke" keeps already
-      // spoken words lit and dims upcoming ones for a progressive fill.
+      // Partition at actual word starts AND ends, matching the preview's
+      // half-open active interval. The whole phrase stays visible during gaps;
+      // karaoke retains its spoken fill without inventing an active word.
       const words = [...seg.words].sort((a, b) => a.start - b.start);
       const karaoke = style.animation === "karaoke";
-      for (let i = 0; i < words.length; i++) {
-        const eventStart = i === 0 ? seg.start : Math.max(seg.start, words[i].start);
-        const eventEnd = i === words.length - 1 ? seg.end : Math.min(seg.end, Math.max(eventStart + 0.01, words[i + 1].start));
+      const boundaries = [...new Set([seg.start, seg.end, ...words.flatMap((word) => [word.start, word.end])
+        .filter((time) => time > seg.start && time < seg.end)])].sort((a, b) => a - b);
+      for (let i = 0; i < boundaries.length - 1; i++) {
+        const eventStart = boundaries[i];
+        const eventEnd = boundaries[i + 1];
         if (eventEnd <= eventStart) continue;
         const text = words
           .map((w, j) => {
             const breakTag = j > 0 && j % wordsPerLine === 0 ? "\\N" : j > 0 ? " " : "";
             let styled: string;
-            if (j === i) {
+            if (eventStart >= w.start && eventStart < w.end) {
               const popTag = style.animation === "pop" || karaoke ? "\\fscx112\\fscy112" : "";
               styled = `{\\1c${highlight}${popTag}}${transform(w.text)}{\\r}`;
-            } else if (karaoke && j < i) {
+            } else if (karaoke && eventStart >= w.end) {
               styled = `{\\1c${highlight}}${transform(w.text)}{\\r}`;
-            } else if (karaoke && j > i) {
+            } else if (karaoke && eventStart < w.start) {
               styled = `{\\alpha&H70&}${transform(w.text)}{\\r}`;
             } else {
               styled = transform(w.text);
@@ -474,6 +477,16 @@ export function buildTextOverlayDialogue(
     rotation: number;
     bold: boolean;
     opacity: number;
+    /** Normalized preview box width, before the overlay's CSS scale. */
+    width?: number;
+    scale?: number;
+    fontFamily?: string;
+    fontWeight?: number;
+    background?: string;
+    /** Optional trusted renderer font metrics; the shared helper stays browser-safe. */
+    measureText?: (text: string) => number;
+    /** Trusted metric correction for ASS's font-height sizing convention. */
+    assFontSize?: number;
   },
   width: number,
   height: number
@@ -481,6 +494,34 @@ export function buildTextOverlayDialogue(
   const px = Math.round(opts.x * width);
   const py = Math.round(opts.y * height);
   const fs = Math.round(opts.fontScale * height);
+  if (opts.width !== undefined || opts.fontFamily !== undefined || opts.background !== undefined) {
+    const font = textOverlayFont(opts.fontFamily ?? "Inter", opts.fontWeight ?? 800);
+    const boxLimit = (opts.width ?? 0.9) * width * (opts.scale ?? 1);
+    const measure = opts.measureText ?? ((value: string) => value.length * fs * 0.55);
+    const lines = text.split("\n").flatMap((line) => wrapMeasuredLine(expandOverlayTabs(line), boxLimit, measure));
+    const boxWidth = opts.width !== undefined ? boxLimit : Math.min(boxLimit, Math.max(...lines.map(measure)));
+    const lineHeight = fs * 1.5;
+    const boxHeight = lineHeight * lines.length;
+    const rotation = opts.rotation ? `\\frz${(-opts.rotation).toFixed(1)}\\org(${px},${py})` : "";
+    const familyTag = `\\fn${font.family}\\i0`;
+    const weight = font.fixedFace ? "\\b0" : opts.bold ? "\\b1" : "\\b0";
+    const opacity = `\\alpha&H${pad2hex(Math.round((1 - opts.opacity) * 255))}&`;
+    const shadow = `\\xshad0\\yshad2\\4a&H${pad2hex(Math.round((1 - opts.opacity * 0.6) * 255))}&`;
+    const times = `${formatAssTime(opts.start)},${formatAssTime(opts.end)}`;
+    const output: string[] = [];
+    const background = overlayBackground(opts.background);
+    if (background && background.opacity > 0) {
+      const alpha = pad2hex(Math.round((1 - opts.opacity * background.opacity) * 255));
+      const drawing = `m 0 0 l ${boxWidth.toFixed(2)} 0 l ${boxWidth.toFixed(2)} ${boxHeight.toFixed(2)} l 0 ${boxHeight.toFixed(2)}`;
+      output.push(`Dialogue: 1,${times},Overlay,,0,0,0,,{\\an5\\pos(${px},${py})${rotation}\\p1\\bord0\\shad0\\1c${assColor(background.color)}\\alpha&H${alpha}&}${drawing}`);
+    }
+    lines.forEach((line, index) => {
+      const y = py + (index - (lines.length - 1) / 2) * lineHeight;
+      const tag = `{\\an5\\pos(${px},${y.toFixed(2)})${rotation}\\q2\\fs${opts.assFontSize ?? fs}${familyTag}${weight}\\1c${assColor(opts.color)}${opacity}${shadow}}`;
+      output.push(`Dialogue: 1,${times},Overlay,,0,0,0,,${tag}${escapeAss(line).replace(/ /g, "\\h")}`);
+    });
+    return output.join("\n");
+  }
   const color = assColor(opts.color);
   const alpha = `\\alpha${pad2hex(Math.round((1 - opts.opacity) * 255))}&`;
   const rot = opts.rotation ? `\\frz${(-opts.rotation).toFixed(1)}` : "";
@@ -494,6 +535,58 @@ export function buildTextOverlayDialogue(
     .flatMap((line) => wrapLine(line, maxChars))
     .join("\n");
   return `Dialogue: 1,${formatAssTime(opts.start)},${formatAssTime(opts.end)},Default,,0,0,0,,${tag}${escapeAss(wrapped)}`;
+}
+
+/** Fixed local aliases keep converted Inter instances separate from legacy Inter fallback. */
+export function textOverlayFont(familyList: string, weight: number): { family: string; fixedFace: boolean } {
+  const family = familyList.split(",")[0].trim().replace(/^["']|["']$/g, "");
+  if (!/^[A-Za-z0-9 _-]{1,80}$/.test(family)) throw new Error("Use a local font family name for text overlays.");
+  if (family.toLowerCase() === "inter") {
+    if (!Number.isInteger(weight) || weight < 100 || weight > 900 || weight % 100 !== 0) {
+      throw new Error("Inter text overlays support weights 100 through 900 in steps of 100.");
+    }
+    return { family: `Inter Overlay ${weight}`, fixedFace: true };
+  }
+  return { family, fixedFace: isBundledCaptionFont(family) || /^Inter Overlay [1-9]00$/.test(family) };
+}
+
+function overlayBackground(value: string | undefined): { color: string; opacity: number } | null {
+  if (!value || value.trim().toLowerCase() === "transparent") return null;
+  const hex = value.trim().match(/^#([a-f0-9]{3}|[a-f0-9]{4}|[a-f0-9]{6}|[a-f0-9]{8})$/i);
+  if (hex) {
+    const full = hex[1].length <= 4 ? [...hex[1]].map((digit) => digit + digit).join("") : hex[1];
+    return { color: `#${full.slice(0, 6)}`, opacity: full.length === 8 ? parseInt(full.slice(6), 16) / 255 : 1 };
+  }
+  const rgb = value.trim().match(/^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*(0|1|0?\.\d+))?\s*\)$/i);
+  if (rgb && rgb.slice(1, 4).every((channel) => Number(channel) <= 255)) {
+    return { color: `#${rgb.slice(1, 4).map((channel) => pad2hex(Math.round(Number(channel)))).join("")}`,
+      opacity: rgb[4] === undefined ? 1 : Number(rgb[4]) };
+  }
+  throw new Error("Text overlay backgrounds support hex, rgb(), rgba() or transparent.");
+}
+
+function wrapMeasuredLine(line: string, width: number, measure: (text: string) => number): string[] {
+  if (!line) return [""];
+  const output: string[] = [];
+  let current = "";
+  for (const word of line.match(/\s+|\S+/g) ?? []) {
+    if (/^\s+$/.test(word)) { current += word; continue; }
+    const candidate = current + word;
+    if (measure(candidate) <= width) { current = candidate; continue; }
+    if (current) { output.push(current); current = ""; }
+    for (const character of word) {
+      if (current && measure(current + character) > width) { output.push(current); current = ""; }
+      current += character;
+    }
+  }
+  if (current) output.push(current);
+  return output.length ? output : [""];
+}
+
+function expandOverlayTabs(line: string): string {
+  let expanded = "";
+  for (const character of line) expanded += character === "\t" ? " ".repeat(8 - expanded.length % 8) : character;
+  return expanded;
 }
 
 /**

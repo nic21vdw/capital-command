@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { beforeEach, describe, expect, it } from "vitest";
 import { dataPath } from "@/lib/paths";
-import { isAutomationPaused, readAutomationControls, readAutomationOutcome, recordAutomationOutcome, setAutomationPaused } from "@/lib/automations/store";
+import { isAutomationPaused, readAutomationControls, readAutomationOutcome, recordAutomationOutcome, setAutomationPaused, withAutomationControlsLock } from "@/lib/automations/store";
 
 beforeEach(async () => { await rm(dataPath("automations"), { recursive: true, force: true }); });
 
@@ -26,6 +26,22 @@ describe("durable automation controls", () => {
     await setAutomationPaused("ingest", true);
     await writeFile(dataPath("automations", "control.json"), JSON.stringify({ ingest: { paused: false, changedAt: null } }), "utf8");
     expect(await isAutomationPaused("ingest")).toBe(false);
+  });
+
+  it("does not evict a live credential transaction solely because its lock is old", async () => {
+    await mkdir(dataPath("automations"), { recursive: true });
+    const lock = dataPath("automations", "control.json.lock");
+    await writeFile(lock, JSON.stringify({ pid: process.pid, token: "synthetic-holder", acquiredAt: "2020-01-01T00:00:00Z" }));
+    let entered = false;
+    const waiting = withAutomationControlsLock(async () => { entered = true; });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(entered).toBe(false);
+    } finally {
+      await rm(lock, { force: true });
+    }
+    await waiting;
+    expect(entered).toBe(true);
   });
 
   it.each(["not JSON", '{"publisher":{"paused":"false","changedAt":null}}', '{"unexpected":{"paused":false,"changedAt":null}}'])("fails closed for invalid saved controls: %s", async (contents) => {

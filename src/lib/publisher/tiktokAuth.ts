@@ -6,6 +6,7 @@ import { publisherConfig } from "@/lib/publisher/config";
 import { missingCredentialsMessage } from "@/lib/publisher/connectStart";
 import { fetchJson } from "@/lib/publisher/http";
 import { primaryAccountId, tiktokCreatorKey, tiktokRefreshTokenKey } from "@/lib/publisher/accounts";
+import { saveRotatedToken } from "@/lib/publisher/rotatedToken";
 import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
 
 /**
@@ -341,7 +342,7 @@ async function accessTokenFromRefresh(accountId: string): Promise<string | null>
   // TikTok rotates the refresh token on use; dropping the new one strands the
   // connection until someone reconnects by hand.
   if (data?.refresh_token && data.refresh_token !== refreshToken) {
-    await setCachedToken(tiktokRefreshTokenKey(accountId), data.refresh_token);
+    await saveRotatedToken("TikTok", tiktokRefreshTokenKey(accountId), data.refresh_token);
   }
   return data?.access_token ?? null;
 }

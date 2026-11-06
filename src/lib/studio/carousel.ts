@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { parseAtSeconds, timecode, transcriptDigest, type TranscriptSegment } from "@/lib/carousels/anchors";
+import { parseAtSeconds, transcriptDigest, type TranscriptSegment } from "@/lib/carousels/anchors";
 import { carouselAngle, clampBatchCount, hookProblem, MAX_SLIDES, resolveSlideCount, titleCaseHeading } from "@/lib/carousels/deck";
 import { attachSlideBackdrops, attachSlideImages, type CarouselImage } from "@/lib/carousels/imageSlides";
 import { deskFramesForDeck } from "@/lib/carousels/bRoll";
@@ -10,6 +10,7 @@ import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import { carouselSchema } from "@/lib/storage/schemas";
 import type { Carousel, CarouselBatch, CarouselSlide } from "@/types/domain";
 import { reviewCarouselStory } from "@/lib/carousels/storyReview";
+import { buildCarouselEvidence, type CarouselStorySource } from "@/lib/carousels/evidence";
 
 /**
  * Carousel copy for Instagram, Facebook, and TikTok. Turns a video's script or
@@ -90,6 +91,8 @@ Carousel rules:
 - The body must add what the heading does not already say. Never leave a body empty (except an optional empty hook body), never restate the heading in other words.
 - At least two thirds of the slides must be about the build — what was made, what broke, what was fixed, what was learned in the code. Mindset, health and lifestyle material is capped at two slides, and only where it ties back to the work.
 - No two slides may make the same point.
+- Source support comes before drama. A plan stays a plan, a demo stays a demo, and an unresolved problem stays unresolved. Do not invent a stake, obstacle, causal link, result or number to complete the arc. If the source has no measured outcome, the payoff is the concrete decision, limitation or next check it actually supports.
+- Make the payoff useful: resolve the opening with the specific finding, action or distinction the reader can use. The CTA follows that payoff; a prediction or a request to follow cannot replace it.
 - The last slide is the CTA: close the story's loop in one line, name what specifically comes next — the next feature, the next session's topic, the cliffhanger from this one — as the reason to follow, and invite the reader to try CoLateral. "Follow for more" on its own is not a valid slide.
 - KEYWORDS ARE BOLD. Wrap the words a skimming reader must not miss in **double asterisks**: the number, the tool or product name, the result, the thing that broke. One bolded phrase (1-3 words) in a heading at most; one to three in a body. Never bold a whole sentence, never bold filler words, and never nest or leave a ** unclosed. Bold is for the eye that only reads the bold — reading only the bold words across the deck should still tell the story.
 - The source is speech-to-text and it garbles names. Correct obvious mishearings against the real ones (${brandProperNames().join(", ")}). If you cannot work out what a garbled name was, write the slide without it or pick another moment — never publish the garble.
@@ -144,7 +147,6 @@ export function buildCarouselPrompt(input: {
   transcript?: TranscriptSegment[];
 }): string {
   const digest = input.transcript?.length ? transcriptDigest(input.transcript) : "";
-  const lastStamp = timecode(input.transcript?.at(-1)?.end ?? 0);
   const lines = [
     `Turn this video content into a carousel of exactly ${input.slideCount} slides (for Instagram, Facebook, and TikTok).`,
     ""
@@ -168,7 +170,7 @@ export function buildCarouselPrompt(input: {
       "- Pick moments a viewer could recognise: a tool open and being used, a thing being built or fixed, a result appearing, a number going up, something going wrong. Skip stretches where nothing is happening, and skip a screen that has just been opened and is still empty — pick the second it has something on it.",
       "- NEVER promise a picture. No \"here's a preview\", no \"this is X\", no \"look at this\" unless the transcript at that exact second has him opening, showing or pointing at that thing. A slide that announces something the still does not contain is worse than a plain one — write what he was DOING at that second instead.",
       "- A recording often covers more than one project. Name the one he is actually in at that second and never move a feature from one to another: if the thing on screen belongs to a different project than the one you are pitching, either say the right name or pick a different moment.",
-      `- Use the WHOLE recording. It runs to [${lastStamp}]. Walk the deck through it in the order it happened, spreading the moments across the full length — roughly a third of the slides from the first third, a third from the middle, a third from the last third, and the closing slide from near the end. Do not write the whole deck out of the opening minutes.`,
+      "- Read across the WHOLE recording to FIND the strongest supported story, then select only moments that advance it. Do not fill thirds of the runtime or force the closing slide to the last minutes. Keep source chronology clear, but let cause and consequence choose the slides, even when the relevant moments are close together.",
       "- Never describe what is visible in a still; you have not seen them.",
       ""
     );
@@ -177,7 +179,7 @@ export function buildCarouselPrompt(input: {
     const plural = input.imageCount === 1 ? "" : "s";
     if (input.imageMode === "backdrop") {
       lines.push(
-        `The first ${input.imageCount} slide${plural} sit${input.imageCount === 1 ? "s" : ""} on a still taken from the video itself, in order: slide 1 shows an early moment, each following slide a later one. Write the deck so it walks through the video in the order it happened — the copy on a slide should be about roughly that part of it. Never describe what is visible in a still; you have not seen them.`,
+        `The first ${input.imageCount} slide${plural} sit${input.imageCount === 1 ? "s" : ""} on supplied recording stills, in their listed order. Keep each picture in its position, but do not assume that slide number proves when an event happened or what the picture shows. Use the source and supplied descriptions; never describe unseen visual details.`,
         ""
       );
     } else {
@@ -193,6 +195,8 @@ export function buildCarouselPrompt(input: {
   lines.push(
     "Content:",
     digest || input.sourceText.slice(0, 9000),
+    "",
+    "Before returning, check each factual claim against the supplied source. Keep concrete examples and qualifications. Cut generic filler rather than adding a result, and end with a specific supported payoff before the invitation.",
     "",
     digest
       ? `Respond with ONLY valid JSON, the story first: ${STORY_JSON},"title":"short internal name for this carousel","slides":[{"heading":"...","body":"...","atSeconds":0}]}`
@@ -447,13 +451,15 @@ export async function generateCarousel(
             imageMode: input.imageMode,
             batch: input.batch
           });
+          const reviewed = input.transcript?.length ? { carousel: record, note: null } : await reviewStory(record, [], input);
+          const paddingNote = padded.missing
+            ? `${padded.missing} photo${padded.missing === 1 ? "" : "s"} got a slide with no copy written for it — add the words in the editor.`
+            : null;
           return {
-            carousel: input.transcript?.length ? record : (await reviewStory(record)).carousel,
+            carousel: reviewed.carousel,
             drafts: padded.slides,
             hookRetries,
-            reason: padded.missing
-              ? `${padded.missing} photo${padded.missing === 1 ? "" : "s"} got a slide with no copy written for it — add the words in the editor.`
-              : null
+            reason: [paddingNote, reviewed.note].filter(Boolean).join(" ") || null
           };
         }
         last = "Could not read the carousel output.";
@@ -502,7 +508,11 @@ export async function illustrateFromRecording(input: {
   const hookCandidates = await framesForSource(input.sourceId, hookCandidateSeconds(input.transcript, input.drafts[0]?.atSeconds))
     .then((cut) => cut.images.filter((image): image is CarouselImage => Boolean(image)))
     .catch(() => []);
-  const reviewed = await reviewStory(illustrated, hookCandidates);
+  const reviewed = await reviewStory(illustrated, hookCandidates, {
+    // The generated carousel title is draft copy, not original source evidence.
+    transcript: input.transcript,
+    atSeconds: input.drafts.map((slide) => slide.atSeconds)
+  });
   return {
     carousel: reviewed.carousel,
     note: [frames?.note, reviewed.note].filter(Boolean).join(" ") || null
@@ -522,9 +532,11 @@ export function hookCandidateSeconds(transcript: TranscriptSegment[], hookSecond
 
 function reviewStory(
   carousel: Carousel,
-  hookCandidates: CarouselImage[] = []
+  hookCandidates: CarouselImage[] = [],
+  source?: CarouselStorySource
 ): Promise<{ carousel: Carousel; note: string | null }> {
-  return reviewCarouselStory({ carousel, system: carouselSystemPrompt(), hookCandidates }).catch(() => ({ carousel, note: null }));
+  return reviewCarouselStory({ carousel, system: carouselSystemPrompt(), hookCandidates, evidence: buildCarouselEvidence(source) })
+    .catch(() => ({ carousel, note: "The story review failed, so the draft still needs checking against its source." }));
 }
 
 /**
@@ -562,8 +574,8 @@ export async function generateCarouselBatches(
       // eight pictures behind three different stories.
       if (!written.carousel || !input.transcript?.length) return written;
       if (!input.recordingId) {
-        const reviewed = await reviewStory(written.carousel);
-        return { ...written, carousel: reviewed.carousel };
+        const reviewed = await reviewStory(written.carousel, [], { ...input, atSeconds: written.drafts.map((slide) => slide.atSeconds) });
+        return { ...written, carousel: reviewed.carousel, reason: [written.reason, reviewed.note].filter(Boolean).join(" ") || null };
       }
       const illustrated = await illustrateFromRecording({
         carousel: written.carousel,

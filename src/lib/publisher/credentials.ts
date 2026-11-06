@@ -66,6 +66,36 @@ async function load(): Promise<Record<string, string>> {
   return cache;
 }
 
+export class CredentialStoreReadError extends Error {
+  constructor() {
+    super("The saved credentials could not be read safely. Repair the credential store before saving credentials.");
+  }
+}
+
+/** A recovery save must preserve the fresh, complete store or refuse it. */
+async function loadStrict(): Promise<Record<string, string>> {
+  let raw: string;
+  try {
+    raw = await readFile(dataPath(FILE), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw new CredentialStoreReadError();
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new CredentialStoreReadError();
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) ||
+    Object.values(parsed).some((value) => typeof value !== "string" || !value.trim())) {
+    throw new CredentialStoreReadError();
+  }
+  // Preserve unrelated names and values exactly. Neither a rejected read nor
+  // validation changes the tolerant read cache or the live environment.
+  return parsed as Record<string, string>;
+}
+
 /**
  * Pull the stored credentials into `process.env` for the names that are not
  * already set there. Called once before anything reads config, because every
@@ -121,13 +151,19 @@ export async function credentialsPresent(names: readonly string[]): Promise<Reco
  * Written through a temporary file and renamed, the way the app document is:
  * a half-written credentials file is a file that parses to nothing and takes
  * every connected account down with it.
+ *
+ * Threads recovery opts into strict mode: an absent file may be initialized,
+ * but an unreadable or invalid store must never be overwritten as empty.
  */
-export async function saveCredentials(updates: Record<string, string>) {
+export async function saveCredentials(updates: Record<string, string>, options: { strict?: boolean } = {}) {
   const requested = { ...updates };
+  const strict = options.strict === true;
   const save = async () => {
     // Queue the read together with the write: two connection forms can save
     // at once, and neither may replace the other's newly entered credentials.
-    const current = { ...(await load()) };
+    // Strict reads must happen here, after earlier queued saves finish. A
+    // cached or pre-queued snapshot can drop another connection's new values.
+    const current = { ...(strict ? await loadStrict() : await load()) };
     for (const [key, value] of Object.entries(requested)) {
       const trimmed = (value ?? "").trim();
       if (trimmed) current[key] = trimmed;

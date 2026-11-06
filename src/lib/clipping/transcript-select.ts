@@ -1,6 +1,8 @@
 import { aiConfigured, runAi } from "@/lib/ai";
 import { clampClipCount, TARGET_CLIP_COUNT } from "@/lib/clipping/analysis";
 import { clipLengthBounds, type ClipLengthBounds } from "@/lib/clipping/clip-length";
+import { CLIP_WRITER } from "@/lib/clipping/clip-writer";
+import { readTitleLessons, titleLessonsBlock } from "@/lib/clipping/channel-lessons";
 import { resolveThoughtEnd } from "@/lib/clipping/thought-end";
 import type { CaptionSegment } from "@/types/domain";
 import type { ClipCandidate, ClipScoreBreakdown } from "@/lib/clipping/types";
@@ -169,11 +171,11 @@ function toCandidate(
 }
 
 /**
- * The clip's overall score. On-screen CoLateral action is a bonus on top of the
- * speech-based score, worth up to PRODUCT_BONUS points, so a moment where the
- * product visibly does something outranks an equally good one where it does not.
+ * The clip's overall score. On-screen CoLateral action is a small bonus on top
+ * of the speech-based score, worth up to PRODUCT_BONUS points: a tiebreak
+ * between equally good moments, never a reason to pick a weaker one.
  */
-export const PRODUCT_BONUS = 25;
+export const PRODUCT_BONUS = 8;
 
 export function transcriptClipScore(breakdown: ClipScoreBreakdown): number {
   const base =
@@ -181,8 +183,14 @@ export function transcriptClipScore(breakdown: ClipScoreBreakdown): number {
   return Math.round(Math.min(100, base + ((breakdown.product ?? 0) / 100) * PRODUCT_BONUS));
 }
 
+export const SPECIFIC_MOMENT_RULE =
+  "- SKIP general musing: motivation, life advice, why he streams, how the stream is going, thanking chat. Every one of those has flopped on this channel. A clip must be about ONE specific thing a stranger would stop for: a tool or model and what it did, a price or limit change, a number, a challenge, a game moment, a build that works or breaks on screen, a strong opinion on a named thing.";
+
+export const HOOK_START_RULE =
+  "- START each clip on its hook: the first sentence must be the claim, question, number or reveal itself, not the setup before it (\"so\", \"okay\", \"anyway\", greetings, reading chat). If the best line comes a few seconds in, start there.";
+
 export const PRODUCT_MOMENT_RULE =
-  "- STRONGLY prefer moments where CoLateral is visibly doing something on screen: an agent finishing a task, a card filling in, a tool being built or run. The transcript cannot show the screen, so look for the speaker narrating or reacting to it (\"it's done\", \"look, it's filling in\", \"watch this build\"). Start such a clip no more than 3 seconds before that moment so it opens on the product working, not on setup talk.";
+  "- When two moments are otherwise equal, prefer the one where CoLateral is visibly doing something on screen: an agent finishing a task, a card filling in, a tool being built or run. The transcript cannot show the screen, so look for the speaker narrating or reacting to it (\"it's done\", \"look, it's filling in\", \"watch this build\"). Start such a clip no more than 3 seconds before that moment so it opens on the product working, not on setup talk.";
 
 /**
  * Reads the entire transcript and returns the best moments from across the whole
@@ -203,6 +211,7 @@ export async function selectByTranscript(
 
   const timeline = buildTimeline(segments, durationSec);
   if (!timeline.trim()) return null;
+  const lessons = await readTitleLessons();
 
   const topicLine = topic?.trim()
     ? `The creator wants clips focused on: ${topic.trim()}. Prefer moments relevant to that, but still pick the strongest moments overall.`
@@ -218,10 +227,15 @@ Rules:
 - THE ENDING IS CRITICAL: before finalizing each clip, re-read the transcript around your chosen "end" time and check what the speaker is saying right there. The clip must end where the thought CONCLUDES — the end of the sentence that completes the point, story, or punchline. Never end while the speaker is mid-sentence, and never end right after they have started a NEW sentence or point that the clip won't finish. If the thought concludes a few seconds after your ideal end, extend the end to include it — a slightly longer clip that lands the conclusion is always better than one that cuts off.
 - Each clip should be between ${bounds.min} and ${bounds.preferredMax} seconds long. You may exceed ${bounds.preferredMax} seconds when needed to let a thought conclude, or when the moment is one continuous thought that would be ruined by cutting it shorter - but never exceed ${bounds.max} seconds.
 - Favour strong hooks, emotional or surprising payoffs, hot takes, stories, and quotable lines.
+${SPECIFIC_MOMENT_RULE}
+${HOOK_START_RULE}
 ${PRODUCT_MOMENT_RULE}
 - Prefer variety: mix strong openings, tactical explanations, funny reactions, disagreement, turning points, and clean story payoffs when the transcript supports them.
 - Avoid picking multiple moments that make the same point unless the later one has a clearly better hook or payoff.
 - ${topicLine}
+
+${titleLessonsBlock(lessons)}
+Pick moments like the ones that got watched, never like the ones that flopped.
 
 Return ONLY a JSON array (no prose) of objects with these fields:
 - "start": clip start in seconds (number)
@@ -239,6 +253,7 @@ ${timeline}`;
 
   try {
     const result = await runAi({
+      ...CLIP_WRITER,
       // Each clip is ~120 tokens of JSON (start/end/title/reason/scores); scale
       // the budget with the requested count so a large batch isn't truncated.
       maxTokens: Math.max(3200, target * 140),

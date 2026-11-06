@@ -3,10 +3,12 @@ import type { SurfaceControl, SurfaceField } from "./protocol";
 import {
   clearSurfaces,
   getRegistration,
+  interpretOutcome,
   matchControl,
   matchField,
   onSurfaceChange,
   readSurface,
+  refuse,
   registerSurface
 } from "./surface";
 
@@ -141,5 +143,46 @@ describe("matchControl", () => {
     expect(result.control).toBeUndefined();
     expect(result.error).toMatch(/Clips/);
     expect(result.error).toMatch(/Accounts/);
+  });
+});
+
+describe("interpretOutcome", () => {
+  it("treats true and nothing as accepted", () => {
+    expect(interpretOutcome(true)).toEqual({ refused: false });
+    expect(interpretOutcome(undefined)).toEqual({ refused: false });
+  });
+
+  it("treats false as a refusal with no reason of its own", () => {
+    expect(interpretOutcome(false)).toEqual({ refused: true, reason: "" });
+  });
+
+  it("carries the reason a handler gives, so the agent hears why and not just that it did nothing", () => {
+    expect(interpretOutcome(refuse("Pick a platform first."))).toEqual({ refused: true, reason: "Pick a platform first." });
+  });
+});
+
+describe("personal pages", () => {
+  it("never register a surface, so a canvas agent reads them as empty", () => {
+    for (const route of ["/finance", "/holdings", "/watchlist", "/goals", "/finance/"]) {
+      registerSurface({ route, title: "Holdings", fields: FIELDS, controls: CONTROLS, readings: [{ label: "Net worth", value: "1" }] });
+      expect(getRegistration(route), route).toBeNull();
+      const surface = readSurface(route);
+      expect(surface.fields, route).toEqual([]);
+      expect(surface.controls, route).toEqual([]);
+      expect(surface.readings, route).toEqual([]);
+    }
+  });
+
+  it("do not tell the host anything changed", () => {
+    const heard: string[] = [];
+    onSurfaceChange((route) => heard.push(route));
+    const release = registerSurface({ route: "/finance", title: "Personal Finance" });
+    release();
+    expect(heard).toEqual([]);
+  });
+
+  it("leave the marketing pages alone", () => {
+    registerSurface({ route: "/clips", title: "Short Clips", fields: FIELDS });
+    expect(getRegistration("/clips")).not.toBeNull();
   });
 });

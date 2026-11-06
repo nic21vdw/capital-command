@@ -44,6 +44,18 @@ describe("bookingsByCarousel", () => {
     expect(bookingsByCarousel([post("p1", "2026-10-13T16:30:00.000Z", deck("c-1"), { instagram: { status: "failed" } })], now)).toEqual({});
   });
 
+  it("reports every network the deck is booked on when LinkedIn was added as a post of its own", () => {
+    const found = bookingsByCarousel(
+      [
+        post("meta", "2026-10-13T16:30:00.000Z", deck("c-1"), { instagram: pending, facebook: pending }),
+        post("li", "2026-10-14T16:30:00.000Z", deck("c-1"), { linkedin: pending })
+      ],
+      now
+    );
+    expect(found["c-1"].itemId).toBe("meta");
+    expect(found["c-1"].platforms).toEqual(["instagram", "facebook", "linkedin"]);
+  });
+
   it("prefers the next post still to go out", () => {
     const found = bookingsByCarousel(
       [

@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ClipPreview } from "@/components/uploading-center/clip-preview";
+import { ExperimentPanel, ExperimentToggle, type ExperimentContext } from "@/components/uploading-center/experiment-panel";
 import { bookedClip } from "@/components/uploading-center/booked-clip";
 import { cardOptionsSummary } from "@/components/uploading-center/run-defaults";
 import { StatusChip } from "@/components/uploading-center/status-chip";
@@ -278,7 +279,8 @@ export function ClipCard({
   timeZone,
   aiCopyAvailable,
   onShowOnBoard,
-  isConnected
+  isConnected,
+  experiment
 }: {
   clip: ReadyClip;
   draft: ClipDraft;
@@ -317,8 +319,11 @@ export function ClipCard({
   onShowOnBoard?: (item: QueueItem) => void;
   /** Whether the account a post uses on a platform has a connection - the booked row says what the board's chip says. */
   isConnected?: (platform: PlatformId, accountId: string) => boolean;
+  /** Offers Test titles on the card. Absent means the card has no experiment button. */
+  experiment?: ExperimentContext;
 }) {
   const titleRef = useRef<HTMLTextAreaElement>(null);
+  const [testing, setTesting] = useState(false);
   // The hashtag chips and the caption box are closed behind Customise: a draft
   // that is fine as it is should read as one title, a slot and a button, not as
   // a form of ten chips and a text box. The closed row says what they hold.
@@ -349,6 +354,14 @@ export function ClipCard({
   // or retried, the clip is no longer the one that quietly went out uncaptioned.
   const captionFailed = Boolean(captionError) && !draft.caption.trim();
   const customiseSummary = cardOptionsSummary(draft, aiCopyAvailable);
+  const experimentBlocker = !experiment
+    ? undefined
+    : (experiment.disabledReason ??
+      (needsRerender
+        ? "Render your trim first (schedule the clip or open the editor), so the test uses the edited cut."
+        : booked
+          ? "This clip is already scheduled. A test can only start from a clip that is not scheduled yet."
+          : undefined));
 
   if (booked && collapsed) {
     return (
@@ -679,16 +692,22 @@ export function ClipCard({
                 )}
               </div>
             )}
-            <Button
-              variant="secondary"
-              onClick={onEditClip}
-              className="ml-auto h-8 shrink-0 px-2.5 text-xs"
-              title="Open this clip in the Clip Editor to trim, caption, and lay it out"
-            >
-              <Scissors className="mr-1.5 h-3.5 w-3.5" />
-              Edit clip
-            </Button>
+            <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
+              {experiment ? <ExperimentToggle open={testing} onToggle={() => setTesting((open) => !open)} disabledReason={experimentBlocker} /> : null}
+              <Button
+                variant="secondary"
+                onClick={onEditClip}
+                className="h-8 shrink-0 px-2.5 text-xs"
+                title="Open this clip in the Clip Editor to trim, caption, and lay it out"
+              >
+                <Scissors className="mr-1.5 h-3.5 w-3.5" />
+                Edit clip
+              </Button>
+            </div>
           </div>
+          {experiment && testing && !experimentBlocker ? (
+            <ExperimentPanel clip={clip} draft={draft} context={experiment} onClose={() => setTesting(false)} />
+          ) : null}
         </div>
       </div>
     </div>

@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { publisherConfig } from "@/lib/publisher/config";
 import { missingCredentialsMessage } from "@/lib/publisher/connectStart";
 import { fetchJson } from "@/lib/publisher/http";
+import { saveRotatedToken } from "@/lib/publisher/rotatedToken";
 import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
 
 const AUTH_URL = "https://accounts.spotify.com/authorize";
@@ -119,7 +120,7 @@ export async function spotifyUserToken(): Promise<string | null> {
     body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken })
   });
   if (data.refresh_token && data.refresh_token !== refreshToken) {
-    await setCachedToken(SPOTIFY_REFRESH_TOKEN_CACHE_KEY, data.refresh_token);
+    await saveRotatedToken("Spotify", SPOTIFY_REFRESH_TOKEN_CACHE_KEY, data.refresh_token);
   }
   return data.access_token ?? null;
 }

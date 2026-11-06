@@ -1,8 +1,11 @@
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ReconnectNeededError, ReplyRefusedError, ReplyUnrecordedError, SendUnknownError, sendReply } from "@/lib/inbox/send";
 import { readInbox, updateInbox } from "@/lib/inbox/store";
 import { emptyInbox, type InboxItem } from "@/lib/inbox/types";
 import { jsonResponse, sampleItem, stubFetch, writeCalls, type FetchCall } from "@/lib/inbox/test-helpers";
+import { createQuotaLedger, quotaLedgerFile } from "@/lib/youtube/quotaLedger";
 
 const actualStore = await vi.importActual<typeof import("@/lib/inbox/store")>("@/lib/inbox/store");
 
@@ -13,7 +16,8 @@ vi.mock("@/lib/inbox/store", async (importOriginal) => {
 });
 
 const NOW = new Date("2026-10-13T12:00:00.000Z");
-const FAST = { now: NOW, retryDelaysMs: [0, 0, 0] };
+const quota = createQuotaLedger({ now: () => NOW });
+const FAST = { now: NOW, retryDelaysMs: [0, 0, 0], quota };
 
 const ytScopes = (call: FetchCall) =>
   call.url.includes("tokeninfo") ? jsonResponse({ scope: "https://www.googleapis.com/auth/youtube.force-ssl" }) : null;
@@ -35,6 +39,7 @@ beforeEach(async () => {
   vi.stubEnv("THREADS_ACCESS_TOKEN", "th-token");
   vi.stubEnv("THREADS_USER_ID", "555");
   await actualStore.updateInbox(() => emptyInbox());
+  await rm(quotaLedgerFile(), { force: true });
 });
 
 afterEach(() => {
@@ -304,24 +309,48 @@ describe("what is posted", () => {
 });
 
 describe("YouTube quota", () => {
-  it("charges 50 units for each reply attempt, including one the platform refused", async () => {
+  it("charges 50 units as 'inbox-reply' for each reply attempt, including one the platform refused", async () => {
     await seed(sampleItem());
     stubFetch((call) => ytScopes(call) ?? jsonResponse({ error: { message: "Invalid parameter" } }, 400));
     await sendReply("youtube:c1", "Thanks", FAST).catch(() => undefined);
-    expect((await actualStore.readInbox()).youtubeUnits).toEqual({ date: "2026-10-13", used: 50 });
+    expect((await quota.snapshot()).byPurpose).toEqual({ "inbox-reply": 50 });
 
     stubFetch((call) => ytScopes(call) ?? jsonResponse({ id: "r1" }));
     await sendReply("youtube:c1", "Thanks", FAST);
-    expect((await actualStore.readInbox()).youtubeUnits?.used).toBe(100);
+    expect((await quota.snapshot()).byPurpose).toEqual({ "inbox-reply": 100 });
   });
 
-  it("is not blocked by a spent read budget", async () => {
+  it("is not blocked by a spent read budget, or by an allowance that is already gone, but is counted", async () => {
     await seed(sampleItem());
-    await actualStore.updateInbox((store) => ({ ...store, youtubeUnits: { date: "2026-10-13", used: 5000 } }));
+    await quota.debit(200, "inbox");
+    await quota.debit(100, "listening");
+    expect((await quota.snapshot()).nonUploadRemaining).toBe(0);
+    const calls = stubFetch((call) => ytScopes(call) ?? jsonResponse({ id: "r1" }));
+
+    await sendReply("youtube:c1", "Thanks", FAST);
+
+    expect((await onDisk()).status).toBe("replied");
+    expect(writeCalls(calls)).toHaveLength(1);
+    expect((await quota.snapshot()).byPurpose).toEqual({ inbox: 200, listening: 100, "inbox-reply": 50 });
+  });
+
+  it("still posts when the ledger cannot be read", async () => {
+    await seed(sampleItem());
+    await mkdir(path.dirname(quotaLedgerFile()), { recursive: true });
+    await writeFile(quotaLedgerFile(), "{ not json");
     stubFetch((call) => ytScopes(call) ?? jsonResponse({ id: "r1" }));
 
     await sendReply("youtube:c1", "Thanks", FAST);
 
     expect((await onDisk()).status).toBe("replied");
+  });
+
+  it("no longer writes the old counter in the inbox store", async () => {
+    await seed(sampleItem());
+    stubFetch((call) => ytScopes(call) ?? jsonResponse({ id: "r1" }));
+
+    await sendReply("youtube:c1", "Thanks", FAST);
+
+    expect((await actualStore.readInbox()).youtubeUnits).toBeUndefined();
   });
 });

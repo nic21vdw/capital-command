@@ -7,7 +7,7 @@ import type { PlatformId, QueueItem } from "@/lib/publisher/types";
  */
 export function uploadingCenterHref(item: Pick<QueueItem, "id" | "platforms">): string {
   const params = new URLSearchParams({ item: item.id });
-  const platform = (["youtube", "instagram", "tiktok", "facebook"] as PlatformId[]).find((id) => item.platforms[id]);
+  const platform = (["youtube", "instagram", "tiktok", "facebook", "linkedin"] as PlatformId[]).find((id) => item.platforms[id]);
   if (platform) params.set("platform", platform);
   return `/uploading-center?${params.toString()}`;
 }

@@ -21,6 +21,7 @@ import {
   pickColdOpen,
   planPassages,
   restrictSegments,
+  repairContinuity,
   selectPassages
 } from "@/lib/longform/highlights";
 import { editedDurationSec, extendCaptionSegments, planHook } from "@/lib/longform/plan";
@@ -229,6 +230,20 @@ describe("buildHighlight", () => {
 });
 
 describe("watching the passages", () => {
+  it("reports partial vision evidence when other reviews return unavailable", async () => {
+    const transcript = streamTranscript();
+    let seen = 0;
+    const built = await buildHighlight({
+      streamName: "Stream", transcript,
+      baseSegments: wholeSegments(7200), baseHook: baseHook(transcript),
+      watch: async () => ++seen === 1
+        ? { verdict: "keep", score: 8, see: "Editor", context: "", problem: "none" }
+        : null
+    });
+    expect(built!.highlight.passages.filter((passage) => passage.enabled).length).toBeGreaterThan(1);
+    expect(built!.highlight.watched).not.toBe("vision");
+  });
+
   it("swaps out a passage whose picture does not work, and watches its replacement", async () => {
     const transcript = streamTranscript();
     const watchedIds: string[] = [];
@@ -275,11 +290,12 @@ describe("applyHighlight", () => {
       passage.start <= COLD_OPEN_AT && passage.end >= COLD_OPEN_AT ? { ...passage, enabled: false } : passage
     );
     const applied = applyHighlight({
-      highlight: { ...built!.highlight, passages },
+      highlight: { ...built!.highlight, watched: "vision", passages },
       baseSegments: wholeSegments(7200),
       baseHook: built!.hook,
       transcript
     });
+    expect(applied.highlight.watched).toBe("none");
     expect(applied.hook.start).not.toBe(COLD_OPEN_AT);
     const kept = passages.filter((passage) => passage.enabled);
     expect(kept.some((passage) => applied.hook.start >= passage.start && applied.hook.end <= passage.end)).toBe(true);
@@ -380,5 +396,25 @@ describe("extendCaptionSegments", () => {
     expect(extended[0].text).toBe("edited by hand here");
     expect(extended.some((segment) => segment.text.includes("later words"))).toBe(true);
     expect(extended.some((segment) => segment.text.includes("original"))).toBe(false);
+  });
+});
+
+
+describe("continuity after visual rejection", () => {
+  it.each([false, true])("drops dependent payoffs without restoring rejected setup (contracted: %s)", (contracted) => {
+    const planned = [
+      { start: 0, end: 20, text: "The goal is to fix this error." },
+      { start: 20, end: 40, text: "It is still broken." },
+      { start: 40, end: 60, text: "That is why we need another approach." }
+    ];
+    if (contracted) {
+      planned[1].text = "It's still broken.";
+      planned[2].text = "That's why we need another approach.";
+    }
+    const result = repairContinuity(planned, [20, 20, 20], new Set([1, 2]), false);
+    expect([...result.chosen]).toEqual([]);
+    expect([...result.dropped]).toEqual([1, 2]);
+    expect(result.bridges.size).toBe(0);
+    expect([...repairContinuity(planned, [20, 20, 20], new Set([0, 1, 2]), false).chosen]).toEqual([0, 1, 2]);
   });
 });

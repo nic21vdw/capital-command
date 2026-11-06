@@ -89,6 +89,7 @@ export function runFfmpeg(
     let stdoutLineBuffer = "";
     let stderrLineBuffer = "";
     let failure: Error | undefined;
+    let processError: Error | undefined;
     let settled = false;
     const onAbort = () => {
       if (settled) return;
@@ -143,12 +144,9 @@ export function runFfmpeg(
       }
     });
     child.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      if (signal?.aborted) reject(new RenderCanceledError());
-      else if ((error as NodeJS.ErrnoException).code === "ENOENT") reject(new Error(FFMPEG_MISSING_MESSAGE));
-      else reject(failure ?? error);
+      // An error can mean kill failed while the child is still alive. Only
+      // close proves process/stdio settlement, including failed-spawn errors.
+      processError = (error as NodeJS.ErrnoException).code === "ENOENT" ? new Error(FFMPEG_MISSING_MESSAGE) : error;
     });
     child.on("close", (code) => {
       if (settled) return;
@@ -166,6 +164,7 @@ export function runFfmpeg(
       cleanup();
       if (signal?.aborted) reject(new RenderCanceledError());
       else if (failure) reject(failure);
+      else if (processError) reject(processError);
       else if (code !== 0 && !allowFailure) {
         reject(new Error(`ffmpeg exited with code ${code}: ${stderr.slice(-800)}`));
       } else resolve({ stdout, stderr, code: code ?? -1 });
@@ -178,8 +177,8 @@ export function runFfmpeg(
 }
 
 /** Reads the container duration (seconds) by parsing `ffmpeg -i` output. */
-export async function probeDuration(inputPath: string): Promise<number> {
-  const { stderr } = await runFfmpeg(["-hide_banner", "-i", inputPath], { allowFailure: true });
+export async function probeDuration(inputPath: string, options: { signal?: AbortSignal } = {}): Promise<number> {
+  const { stderr } = await runFfmpeg(["-hide_banner", "-i", inputPath], { allowFailure: true, signal: options.signal });
   const match = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
   if (!match) {
     throw new Error("Could not read the video duration — the file may be corrupt or not a video.");

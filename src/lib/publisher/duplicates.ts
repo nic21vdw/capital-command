@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { ChannelVideo } from "@/lib/publisher/channelVideos";
-import type { QueueItem } from "@/lib/publisher/types";
+import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 
 /**
  * NOTHING GOES OUT TWICE.
@@ -51,9 +51,24 @@ export function itemMediaKeys(item: QueueItem): string[] {
   return keys;
 }
 
+type Channel = "linkedin" | "other";
+
+const channelOf = (platform: string): Channel => (platform === "linkedin" ? "linkedin" : "other");
+
+function channelsOf(platforms: Iterable<string>): Set<Channel> {
+  return new Set([...platforms].map(channelOf));
+}
+
 export type DuplicateCandidate = {
   /** Every file this post would carry, absolute or repo-relative. */
   paths: string[];
+  /**
+   * Where the candidate would post. LinkedIn is its own audience: a deck already
+   * booked to Instagram and Facebook is not a duplicate of the same deck booked
+   * to LinkedIn, and the reverse. Omitted means any platform, which blocks on
+   * every queued copy as before.
+   */
+  platforms?: PlatformId[];
   /** The clip job it came from, when it came from one. */
   jobId?: string;
   title?: string;
@@ -72,9 +87,11 @@ export type QueueDuplicate = {
 export function findDuplicateInQueue(candidate: DuplicateCandidate, items: QueueItem[]): QueueDuplicate | undefined {
   const wanted = new Set(candidate.paths.map(resolveKey));
   const title = candidate.title ? normalizeTitle(candidate.title) : "";
+  const wantedChannels = candidate.platforms?.length ? channelsOf(candidate.platforms) : null;
 
   for (const item of items) {
     if (Object.values(item.platforms).every((state) => state?.status === "failed")) continue;
+    if (wantedChannels && ![...channelsOf(Object.keys(item.platforms))].some((channel) => wantedChannels.has(channel))) continue;
     if (itemMediaKeys(item).some((key) => wanted.has(key))) return { item, reason: "same-file" };
     if (
       title &&
@@ -145,9 +162,17 @@ export function queueDuplicateGroups(items: QueueItem[]): QueueDuplicateGroup[] 
   const byFile = new Map<string, QueueItem[]>();
   const byTitle = new Map<string, QueueItem[]>();
   for (const item of live) {
-    for (const key of new Set(itemMediaKeys(item))) byFile.set(key, [...(byFile.get(key) ?? []), item]);
-    const title = normalizeTitle(item.title ?? "");
-    if (title) byTitle.set(title, [...(byTitle.get(title) ?? []), item]);
+    for (const channel of channelsOf(Object.keys(item.platforms))) {
+      for (const key of new Set(itemMediaKeys(item))) {
+        const scoped = `${channel}|${key}`;
+        byFile.set(scoped, [...(byFile.get(scoped) ?? []), item]);
+      }
+      const title = normalizeTitle(item.title ?? "");
+      if (title) {
+        const scoped = `${channel}|${title}`;
+        byTitle.set(scoped, [...(byTitle.get(scoped) ?? []), item]);
+      }
+    }
   }
   const groups: QueueDuplicateGroup[] = [];
   const seen = new Set<string>();

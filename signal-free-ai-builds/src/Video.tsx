@@ -43,7 +43,7 @@ export const Video: React.FC = () => {
       {/* Two LowerThird instances with DIFFERENT props — proof the component is
           reusable/parameterised for future episodes. */}
       <Sequence name="LowerThird — Nic" {...TIMELINE.lowerThirdA}>
-        <LowerThird name="Nic Vandewetering" subtitle="Structural Engineer, Building CoLateral" />
+        <LowerThird name="Nic Vandewetering" subtitle="Founder, Building CoLateral" />
       </Sequence>
 
       <Sequence name="LowerThird — reuse demo" {...TIMELINE.lowerThirdB}>

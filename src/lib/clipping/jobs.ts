@@ -339,7 +339,16 @@ async function refineJobVirality(job: ClipJob, candidates: ClipCandidate[]): Pro
         .trim()
     ])
   );
-  return refineClipVirality(candidates, transcripts, job.topic);
+  const lines = new Map(
+    candidates.map((clip) => [
+      clip.id,
+      clipCaptions(job, clip).map((segment) => ({ at: Math.round((clip.start + segment.start) * 10) / 10, text: segment.text }))
+    ])
+  );
+  return refineClipVirality(candidates, transcripts, job.topic, {
+    lines,
+    minDuration: clipLengthBounds(job.clipLength).min
+  });
 }
 
 /**

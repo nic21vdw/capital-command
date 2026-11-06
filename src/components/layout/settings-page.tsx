@@ -11,6 +11,7 @@ import { OAuthLandingBanner, useOAuthLanding } from "@/components/layout/oauth-l
 import { ProfileSettings } from "@/components/layout/profile-settings";
 import { ReviewPolicySettings } from "@/components/layout/review-policy-settings";
 import { ThemePicker } from "@/components/finance/theme-picker";
+import { isPublicEdition } from "@/lib/edition";
 import { useAppData } from "@/components/providers/app-provider";
 import { useThemePreset } from "@/components/providers/theme-preset-provider";
 import { Button } from "@/components/ui/button";
@@ -189,25 +190,27 @@ export function SettingsPage() {
               ) : <ThemePicker compact />}
             </div>
           </details>
-          <details className="rounded-xl border border-[var(--border)] p-4">
-            <summary className="cursor-pointer font-medium text-white max-sm:py-3">Personal finance screens</summary>
-            <label className="mt-4 flex cursor-pointer items-start justify-between gap-4 text-sm text-white">
-              <span>
-                Show finance in the sidebar
-                <span className="mt-1 block text-xs text-[var(--muted-foreground)]">
-                  Hiding the screens keeps your finance data.
+          {isPublicEdition() ? null : (
+            <details className="rounded-xl border border-[var(--border)] p-4">
+              <summary className="cursor-pointer font-medium text-white max-sm:py-3">Personal finance screens</summary>
+              <label className="mt-4 flex cursor-pointer items-start justify-between gap-4 text-sm text-white">
+                <span>
+                  Show finance in the sidebar
+                  <span className="mt-1 block text-xs text-[var(--muted-foreground)]">
+                    Hiding the screens keeps your finance data.
+                  </span>
                 </span>
-              </span>
-              <input
-                type="checkbox"
-                checked={data.settings.personalDashboard === true}
-                onChange={(event) => void mutate("updateSettings", { ...data.settings, personalDashboard: event.target.checked }, {
-                  successMessage: event.target.checked ? "Finance is visible." : "Finance is hidden."
-                })}
-                className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--accent)]"
-              />
-            </label>
-          </details>
+                <input
+                  type="checkbox"
+                  checked={data.settings.personalDashboard === true}
+                  onChange={(event) => void mutate("updateSettings", { ...data.settings, personalDashboard: event.target.checked }, {
+                    successMessage: event.target.checked ? "Finance is visible." : "Finance is hidden."
+                  })}
+                  className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--accent)]"
+                />
+              </label>
+            </details>
+          )}
           <details className="rounded-xl border border-[var(--border)] p-4">
             <summary className="flex cursor-pointer items-center gap-2 font-medium text-white max-sm:min-h-10">
               <Download className="h-4 w-4 text-[var(--accent)]" aria-hidden="true" /> Data tools

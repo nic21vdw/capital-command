@@ -13,10 +13,12 @@ import { formBody, jsonResponse, mockFetchRoutes } from "@/lib/publisher/test-he
  */
 
 const cache = new Map<string, string>();
+let failTokenWrites = false;
 
 vi.mock("@/lib/publisher/tokens", () => ({
   getCachedToken: async (key: string) => cache.get(key) ?? null,
   setCachedToken: async (key: string, value: string) => {
+    if (failTokenWrites) throw Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" });
     cache.set(key, value);
   }
 }));
@@ -30,6 +32,7 @@ async function clearAvatarMirror() {
 
 beforeEach(async () => {
   cache.clear();
+  failTokenWrites = false;
   await clearAvatarMirror();
   vi.stubEnv("TIKTOK_CLIENT_KEY", "tt-key");
   vi.stubEnv("TIKTOK_CLIENT_SECRET", "tt-secret");
@@ -359,6 +362,35 @@ describe("a second TikTok account", () => {
     expect(url.searchParams.get("code_challenge")).toBe(createHash("sha256").update(verifier!).digest("hex"));
     // The primary's pending verifier is not consumed by another account's connect.
     expect(cache.get("tiktok.codeVerifier")).toBeUndefined();
+  });
+
+  it("hands back the new access token even when the rotated refresh token cannot be saved", async () => {
+    cache.set("tiktok.refreshToken", "old-refresh");
+    mockFetchRoutes([
+      {
+        match: "/v2/oauth/token/",
+        respond: () => jsonResponse({ access_token: "fresh-access", refresh_token: "rotated-refresh", expires_in: 86400 })
+      }
+    ]);
+    failTokenWrites = true;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { tiktokAccessToken } = await load();
+
+    expect(await tiktokAccessToken()).toBe("fresh-access");
+
+    expect(cache.get("tiktok.refreshToken")).toBe("old-refresh");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("rotated refresh token could not be saved"));
+    warn.mockRestore();
+  });
+
+  it("saves the rotated refresh token when it can", async () => {
+    cache.set("tiktok.refreshToken", "old-refresh");
+    mockFetchRoutes([
+      { match: "/v2/oauth/token/", respond: () => jsonResponse({ access_token: "fresh-access", refresh_token: "rotated-refresh" }) }
+    ]);
+    const { tiktokAccessToken } = await load();
+    expect(await tiktokAccessToken()).toBe("fresh-access");
+    expect(cache.get("tiktok.refreshToken")).toBe("rotated-refresh");
   });
 
   it("refuses an access token for an account that was never connected", async () => {

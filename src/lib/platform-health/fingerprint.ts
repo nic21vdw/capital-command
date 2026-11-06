@@ -32,6 +32,8 @@ function primaryFingerprint(platform: PlatformId, config: PublisherConfig): stri
       return fingerprintOf(config.facebook.pageAccessToken);
     case "tiktok":
       return fingerprintOf(config.tiktok.refreshToken);
+    case "linkedin":
+      return fingerprintOf(config.linkedin.accessToken ?? config.linkedin.refreshToken);
   }
 }
 

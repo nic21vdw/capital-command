@@ -21,6 +21,14 @@ beforeEach(async () => {
 });
 
 describe("pipeline Threads scheduling handoff", () => {
+  it("refuses managed or inert draft sources before writing any Threads rows", async () => {
+    for (const managed of [{ ...run, marketingSource: { ownerId: "owner" } }, { ...run, status: "draft" }]) {
+      mocks.getRun.mockResolvedValue(managed);
+      await expect(queueRunPosts(run.id)).rejects.toThrow("does not authorize scheduling");
+      expect(await readQueue()).toEqual([]);
+      expect(mocks.updateRun).not.toHaveBeenCalled();
+    }
+  });
   it("books a run once when two automation callers start together", async () => {
     const results = await Promise.all([queueRunPosts(run.id), queueRunPosts(run.id)]);
     const items = await readQueue();

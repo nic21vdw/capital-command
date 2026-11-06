@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stampProjectSignature } from "@/lib/clipping/project-payload";
 import { readAppData } from "@/lib/storage/store";
+import { isActiveClipProject } from "@/lib/clipping/project-visibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const { id } = await params;
   const data = await readAppData();
   const project = (data.clipProjects ?? []).find((candidate) => candidate.id === id);
+  if (project && !isActiveClipProject(project)) {
+    return NextResponse.json({ error: "This clip project was deleted.", deleted: true }, { status: 410 });
+  }
   if (!project) {
     return NextResponse.json({ error: "Clip project not found." }, { status: 404 });
   }

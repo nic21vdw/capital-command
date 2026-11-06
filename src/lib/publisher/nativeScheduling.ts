@@ -20,7 +20,8 @@ export const PRE_SCHEDULES: Record<PlatformId, boolean> = {
   youtube: true,
   instagram: false,
   tiktok: false,
-  facebook: true
+  facebook: true,
+  linkedin: false
 };
 
 export function preSchedules(platform: PlatformId): boolean {
@@ -236,7 +237,8 @@ const PLATFORM_NAMES: Record<PlatformId, string> = {
   youtube: "YouTube",
   instagram: "Instagram",
   tiktok: "TikTok",
-  facebook: "Facebook"
+  facebook: "Facebook",
+  linkedin: "LinkedIn"
 };
 
 /**

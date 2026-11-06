@@ -77,6 +77,13 @@ describe("POST /api/studio/carousels/:id/book", () => {
     });
   });
 
+  it("books a deck to LinkedIn, where the publisher renders it as a PDF carousel", async () => {
+    const response = await book({ ...valid, platforms: ["linkedin"] });
+
+    expect(response.status).toBe(201);
+    expect(mocks.enqueueImagePost).toHaveBeenCalledWith(expect.objectContaining({ platforms: ["linkedin"] }));
+  });
+
   it("refuses TikTok and YouTube: they are reminders, never sent to the publisher", async () => {
     const response = await book({ ...valid, platforms: ["tiktok"] });
 

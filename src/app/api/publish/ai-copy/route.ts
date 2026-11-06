@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 const schema = z.object({
   jobId: z.string().min(1),
   clipId: z.string().min(1),
-  platform: z.enum(["youtube", "instagram", "tiktok", "facebook"]),
+  platform: z.enum(["youtube", "instagram", "tiktok", "facebook", "linkedin"]),
   title: z.string().optional()
 });
 

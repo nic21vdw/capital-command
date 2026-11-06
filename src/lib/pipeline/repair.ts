@@ -95,6 +95,7 @@ async function repairClips(run: PipelineRun): Promise<RepairResult> {
 export async function repairRun(runId: string, stage: RepairableStage): Promise<RepairResult> {
   const run = await getRun(runId);
   if (!run) return { ok: false, error: `No pipeline run called ${runId}.` };
+  if (run.status === "draft" || run.marketingSource) return { ok: false, error: "Use the authenticated marketing preparation workflow for this source." };
   if (run.status === "error") {
     return { ok: false, error: "The source never downloaded, so no stage can be retried. Start the run again." };
   }

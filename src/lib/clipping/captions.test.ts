@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildAss,
   buildClipTitleDialogue,
+  buildTextOverlayDialogue,
   buildWatermarkDialogue,
   chunkWords,
+  formatAssTime,
   formatSrtTime,
   formatVttTime,
   mergeSegments,
@@ -44,6 +46,13 @@ describe("time formatting", () => {
   it("formats SRT with comma and VTT with dot", () => {
     expect(formatSrtTime(3723.25)).toBe("01:02:03,250");
     expect(formatVttTime(3723.25)).toBe("01:02:03.250");
+  });
+
+  it("carries rounded ASS centiseconds across second, minute and hour boundaries", () => {
+    expect(formatAssTime(0.999)).toBe("0:00:01.00");
+    expect(formatAssTime(59.999)).toBe("0:01:00.00");
+    expect(formatAssTime(3599.999)).toBe("1:00:00.00");
+    expect(formatAssTime(1.234)).toBe("0:00:01.23");
   });
 });
 
@@ -314,6 +323,43 @@ describe("buildAss", () => {
     expect((dialogues[1].match(/\\1c/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 
+  it("highlights only actual word intervals with plain phrases before, between and after words", () => {
+    const source: CaptionSegment = { id: "gaps", start: 0, end: 1.2, text: "HELLO WORLD", enabled: true,
+      words: [{ text: "HELLO", start: 0.2, end: 0.4 }, { text: "WORLD", start: 0.9, end: 1.1 }] };
+    const dialogues = buildAss([source], { ...defaultCaptionStyle, animation: "none" }, 320, 180, true)
+      .split("\n").filter((line) => line.startsWith("Dialogue:"));
+    expect(dialogues.map((line) => line.split(",").slice(1, 3))).toEqual([
+      ["0:00:00.00", "0:00:00.20"], ["0:00:00.20", "0:00:00.40"], ["0:00:00.40", "0:00:00.90"],
+      ["0:00:00.90", "0:00:01.10"], ["0:00:01.10", "0:00:01.20"]
+    ]);
+    for (const index of [0, 2, 4]) {
+      expect(dialogues[index]).toContain("HELLO WORLD");
+      expect(dialogues[index]).not.toContain("\\1c");
+    }
+    expect(dialogues[1]).toMatch(/\\1c[^}]+\}HELLO/);
+    expect(dialogues[3]).toMatch(/\\1c[^}]+\}WORLD/);
+  });
+
+  it("keeps karaoke spoken fill through gaps without an invented active-word pop", () => {
+    const source: CaptionSegment = { id: "gap", start: 0, end: 1, text: "ONE TWO", enabled: true,
+      words: [{ text: "ONE", start: 0, end: 0.2 }, { text: "TWO", start: 0.8, end: 1 }] };
+    const dialogues = buildAss([source], { ...defaultCaptionStyle, animation: "karaoke" }, 320, 180, true)
+      .split("\n").filter((line) => line.startsWith("Dialogue:"));
+    expect(dialogues[1]).toContain("0:00:00.20,0:00:00.80");
+    expect(dialogues[1]).toMatch(/\\1c[^}]+\}ONE/);
+    expect(dialogues[1]).toContain("\\alpha&H70&}TWO");
+    expect(dialogues[1]).not.toContain("\\fscx112");
+  });
+
+  it("does not invent a highlight duration for a zero-duration word or render an empty segment", () => {
+    const source: CaptionSegment = { id: "zero", start: 0, end: 1, text: "ZERO", enabled: true,
+      words: [{ text: "ZERO", start: 0.4, end: 0.4 }] };
+    const dialogues = buildAss([source], { ...defaultCaptionStyle, animation: "none" }, 320, 180, true)
+      .split("\n").filter((line) => line.startsWith("Dialogue:"));
+    expect(dialogues.every((line) => !line.includes("\\1c"))).toBe(true);
+    expect(buildAss([{ ...source, end: 0 }], defaultCaptionStyle, 320, 180, true)).not.toContain("Dialogue:");
+  });
+
   it("wraps lines every wordsPerLine words", () => {
     const ass = buildAss(
       [seg("a", 0, 4, "one two three four")],
@@ -341,6 +387,47 @@ describe("buildAss", () => {
   it("leaves events unpositioned when no offsets are set", () => {
     const ass = buildAss([seg("a", 0, 2, "hello world")], defaultCaptionStyle, 1080, 1920, false);
     expect(ass).not.toContain("\\pos(");
+  });
+});
+
+describe("text overlay formatting", () => {
+  const options = { x: 0.5, y: 0.5, start: 0, end: 1, fontScale: 0.05, color: "#ffffff", rotation: 0, bold: true, opacity: 1 };
+  it("retains the legacy dialogue when optional formatting fields are omitted", () => {
+    expect(buildTextOverlayDialogue("Legacy words", options, 320, 180)).toBe(
+      "Dialogue: 1,0:00:00.00,0:00:01.00,Default,,0,0,0,,{\\an5\\pos(160,90)\\fs9\\1c&H00FFFFFF\\alpha00&\\b1}Legacy words"
+    );
+  });
+  it("keeps wrapping stable under overlay scale and honors an explicit local family", () => {
+    const measureText = (text: string) => text.length * 10;
+    const narrow = buildTextOverlayDialogue("AAAA BBBB CCCC", { ...options, width: 0.3, scale: 1, fontFamily: "Anton", measureText }, 320, 180);
+    const scaled = buildTextOverlayDialogue("AAAA BBBB CCCC", { ...options, fontScale: 0.1, width: 0.3, scale: 2,
+      fontFamily: "Anton", measureText: (text) => measureText(text) * 2 }, 320, 180);
+    expect(narrow.split("\n")).toHaveLength(2);
+    expect(scaled.split("\n")).toHaveLength(2);
+    expect(narrow).toContain("\\fnAnton");
+    expect(narrow).toContain("\\b0");
+  });
+  it("uses standard background alpha multiplied by overlay opacity and rejects unsupported CSS", () => {
+    const result = buildTextOverlayDialogue("Box", { ...options, width: 0.5, background: "rgba(255,0,0,0.5)", opacity: 0.5 }, 320, 180);
+    expect(result).toContain("\\p1\\bord0\\shad0\\1c&H000000FF\\alpha&HBF&");
+    expect(result).toContain("l 160.00 13.50");
+    expect(() => buildTextOverlayDialogue("Box", { ...options, background: "url(https://example.invalid/image)" }, 320, 180)).toThrow("backgrounds support");
+    expect(() => buildTextOverlayDialogue("Box", { ...options, fontFamily: "Arial\\fnOther" }, 320, 180)).toThrow("local font family");
+  });
+  it("preserves pre-wrap spaces, tabs and explicit blank lines", () => {
+    const result = buildTextOverlayDialogue(" A  B\tC \n\nD", { ...options, width: 0.9,
+      measureText: (value) => value.length }, 320, 180);
+    expect(result.split("\n")).toHaveLength(3);
+    expect(result).toContain("\\hA\\h\\hB\\h\\h\\hC\\h");
+    expect(result).toContain("\\fnInter Overlay 800\\i0\\b0");
+  });
+  it("selects actual static Inter weights and rejects unsupported instances", () => {
+    for (const weight of [100, 200, 300, 400, 500, 600, 700, 800, 900]) {
+      const result = buildTextOverlayDialogue("Weight", { ...options, fontFamily: "Inter, system-ui, sans-serif", fontWeight: weight }, 320, 180);
+      expect(result).toContain(`\\fnInter Overlay ${weight}\\i0\\b0`);
+      expect(result).toContain(",Overlay,");
+    }
+    expect(() => buildTextOverlayDialogue("Weight", { ...options, fontFamily: "Inter", fontWeight: 750 }, 320, 180)).toThrow("steps of 100");
   });
 });
 

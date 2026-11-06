@@ -53,7 +53,9 @@ export function describeOAuthLanding(params: URLSearchParams): OAuthLanding | nu
             : "Clips land in your TikTok inbox to finish in the app."
           : platform === "spotify"
             ? "This page can now check which episodes Spotify has pulled in."
-            : "You can post to it from here now.";
+            : platform === "linkedin"
+              ? "Scheduled LinkedIn posts will publish automatically. Choose below whether they come from your profile or a company page."
+              : "You can post to it from here now.";
     return { tone: "success", platform, title: `${label} connected`, detail };
   }
 

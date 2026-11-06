@@ -5,7 +5,8 @@ import {
   DEFAULT_WEEKEND_SLOT_TIMES
 } from "@/lib/publisher/slots";
 import { DEFAULT_SHORTS_PER_DAY } from "@/lib/publisher/shortsCap";
-import { ALL_PLATFORMS, type PlatformId, type Visibility } from "@/lib/publisher/types";
+import { LINKEDIN_KEYS } from "@/lib/publisher/linkedinKeys";
+import { ALL_PLATFORMS, DEFAULT_PLATFORMS, type PlatformId, type Visibility } from "@/lib/publisher/types";
 import { dataPath } from "@/lib/paths";
 
 /**
@@ -24,6 +25,17 @@ function flag(name: string, fallback = false): boolean {
 function str(name: string): string | null {
   const raw = process.env[name]?.trim();
   return raw ? raw : null;
+}
+
+function relayCredentials(): { apiKey: string; user: string } | null {
+  const apiKey = str("UPLOAD_POST_API_KEY");
+  const user = str("UPLOAD_POST_USER");
+  return apiKey && user ? { apiKey, user } : null;
+}
+
+function bufferTiktokCredentials(): { apiKey: string; channelId: string | null } | null {
+  const apiKey = str("BUFFER_API_KEY");
+  return apiKey ? { apiKey, channelId: str("BUFFER_TIKTOK_CHANNEL_ID") } : null;
 }
 
 function num(name: string, fallback: number): number {
@@ -124,6 +136,14 @@ export type PublisherConfig = {
     pageAccessToken: string | null;
     graphApiVersion: string;
   };
+  linkedin: {
+    clientId: string | null;
+    clientSecret: string | null;
+    accessToken: string | null;
+    refreshToken: string | null;
+    authorUrn: string | null;
+    dailyPostBudget: number;
+  };
   tiktok: {
     clientKey: string | null;
     clientSecret: string | null;
@@ -140,6 +160,17 @@ export type PublisherConfig = {
      * them, so this ceiling never resets on its own.
      */
     inboxLimit: number;
+    /**
+     * Upload-Post (an audited TikTok partner) posts straight to the profile
+     * while this app's own client is unaudited. Null unless both
+     * UPLOAD_POST_API_KEY and UPLOAD_POST_USER are set.
+     */
+    relay: { apiKey: string; user: string } | null;
+    /**
+     * Buffer's audited TikTok client, free on its Free plan. Null unless
+     * BUFFER_API_KEY is set; BUFFER_TIKTOK_CHANNEL_ID is optional.
+     */
+    buffer: { apiKey: string; channelId: string | null } | null;
   };
   /**
    * Spotify Web API — read-only. Spotify has no creator write API, so these
@@ -233,7 +264,7 @@ export function publisherConfig(): PublisherConfig {
         .split(",")
         .map((p) => p.trim().toLowerCase())
         .filter((p): p is PlatformId => (ALL_PLATFORMS as string[]).includes(p)))
-    : [...ALL_PLATFORMS];
+    : [...DEFAULT_PLATFORMS];
   const visibilityRaw = str("PUBLISH_DEFAULT_VISIBILITY")?.toLowerCase();
   const defaultVisibility: Visibility =
     visibilityRaw === "public" || visibilityRaw === "unlisted" ? visibilityRaw : "private";
@@ -256,9 +287,9 @@ export function publisherConfig(): PublisherConfig {
     mirror: {
       enabled: flag("PUBLISH_MIRROR", true),
       lead: platformList("PUBLISH_MIRROR_LEAD", ["youtube"])[0] ?? "youtube",
-      // TikTok is left out until its app clears audit — an unaudited client
+      // TikTok joins only when Upload-Post or Buffer can post it — an unaudited client
       // can only drop clips in the creator's inbox, which is not a schedule.
-      targets: platformList("PUBLISH_MIRROR_TARGETS", ["instagram", "facebook"]),
+      targets: platformList("PUBLISH_MIRROR_TARGETS", relayCredentials() || bufferTiktokCredentials() ? ["instagram", "facebook", "tiktok"] : ["instagram", "facebook"]),
       mode: str("PUBLISH_MIRROR_MODE")?.toLowerCase() === "shuffle" ? "shuffle" : "match"
     },
     youtube: {
@@ -286,12 +317,22 @@ export function publisherConfig(): PublisherConfig {
       // https://developers.facebook.com/docs/graph-api/changelog
       graphApiVersion: str("FB_GRAPH_API_VERSION") ?? "v23.0"
     },
+    linkedin: {
+      clientId: str("LINKEDIN_CLIENT_ID"),
+      clientSecret: str("LINKEDIN_CLIENT_SECRET"),
+      accessToken: cachedRefreshToken(LINKEDIN_KEYS.accessToken),
+      refreshToken: cachedRefreshToken(LINKEDIN_KEYS.refreshToken),
+      authorUrn: cachedRefreshToken(LINKEDIN_KEYS.author),
+      dailyPostBudget: num("LINKEDIN_DAILY_POST_BUDGET", 10)
+    },
     tiktok: {
       clientKey: str("TIKTOK_CLIENT_KEY"),
       clientSecret: str("TIKTOK_CLIENT_SECRET"),
       refreshToken: cachedRefreshToken("tiktok.refreshToken") ?? str("TIKTOK_REFRESH_TOKEN"),
       audited: flag("TIKTOK_AUDITED"),
-      inboxLimit: num("TIKTOK_INBOX_LIMIT", 10)
+      inboxLimit: num("TIKTOK_INBOX_LIMIT", 10),
+      relay: relayCredentials(),
+      buffer: bufferTiktokCredentials()
     },
     spotify: {
       clientId: str("SPOTIFY_CLIENT_ID"),
@@ -328,8 +369,16 @@ export function configuredPlatforms(config = publisherConfig()): PlatformId[] {
     }
     if (p === "instagram") return Boolean(config.instagram.userId && config.instagram.accessToken);
     if (p === "facebook") return Boolean(config.facebook.pageId && config.facebook.pageAccessToken);
+    if (p === "linkedin") return linkedinConfigured(config);
     return Boolean(config.tiktok.clientKey && config.tiktok.clientSecret && config.tiktok.refreshToken);
   });
+}
+
+export function linkedinConfigured(config = publisherConfig()): boolean {
+  const { linkedin } = config;
+  return Boolean(
+    linkedin.clientId && linkedin.clientSecret && (linkedin.accessToken || linkedin.refreshToken) && linkedin.authorUrn
+  );
 }
 
 export function hostingConfigured(config = publisherConfig()): boolean {

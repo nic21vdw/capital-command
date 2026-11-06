@@ -14,6 +14,7 @@ import { REARM_MAX_SLOT_AGE_MS } from "@/lib/publisher/slotAge";
 import { generateSlots, slotGrid } from "@/lib/publisher/slots";
 import { FileQueueStore, R2QueueStore, type QueueStore } from "@/lib/publisher/store";
 import type { BufferState, PlatformId, PlatformState, PostResult, QueueItem } from "@/lib/publisher/types";
+import { preserveManagedRows } from "@/lib/integrations/marketing/ledger";
 
 /**
  * The publish queue and its per-platform state machine.
@@ -83,12 +84,13 @@ export class PublishQueue {
 
   private adopt(raw: string | null, base: ReadonlyMap<string, string> = this.synced): void {
     const hash = hashText(raw);
-    if (this.loaded && hash === this.syncedHash) return;
+    if (this.loaded && hash === this.syncedHash && this.items.size === base.size &&
+      [...this.items].every(([id, item]) => JSON.stringify(item) === base.get(id))) return;
     const stored = new Map<string, QueueItem>();
     if (raw !== null) {
       for (const item of JSON.parse(raw) as QueueItem[]) stored.set(item.id, item);
     }
-    const merged = mergeById(base, this.items, stored);
+    const merged = preserveManagedRows(mergeById(base, this.items, stored), stored, base);
     for (const [id, item] of merged) {
       const held = this.items.get(id);
       if (!held) this.items.set(id, item);
@@ -106,13 +108,36 @@ export class PublishQueue {
     await this.commit();
   }
 
+  /** Existing owning-process queue transaction. Managed commands require a real cross-process store lock. */
+  async managedTransaction<T>(work: (rows: Map<string, QueueItem>) => { value: T; changed: boolean }): Promise<T> {
+    if (!this.store.withStrictLock) throw new Error("Managed commands require a locking queue store with strict live-holder protection.");
+    await this.load();
+    return this.writeLocked(async () => {
+      const raw = await this.store.load();
+      const before = snapshotById(this.items.values());
+      const local = new Map([...this.items].map(([id, item]) => [id, structuredClone(item)]));
+      const stored = parseStored(raw);
+      const staged = preserveManagedRows(mergeById(this.synced, local, stored), stored, this.synced);
+      const { value, changed } = work(staged);
+      if (changed) {
+        const text = JSON.stringify(sortedByPublishAt(staged.values()), null, 2);
+        // Do not expose a result or mutate caller-held references until the atomic save succeeds.
+        await this.store.save(text);
+        this.adopt(text, before);
+        this.version = null;
+      } else this.adopt(raw);
+      return value;
+    }, true);
+  }
+
   private commit(gate?: SaveGate): Promise<boolean> {
     const changedAt = new Date().toISOString();
     return this.writeLocked(() => this.persist(changedAt, gate));
   }
 
-  private writeLocked<T>(work: () => Promise<T>): Promise<T> {
+  private writeLocked<T>(work: () => Promise<T>, strict = false): Promise<T> {
     const pending = this.saves.then(() => {
+      if (strict) return this.store.withStrictLock!(work);
       return this.store.withLock ? this.store.withLock(work) : work();
     });
     this.saves = pending.then(
@@ -298,6 +323,7 @@ export class PublishQueue {
    */
   async rearm(item: QueueItem, scope: RearmScope = {}): Promise<PlatformId[]> {
     await this.load();
+    if (item.marketing) return [];
     const policy = readReviewPolicy();
     const revived = rearmItem(item, { keepReleased: (platform) => policy[platform] === "hold", ...scope });
     if (revived.length > 0) await this.save();
@@ -320,6 +346,7 @@ export class PublishQueue {
    *    approved it (approval.ts).
    */
   duePlatforms(item: QueueItem, now: Date, policy: ReviewPolicy = readReviewPolicy()): PlatformId[] {
+    if (item.marketing) return [];
     const due: PlatformId[] = [];
     for (const [platform, state] of Object.entries(item.platforms) as [PlatformId, PlatformState][]) {
       if (legAwaitingApproval(state, platform, policy)) continue;
@@ -416,7 +443,8 @@ export class PublishQueue {
       for (const item of local.values()) {
         if (JSON.stringify(item) !== this.synced.get(item.id)) item.updatedAt = changedAt;
       }
-      const staged = mergeById(this.synced, local, parseStored(raw));
+      const stored = parseStored(raw);
+      const staged = preserveManagedRows(mergeById(this.synced, local, stored), stored, this.synced);
       const config = this.config;
       const slots = generateSlots({
         timeZone: config.timezone,
@@ -428,13 +456,16 @@ export class PublishQueue {
         .map((slot) => slot.utc);
       const cap = shortsLimit(config);
       const rows = [...staged.values()];
-      const plan = planRelease(rows, targets(rows), {
+      const requested = targets(rows);
+      const blocked = requested.filter((target) => staged.get(target.id)?.marketing);
+      const plan = planRelease(rows, requested.filter((target) => !staged.get(target.id)?.marketing), {
         now,
         timeZone: config.timezone,
         slots,
         dailyCap: (platform) => (platform === "youtube" ? Math.min(cap, config.youtube.dailyUploadBudget) : cap),
         maxSlotAgeMs: REARM_MAX_SLOT_AGE_MS
       });
+      plan.skipped.push(...blocked);
       // A multi-channel policy change must place everything before writing anything.
       if (options.requireAll && plan.skipped.length > 0) throw new ReleaseUnplacedError(plan.skipped);
       const mutations: Array<Parameters<typeof recordQueueMutations>[0][number]> = [];
@@ -513,6 +544,7 @@ export class PublishQueue {
 
   /** Marks a platform as being processed right now (soft lease). */
   async claim(item: QueueItem, platform: PlatformId, now: Date, options: { force?: boolean } = {}): Promise<boolean> {
+    if (item.marketing) return false;
     const state = item.platforms[platform];
     if (!state) return false;
     if (state.claimedAt && now.getTime() - new Date(state.claimedAt).getTime() < this.config.claimTimeoutMinutes * 60_000) {
@@ -533,6 +565,7 @@ export class PublishQueue {
   }
 
   private claimable(item: QueueItem, platform: PlatformId, now: Date, force: boolean): boolean {
+    if (item.marketing) return false;
     if (!force) return this.duePlatforms(item, now).includes(platform);
     const leg = item.platforms[platform];
     if (!leg) return false;
@@ -644,6 +677,7 @@ export class PublishQueue {
    * The item's `buffer` field is seeded here when absent.
    */
   async claimBuffer(item: QueueItem, now: Date, allow: (current: QueueItem) => boolean = () => true): Promise<boolean> {
+    if (item.marketing) return false;
     const active = (current: QueueItem) => Boolean(current.buffer?.claimedAt &&
       now.getTime() - new Date(current.buffer.claimedAt).getTime() < this.config.claimTimeoutMinutes * 60_000);
     if (active(item)) return false;
@@ -654,7 +688,7 @@ export class PublishQueue {
     return this.commit({
       allow: (stored) => {
         const current = stored.get(item.id);
-        return current !== undefined && !active(current) && allow(current);
+        return current !== undefined && !current.marketing && !active(current) && allow(current);
       },
       reject: () => {
         if (previous) previous.claimedAt = previousClaim;
@@ -796,6 +830,7 @@ export const FAILED_RETENTION_DAYS = 30;
  * its age — that is the whole point of the stamp.
  */
 export function isFailedLongEnoughToPurge(item: QueueItem, now: Date, retentionDays = FAILED_RETENTION_DAYS): boolean {
+  if (item.marketing) return false;
   if (!isItemFullyFailed(item) || !item.failedSeenAt) return false;
   const cutoff = now.getTime() - retentionDays * 86_400_000;
   const seen = new Date(item.failedSeenAt).getTime();

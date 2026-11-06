@@ -82,7 +82,7 @@ function forMessage(text: string): string {
 export type JsonRequest = {
   method?: string;
   headers?: Record<string, string>;
-  body?: string | URLSearchParams | Buffer | Readable;
+  body?: string | URLSearchParams | Buffer | FormData | Readable;
   /** Label used in error messages, e.g. "YouTube resumable init". */
   label: string;
   /** Deadline for a JSON call; 0 disables it for a streamed media transfer. */

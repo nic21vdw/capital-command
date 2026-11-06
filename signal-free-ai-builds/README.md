@@ -82,7 +82,7 @@ npx remotion render CommentCTA    out/comment-cta.mp4
 
 # LowerThird / SeriesLogo take props — override via --props
 npx remotion render LowerThird out/lower-nic.mp4 \
-  --props='{"name":"Nic Vandewetering","subtitle":"Structural Engineer, Building CoLateral"}'
+  --props='{"name":"Nic Vandewetering","subtitle":"Founder, Building CoLateral"}'
 
 npx remotion render SeriesLogo out/logo.mp4 --props='{"title":"FREE AI BUILDS"}'
 ```

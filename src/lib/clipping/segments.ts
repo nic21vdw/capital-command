@@ -222,14 +222,15 @@ export function sourceTimeToClipOutput(sourceTime: number, ranges: ClipKeptRange
 export function sourceToClipIntervals(
   sourceStart: number,
   sourceEnd: number,
-  ranges: ClipKeptRange[]
+  ranges: ClipKeptRange[],
+  minimumDurationSec = MIN_SEGMENT_SEC
 ): ClipKeptRange[] {
   const intervals: ClipKeptRange[] = [];
   let output = 0;
   for (const range of ranges) {
     const start = Math.max(sourceStart, range.start);
     const end = Math.min(sourceEnd, range.end);
-    if (end - start >= MIN_SEGMENT_SEC) {
+    if (end > start && end - start >= minimumDurationSec) {
       intervals.push({
         start: round3(output + start - range.start),
         end: round3(output + end - range.start)
@@ -253,14 +254,21 @@ export function remapClipCaptions(
     const end = intervals[intervals.length - 1].end;
     const words: CaptionWord[] = [];
     for (const word of caption.words) {
-      const wordStart = sourceTimeToClipOutput(word.start, ranges);
-      const wordEnd = sourceTimeToClipOutput(word.end, ranges);
-      if (wordStart === null || wordEnd === null) continue;
-      const clampedStart = Math.max(start, Math.min(end, wordStart));
-      const clampedEnd = Math.max(clampedStart, Math.min(end, wordEnd));
+      // Mapping isolated endpoints snaps removed words onto the next kept
+      // boundary. Require actual retained speech, including short words that
+      // are below the timeline's 50 ms segment minimum.
+      const kept = sourceToClipIntervals(Math.max(caption.start, word.start), Math.min(caption.end, word.end), ranges, 0);
+      if (!kept.length || !word.text.trim()) continue;
+      const clampedStart = Math.max(start, kept[0].start);
+      const clampedEnd = Math.min(end, kept[kept.length - 1].end);
+      if (clampedEnd <= clampedStart) continue;
       words.push({ ...word, start: clampedStart, end: clampedEnd });
     }
-    output.push({ ...caption, id: "cap-" + (output.length + 1), start, end, words });
+    if (caption.words.length && !words.length) continue;
+    // Preserve untimed wording and untouched caption formatting. When timed
+    // words were cut, both plain and highlighted captions must omit them.
+    const text = caption.words.length && words.length !== caption.words.length ? words.map((word) => word.text).join(" ") : caption.text;
+    output.push({ ...caption, id: "cap-" + (output.length + 1), start, end, text, words });
   }
   return output;
 }

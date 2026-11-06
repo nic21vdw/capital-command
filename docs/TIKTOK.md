@@ -2,8 +2,9 @@
 
 ## Short version
 
-TikTok posting works today. Automatic TikTok posting does not, and will not
-until TikTok approves the app — which it has already declined once.
+TikTok posting works today. Automatic TikTok posting works through
+Upload-Post (below); through this app's own TikTok client it does not, and
+will not until TikTok approves the app — which it has already declined once.
 
 | | State |
 |---|---|
@@ -15,6 +16,37 @@ until TikTok approves the app — which it has already declined once.
 | App review | **Rejected 2026-07-29**, not pending — and not resubmitted since |
 | The credentials in `.env` | the **sandbox** app's, so approval would not reach this machine on its own |
 | The product page, Terms and Privacy | live at `https://nic21vdw.github.io/capital-command/` — the URLs registered before this returned 404, because the repo was private |
+
+## Automatic posting today: Buffer (free)
+
+Buffer's TikTok client is audited, and its Free plan publishes TikTok videos
+automatically (3 channels, 10 queued posts per channel, 25 TikTok posts a day,
+videos 3 s to 10 min). With `BUFFER_API_KEY` set, `tiktokBuffer.ts` hands each
+TikTok leg to Buffer's GraphQL API at its slot (`createPost`, `mode: shareNow`,
+`schedulingType: automatic`) with the clip's media-host URL, then follows the
+post until Buffer reports `sent`. Because each post is handed over at its own
+slot, Buffer's 10-post queue limit never fills. The leg's `containerId` is
+`buffer:<postId>`, so an interrupted run follows the same post instead of
+posting twice.
+
+Setup, once: sign up free at buffer.com, connect TikTok, create an API key at
+publish.buffer.com/settings/api, put it in `.env` as `BUFFER_API_KEY`, release.
+
+## Paid alternative: Upload-Post
+
+TikTok will not audit this app for one person's own accounts, so automatic
+posting goes through a partner whose client already passed audit:
+[Upload-Post](https://upload-post.com). With `UPLOAD_POST_API_KEY` and
+`UPLOAD_POST_USER` set in `.env`, `src/lib/publisher/tiktokRelay.ts` takes every
+TikTok leg at its slot and direct posts it (`post_mode=DIRECT_POST`) with the
+item's audience — public when the item is public, or whatever the consent
+panel chose. The inbox cap stops applying, mirrored schedules include TikTok,
+and a run that ends before TikTok confirms resumes the same request next run
+(the leg's `containerId` is `upload-post:<request_id>`).
+
+Setup, once: sign up at app.upload-post.com on a paid plan (the free plan
+answers TikTok with 403), create a profile, connect TikTok to it, copy the API
+key, put both values in `.env`, and release.
 
 ## The review
 

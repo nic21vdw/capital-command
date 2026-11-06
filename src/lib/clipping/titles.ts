@@ -1,5 +1,7 @@
 import { aiConfigured, runAi } from "@/lib/ai";
 import { applyBrandRules, brandPromptBlock, brandTitleExamples } from "@/lib/brand/kit";
+import { CLIP_WRITER } from "@/lib/clipping/clip-writer";
+import { readTitleLessons, titleLessonsBlock, type TitleLessons } from "@/lib/clipping/channel-lessons";
 import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS, COLATERAL_DESCRIPTION, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
 
 // Re-exported so existing importers of these constants keep working; the
@@ -21,19 +23,22 @@ export { CHANNEL_CONTEXT, CHANNEL_KEYWORDS, COLATERAL_DESCRIPTION, TITLE_STYLE_E
  * fails, so callers can fall back to the local heuristic titler.
  */
 
-export function viralTitleSystemPrompt(): string {
+export function viralTitleSystemPrompt(lessons?: TitleLessons): string {
+  const learned = lessons ? `\n\n${titleLessonsBlock(lessons)}\n` : "";
   return `You are a short-form video growth expert who writes scroll-stopping titles for YouTube Shorts, TikTok, and Reels.
 
 ${brandPromptBlock("youtube", { titleOnly: true })}
 
 Every title must:
 - Be 4-10 words and under 60 characters, in Title Case.
-- Lead with curiosity, stakes, or a bold claim; numbers and How/Why/What openers work well.
+- Name the one specific thing the clip is about: the tool or model, the price, the number, the game, the result. A title that would fit any clip from any stream is wrong.
+- Lead with curiosity, stakes, a bold claim or a real question; numbers and How/Why/What openers work well.
+- Never be a vague life lesson or a description of the stream ("Passion Drives This Project", "The Stream Goes On"). If the clip has no specific hook, write the most concrete title its words allow.
 - Use the channel keywords naturally when they fit the clip — never force one that doesn't.
 - Contain no quotation marks, hashtags, or emoji.
 
 Examples of the exact style to match:
-${brandTitleExamples().map((t) => `- ${t}`).join("\n")}
+${brandTitleExamples().map((t) => `- ${t}`).join("\n")}${learned}
 
 You always return strict JSON.`;
 }
@@ -131,9 +136,11 @@ export async function generateViralTitles(
   if (withText.length === 0) return null;
 
   try {
+    const lessons = await readTitleLessons();
     const result = await runAi({
+      ...CLIP_WRITER,
       maxTokens: 1500,
-      system: viralTitleSystemPrompt(),
+      system: viralTitleSystemPrompt(lessons),
       messages: [{ role: "user", content: buildViralTitleUserPrompt(withText, context) }]
     });
     if (!result || result.refused) return null;

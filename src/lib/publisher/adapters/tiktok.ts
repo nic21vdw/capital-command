@@ -14,8 +14,11 @@ import {
   fetchCreatorPostingInfo,
   reconcileWithCreator
 } from "@/lib/publisher/tiktokPost";
+import { BUFFER_GRAPHQL_URL, isBufferHandle, publishViaBuffer, validateBufferTiktok } from "@/lib/publisher/tiktokBuffer";
+import { isRelayHandle, publishViaRelay, relayPrivacy, RELAY_API_BASE, validateRelayAuth } from "@/lib/publisher/tiktokRelay";
 import { BANNED_CODE, throttleFor } from "@/lib/publisher/tiktokThrottle";
-import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
+import { saveRotatedToken } from "@/lib/publisher/rotatedToken";
+import { getCachedToken } from "@/lib/publisher/tokens";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
 import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/lib/publisher/types";
 
@@ -41,6 +44,10 @@ import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/l
  * again to confirm those answers still hold. Before approval TikTok restricts
  * direct posts to private viewing, so an unaudited direct post may only ask
  * for SELF_ONLY; after approval every audience creator_info offers is open.
+ *
+ * With Buffer (tiktokBuffer.ts) or Upload-Post (tiktokRelay.ts) configured,
+ * every post goes through that service's audited client instead, straight to the profile at the slot, and none of the
+ * inbox or unaudited limits above apply.
  *
  * Primary source is FILE_UPLOAD (direct binary upload — no hosting needed);
  * PULL_FROM_URL is available via TIKTOK_UPLOAD_MODE=url and requires the
@@ -123,7 +130,7 @@ async function accessToken(accountId: string = primaryAccountId("tiktok")): Prom
   }
   await noteRefreshAccepted("tiktok", accountId);
   if (data.refresh_token && data.refresh_token !== refreshToken) {
-    await setCachedToken(tiktokRefreshTokenKey(accountId), data.refresh_token);
+    await saveRotatedToken("TikTok", tiktokRefreshTokenKey(accountId), data.refresh_token);
   }
   const minted = { accessToken: data.access_token, expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000 };
   cachedAccess.set(accountId, minted);
@@ -334,16 +341,39 @@ export const tiktokAdapter: PlatformAdapter = {
 
   configured(): boolean {
     const { tiktok } = publisherConfig();
-    return Boolean(tiktok.clientKey && tiktok.clientSecret && tiktok.refreshToken);
+    return Boolean(tiktok.buffer || tiktok.relay || (tiktok.clientKey && tiktok.clientSecret && tiktok.refreshToken));
   },
 
   async validateAuth(): Promise<void> {
-    await accessToken();
+    const { buffer, relay } = publisherConfig().tiktok;
+    if (buffer) await validateBufferTiktok(buffer);
+    else if (relay) await validateRelayAuth(relay);
+    else await accessToken();
   },
 
   buildPlan(input: PublishInput): PublishPlan {
     const config = publisherConfig();
     const publishAt = new Date(input.item.publishAt);
+    if (config.tiktok.buffer) {
+      return {
+        platform: "tiktok",
+        endpoint: BUFFER_GRAPHQL_URL,
+        payload: { mutation: "createPost", mode: "shareNow", schedulingType: "automatic", channelId: config.tiktok.buffer.channelId ?? "first TikTok channel" },
+        publishAtUtc: toRfc3339Utc(publishAt),
+        publishAtLocal: formatInTimezone(publishAt, config.timezone),
+        notes: ["Handed to Buffer at the slot, which publishes it to TikTok automatically — no inbox tap."]
+      };
+    }
+    if (config.tiktok.relay) {
+      return {
+        platform: "tiktok",
+        endpoint: `${RELAY_API_BASE}/upload`,
+        payload: { user: config.tiktok.relay.user, post_mode: "DIRECT_POST", privacy_level: relayPrivacy(input) },
+        publishAtUtc: toRfc3339Utc(publishAt),
+        publishAtLocal: formatInTimezone(publishAt, config.timezone),
+        notes: ["Posted through Upload-Post's audited TikTok client at the slot — straight to the profile, no inbox tap."]
+      };
+    }
     const body = buildInitBody(input, 0);
     return {
       platform: "tiktok",
@@ -363,10 +393,19 @@ export const tiktokAdapter: PlatformAdapter = {
 
   async publish(input: PublishInput): Promise<PostResult> {
     if (isImagePost(input.item)) throw new PermanentError(IMAGE_REFUSALS.tiktok!);
+    const pending = input.item.platforms.tiktok?.containerId;
+    const { buffer, relay } = publisherConfig().tiktok;
+    if (isBufferHandle(pending) && !buffer) {
+      throw new PermanentError("This post was handed to Buffer, which is no longer configured — set BUFFER_API_KEY to follow it up.");
+    }
+    if (buffer && (!pending || isBufferHandle(pending))) return publishViaBuffer(input, buffer);
+    if (isRelayHandle(pending) && !relay) {
+      throw new PermanentError("This post was sent through Upload-Post, which is no longer configured — set UPLOAD_POST_API_KEY and UPLOAD_POST_USER to follow it up.");
+    }
+    if (relay && (!pending || isRelayHandle(pending))) return publishViaRelay(input, relay);
     const token = await accessToken(itemAccountId(input.item, "tiktok"));
 
     // Resume: if a previous run already initialized/uploaded, just poll.
-    const pending = input.item.platforms.tiktok?.containerId;
     if (pending) return pollStatus(pending, token, !inboxFlow(input));
 
     // TikTok requires creator_info immediately before a direct post, and it is

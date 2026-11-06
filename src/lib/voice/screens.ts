@@ -1,3 +1,5 @@
+import { isRouteShipped } from "@/lib/edition";
+
 export type Screen = {
   id: string;
   href: string;
@@ -42,7 +44,7 @@ export const SCREENS: Screen[] = [
 
 /** The screens the command bar may open, given the settings the sidebar also reads. */
 export function visibleScreens(options: { personalDashboard?: boolean } = {}): Screen[] {
-  return SCREENS.filter((screen) => screen.needs !== "personalDashboard" || options.personalDashboard === true);
+  return SCREENS.filter((screen) => isRouteShipped(screen.href) && (screen.needs !== "personalDashboard" || options.personalDashboard === true));
 }
 
 export function findScreen(target: string, options: { personalDashboard?: boolean } = {}): Screen | null {

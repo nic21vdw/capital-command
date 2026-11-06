@@ -15,7 +15,7 @@ export const maxDuration = 300;
 const paramsSchema = z.object({
   name: z.string().min(1),
   publishAt: z.string().min(1),
-  platform: z.enum(["youtube", "instagram", "tiktok", "facebook"]),
+  platform: z.enum(["youtube", "instagram", "tiktok", "facebook", "linkedin"]),
   accountId: z.string().min(1).optional()
 });
 

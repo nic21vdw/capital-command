@@ -422,7 +422,7 @@ export function makeHolding(input?: Partial<Holding>): Holding {
     ticker: input?.ticker ?? "",
     name: input?.name ?? "",
     assetClass: input?.assetClass ?? "Stocks",
-    account: input?.account ?? "Wealthsimple TFSA",
+    account: input?.account ?? "Investment account",
     quantity: input?.quantity ?? 0,
     averageCost: input?.averageCost ?? 0,
     currentPrice: input?.currentPrice,

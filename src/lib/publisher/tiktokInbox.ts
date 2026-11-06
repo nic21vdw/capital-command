@@ -12,8 +12,16 @@ import type { QueueItem } from "@/lib/publisher/types";
  * TikTok post after the wall is hit is refused.
  */
 
+export function tiktokRelayOn(): boolean {
+  return (
+    process.env.TIKTOK_RELAY === "1" ||
+    Boolean(process.env.BUFFER_API_KEY?.trim()) ||
+    Boolean(process.env.UPLOAD_POST_API_KEY?.trim() && process.env.UPLOAD_POST_USER?.trim())
+  );
+}
+
 export function usesTiktokInbox(item: Pick<QueueItem, "tiktok">): boolean {
-  return (item.tiktok?.delivery ?? "inbox") !== "direct";
+  return !tiktokRelayOn() && (item.tiktok?.delivery ?? "inbox") !== "direct";
 }
 
 export function outstandingTiktokDrafts(items: QueueItem[]): number {

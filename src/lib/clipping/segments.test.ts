@@ -74,4 +74,38 @@ describe("clip silence segments", () => {
     expect(remapped[0].start).toBeCloseTo(0.1, 3);
     expect(remapped[1].start).toBeLessThan(captions[1].start);
   });
+
+  it("removes cut words from timing and plain caption text without mutating the source", () => {
+    const source: CaptionSegment = { id: "cut", start: 0, end: 1.6, text: "KEEP REMOVED LATER", enabled: true,
+      words: [{ text: "KEEP", start: 0, end: 0.2 }, { text: "REMOVED", start: 0.6, end: 0.8 }, { text: "LATER", start: 1, end: 1.6 }] };
+    const before = structuredClone(source);
+    const [result] = remapClipCaptions([source], [{ start: 0, end: 0.4 }, { start: 1, end: 1.6 }]);
+    expect(result.text).toBe("KEEP LATER");
+    expect(result.words).toEqual([{ text: "KEEP", start: 0, end: 0.2 }, { text: "LATER", start: 0.4, end: 1 }]);
+    expect(result.words.every((word) => word.end > word.start)).toBe(true);
+    expect(source).toEqual(before);
+  });
+
+  it("retains positive partial intersections and short words but excludes boundary-only touches", () => {
+    const source: CaptionSegment = { id: "edge", start: 0, end: 3, text: "LEFT SHORT PART RIGHT", enabled: true,
+      words: [{ text: "LEFT", start: 0.8, end: 1 }, { text: "SHORT", start: 1, end: 1.01 },
+        { text: "PART", start: 1.9, end: 2.2 }, { text: "RIGHT", start: 2, end: 2.4 }] };
+    const [result] = remapClipCaptions([source], [{ start: 1, end: 2 }]);
+    expect(result.text).toBe("SHORT PART");
+    expect(result.words).toEqual([{ text: "SHORT", start: 0, end: 0.01 }, { text: "PART", start: 0.9, end: 1 }]);
+  });
+
+  it("omits a timed caption when all of its spoken words were removed", () => {
+    const source: CaptionSegment = { id: "removed", start: 0, end: 2, text: "REMOVED", enabled: true,
+      words: [{ text: "REMOVED", start: 0.8, end: 1.2 }] };
+    expect(remapClipCaptions([source], [{ start: 0, end: 0.5 }, { start: 1.5, end: 2 }])).toEqual([]);
+  });
+
+  it("preserves untimed wording and untouched timed caption formatting", () => {
+    const untimed: CaptionSegment = { id: "untimed", start: 0, end: 2, text: "Keep this\nwording intact.", enabled: true, words: [] };
+    expect(remapClipCaptions([untimed], [{ start: 0, end: 0.5 }, { start: 1.5, end: 2 }])[0])
+      .toMatchObject({ start: 0, end: 1, text: untimed.text, words: [] });
+    const timed: CaptionSegment = { ...untimed, words: [{ text: "Keep", start: 0, end: 0.5 }, { text: "wording", start: 0.5, end: 1 }] };
+    expect(remapClipCaptions([timed], [{ start: 0, end: 2 }])[0].text).toBe(timed.text);
+  });
 });

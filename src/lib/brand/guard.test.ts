@@ -60,7 +60,9 @@ const sources: Source[] = walk(SRC)
 
 const IDENTITY = /nic\s+vandewetering|nicvandewetering|nic21vdw/i;
 
-const IDENTITY_ALLOWED: Record<string, string> = {};
+const IDENTITY_ALLOWED: Record<string, string> = {
+  "src/lib/publisher/linkedinKeys.ts": "the setup-guide GitHub URL identifies this source repository for navigation; it is never generated brand copy"
+};
 
 const BANNED_ENTRIES = [
   ...new Set(

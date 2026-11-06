@@ -71,14 +71,14 @@ afterEach(async () => {
 describe("/api/review/policy", () => {
   it("reports auto everywhere until something is saved", async () => {
     const body = await (await policyRoute()).GET().then((response) => response.json());
-    expect(body.policy).toEqual({ youtube: "auto", instagram: "auto", tiktok: "auto", facebook: "auto", threads: "auto" });
+    expect(body.policy).toEqual({ youtube: "auto", instagram: "auto", tiktok: "auto", facebook: "auto", threads: "auto", linkedin: "auto" });
     expect(body.error).toBeNull();
   });
 
   it("saves the channels it is given and keeps the rest", async () => {
     expect((await (await put({ instagram: "hold" })).json()).policy.instagram).toBe("hold");
     const body = await (await put({ threads: "hold" })).json();
-    expect(body.policy).toEqual({ youtube: "auto", instagram: "hold", tiktok: "auto", facebook: "auto", threads: "hold" });
+    expect(body.policy).toEqual({ youtube: "auto", instagram: "hold", tiktok: "auto", facebook: "auto", threads: "hold", linkedin: "auto" });
     expect((await (await policyRoute()).GET().then((response) => response.json())).policy).toEqual(body.policy);
   });
 
@@ -89,6 +89,15 @@ describe("/api/review/policy", () => {
     expect((await put("hold")).status).toBe(400);
     const broken = await (await policyRoute()).PUT(new Request(url("policy"), { method: "PUT", body: "{" }));
     expect(broken.status).toBe(400);
+  });
+
+  it("can hold a LinkedIn leg through the same policy and awaiting routes", async () => {
+    const response = await put({ linkedin: "hold" });
+    expect(response.status).toBe(200);
+    expect((await response.json()).policy.linkedin).toBe("hold");
+    await queue.add(testItem({ id: "linked-held", platformIds: ["linkedin"], publishAt: soon(30) }));
+    const body = await (await awaiting()).json();
+    expect(body.items).toEqual([expect.objectContaining({ channel: "linkedin", id: "linked-held" })]);
   });
 });
 
@@ -271,7 +280,7 @@ describe("an unreadable policy file", () => {
   it("holds every channel and reports the problem on both reads", async () => {
     await writeFile(reviewPolicyPath(), "{ not json", "utf8");
     const policy = await (await policyRoute()).GET().then((response) => response.json());
-    expect(policy.policy).toEqual({ youtube: "hold", instagram: "hold", tiktok: "hold", facebook: "hold", threads: "hold" });
+    expect(policy.policy).toEqual({ youtube: "hold", instagram: "hold", tiktok: "hold", facebook: "hold", threads: "hold", linkedin: "hold" });
     expect(policy.error).toMatch(/could not be read/i);
     await queue.add(testItem({ id: "a", platformIds: ["instagram"], publishAt: soon(30) }));
     const listing = await (await awaiting()).json();

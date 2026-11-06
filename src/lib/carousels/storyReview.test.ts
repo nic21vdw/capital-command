@@ -39,6 +39,32 @@ describe("the story review", () => {
     expect(prompt).toContain("colateralai.com");
   });
 
+  it("checks the original source instead of preserving an unsupported draft claim", () => {
+    const prompt = buildReviewPrompt(written.slides, [null, null, null], [], "The forecast figures are invented demo assumptions. No customer result was measured.");
+    expect(prompt).toContain("Original source evidence:");
+    expect(prompt).toContain("No customer result was measured.");
+    expect(prompt).toContain("draft is not proof");
+    expect(prompt).toContain("remove or qualify a claim");
+    expect(prompt).not.toContain("Keep every fact, number and name that is in the copy now");
+  });
+
+  it("does not treat a context still as proof of a completed task", () => {
+    const prompt = buildReviewPrompt(written.slides, ["slide.jpg", null, null]);
+    expect(prompt).toContain("pictures do not establish the source's claims");
+    expect(prompt).not.toContain("each slide's picture is a still cut from that recording at the moment");
+  });
+
+  it("honors an explicitly cleared body and rejects an incomplete rewrite", () => {
+    const review = parseReview(JSON.stringify({ slides: written.slides.map((slide) => ({ heading: slide.heading, body: "" })) }), 3);
+    expect(applyReview(written, review!).slides[1].body).toBe("");
+    expect(parseReview(JSON.stringify({ slides: written.slides.map((slide) => ({ heading: slide.heading })) }), 3)).toBeNull();
+  });
+
+  it("does not restore a cleared unsupported heading over the replacement body", () => {
+    const review = parseReview(JSON.stringify({ slides: written.slides.map((slide, index) => ({ heading: index === 1 ? "" : slide.heading, body: "Only the source-supported statement remains." })) }), 3);
+    expect(applyReview(written, review!).slides[1]).toMatchObject({ heading: "", body: "Only the source-supported statement remains." });
+  });
+
   it("refuses a reply that changes how many slides there are", () => {
     expect(parseReview('{"slides":[{"heading":"a","body":"b","picture":"keep"}]}', 3)).toBeNull();
   });
