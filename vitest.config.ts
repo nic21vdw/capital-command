@@ -15,7 +15,6 @@ export default defineConfig({
   },
   test: {
     setupFiles: ["./vitest.setup.ts"],
-    maxWorkers: 1,
     projects: [
       {
         extends: true,
