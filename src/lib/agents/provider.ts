@@ -66,7 +66,7 @@ export async function callAgentModel(
 ): Promise<{ text: string; model: string }> {
   const config = providerConfig(provider);
   if (!config.key) {
-    throw new Error(`${config.label} is not configured. Add ${provider === "grok" ? "XAI_API_KEY" : "OPENAI_API_KEY"} to .env.`);
+    throw new Error(`${config.label} needs its API key. Add it in Settings, AI and services.`);
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 240_000);

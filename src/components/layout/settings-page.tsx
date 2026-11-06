@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useId, useState } from "react";
-import { AtSign, Download, Megaphone, Palette, Send, SlidersHorizontal, UserRound } from "lucide-react";
+import { AtSign, Download, Megaphone, Palette, Send, SlidersHorizontal, Sparkles, UserRound } from "lucide-react";
 import { OvernightConfirmDialog } from "@/components/automations/overnight-confirm";
 import { overnightConsequence } from "@/lib/automations/overnight";
 import { BrandKitSettings } from "@/components/layout/brand-kit-settings";
 import { ConnectionsSettings } from "@/components/layout/connections-settings";
+import { ServicesSettings } from "@/components/layout/services-settings";
 import { OAuthLandingBanner, useOAuthLanding } from "@/components/layout/oauth-landing";
 import { ProfileSettings } from "@/components/layout/profile-settings";
 import { ReviewPolicySettings } from "@/components/layout/review-policy-settings";
@@ -22,6 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 const SECTIONS = [
   { href: "#profile", label: "Profile", icon: UserRound },
   { href: "#accounts", label: "Accounts", icon: AtSign },
+  { href: "#services", label: "AI and services", icon: Sparkles },
   { href: "#publishing", label: "Publishing", icon: Send },
   { href: "#brand-kit", label: "Brand kit", icon: Megaphone },
   { href: "#more", label: "More", icon: SlidersHorizontal }
@@ -94,6 +96,7 @@ export function SettingsPage() {
       <OAuthLandingBanner landing={landing} onDismiss={dismiss} settingsLink={false} />
       <ProfileSettings />
       <ConnectionsSettings />
+      <ServicesSettings />
 
       <Card id="publishing" className="scroll-mt-6">
         <div className="flex items-start gap-3">

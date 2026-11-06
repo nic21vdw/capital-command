@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { Loader2, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { useSetupStatus } from "@/components/ui/needs-setup";
+import { accountSetupHref } from "@/lib/setup/services";
 import { cn } from "@/lib/utils";
 import type { ChannelCoverage, CoverageGroup, CoverageVideo } from "@/lib/ingest/coverage";
 
@@ -72,23 +74,59 @@ export function ChannelCoverageCard({
   // but a screen that simply says nothing leaves no way to ask, and the panel
   // cannot appear on its own before the nightly task next runs.
   if (!coverage || coverage.groups.length === 0) {
+    return <ChannelNotRead onRescan={onRescan} rescanning={rescanning} />;
+  }
+  return <ChannelCoverageRows coverage={coverage} onRun={onRun} starting={starting} rescanning={rescanning} onRescan={onRescan} />;
+}
+
+function ChannelNotRead({ onRescan, rescanning }: { onRescan: () => void; rescanning: boolean }) {
+  const setup = useSetupStatus();
+  if (setup && !setup.connected.youtube) {
     return (
       <Card className="mt-8 flex flex-wrap items-center justify-between gap-3 p-4">
         <p className="text-xs text-[var(--muted-foreground)]">
-          The channel has not been read yet, so nothing here knows what is still to come through the pipeline.
+          Pasting a link above works without any account. Connect YouTube and the pipeline can also read your channel and pick up new streams on its own.
         </p>
-        <button
-          type="button"
-          onClick={onRescan}
-          disabled={rescanning}
-          className="flex shrink-0 items-center gap-1 rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white disabled:opacity-50 max-sm:min-h-10 max-sm:px-4"
+        <Link
+          href={accountSetupHref("youtube")}
+          className="flex shrink-0 items-center gap-1 rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--accent)] transition hover:border-[var(--border-strong)] max-sm:min-h-10 max-sm:px-4"
         >
-          {rescanning ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-          Scan the channel
-        </button>
+          Connect YouTube
+        </Link>
       </Card>
     );
   }
+  return (
+    <Card className="mt-8 flex flex-wrap items-center justify-between gap-3 p-4">
+      <p className="text-xs text-[var(--muted-foreground)]">
+        The channel has not been read yet, so nothing here knows what is still to come through the pipeline.
+      </p>
+      <button
+        type="button"
+        onClick={onRescan}
+        disabled={rescanning}
+        className="flex shrink-0 items-center gap-1 rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white disabled:opacity-50 max-sm:min-h-10 max-sm:px-4"
+      >
+        {rescanning ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+        Scan the channel
+      </button>
+    </Card>
+  );
+}
+
+function ChannelCoverageRows({
+  coverage,
+  onRun,
+  starting,
+  rescanning,
+  onRescan
+}: {
+  coverage: ChannelCoverage;
+  onRun: (url: string) => void;
+  starting: boolean;
+  rescanning: boolean;
+  onRescan: () => void;
+}) {
   const groups = coverage.groups;
   const behind = groups.some((group) => group.done < group.total);
 
