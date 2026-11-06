@@ -40,8 +40,9 @@ Create or refresh it with `npm run dev:worktree`.
 
 1. Work in your own sandbox worktree, on a branch cut from `main`.
 2. Verify what you changed, not the whole repo: `npm run typecheck`, then the
-   specs that cover the change (`npm test <path-or-name>`). The full `npm test` is
-   289 spec files; save it for a release, a dependency bump, or a change whose blast
+   specs that cover the change (`npm test <path-or-name>`, or `npm run test:changed`
+   for every spec related to what the branch changed since `origin/main`). The full
+   `npm test` is 511 spec files, run in parallel; save it for a release, a dependency bump, or a change whose blast
    radius you cannot name. A whole suite run on a one-line edit is waste, not care.
 3. Add a line to **`CHANGELOG.md`** under _Unreleased_ saying what changed in
    the terms Nic cares about — what he can now do, or what stopped being

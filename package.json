@@ -20,6 +20,7 @@
     "typecheck": "tsc --noEmit",
     "package:marketing": "node scripts/marketing-package.mjs",
     "test": "vitest run",
+    "test:changed": "node scripts/test-changed.mjs",
     "format": "prettier --write .",
     "publish:dry": "tsx src/lib/publisher/cli.ts run-due --dry-run",
     "publish:run": "tsx src/lib/publisher/cli.ts run-due",
