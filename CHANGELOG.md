@@ -14,6 +14,7 @@ already shipped.
 
 ## Unreleased
 
+- **The red platform banner no longer repeats a token from an error.** If a broken account's error quoted a request link or an Authorization header, the banner and the Windows toast now show it with the token hidden. The Instagram comment webhook also stopped accepting a signature with extra characters stuck on the end. The API routes now have tests that try the wrong way in (foreign site, no confirm on a reply, forged webhook, a same-day booking, a second copy) and expects a refusal.
 - **Cancellation checks keep unfinished synthetic exports out of the next test.** Each check now waits for its own work and assertions to settle before resetting shared test state. This changes validation only; the running app and export behavior are unchanged.
 - CoLateral Marketing can now be packaged as a free download for other people: `npm run package:marketing` builds a copy with no finance screens, no Segment Deck, none of your data or keys, and a blank brand kit, and refuses to finish if anything of yours slipped in. Your own app is unchanged.
 - **Your on-screen name card no longer says structural engineer.** The lower third in the Free AI Builds intro and the signal-free-ai-builds video now reads "Founder, Building CoLateral", so new videos keep your engineering day job out of the CoLateral brand.
