@@ -60,11 +60,15 @@ describe("every mutating API route sits behind the cross-site guard", () => {
     expect(config.matcher).toEqual(["/api/:path*"]);
   });
 
-  it("refuses a cross-site request on every route that changes something, unless it is on the allow-list", async () => {
+  it.each<[string, Record<string, string>]>([
+    ["a cross-site request", CROSS_SITE],
+    ["a foreign Origin with no fetch metadata", { host: "127.0.0.1:3000", origin: "https://attacker.invalid" }],
+    ["a cross-site request with no Origin", { host: "127.0.0.1:3000", "sec-fetch-site": "cross-site" }]
+  ])("refuses %s on every route that changes something, unless it is on the allow-list", async (_label, headers) => {
     const wrong: string[] = [];
     for (const route of mutatingRoutes) {
       for (const method of route.methods) {
-        const response = await call(method, route.url, CROSS_SITE);
+        const response = await call(method, route.url, headers);
         const exempt = route.url in MUTATION_GUARD_EXEMPT;
         const outcome = passedThrough(response) ? "passed" : String(response.status);
         if (exempt ? outcome !== "passed" : outcome !== "403") wrong.push(`${method} ${route.url} (${route.file}) -> ${outcome}`);
