@@ -90,6 +90,34 @@ describe("account setup status", () => {
     expect(response.status).toBe(400);
   });
 
+  it("saves an AI and services key through the same allowlist", async () => {
+    const response = await POST(new Request("http://localhost/api/connections", {
+      method: "POST",
+      body: JSON.stringify({ values: { FAL_KEY: "fal-key" } })
+    }));
+    expect(response.status).toBe(200);
+    expect(saveCredentials).toHaveBeenCalledWith({ FAL_KEY: "fal-key" });
+  });
+
+  it("refuses a services key that .env already sets", async () => {
+    vi.mocked(credentialSources).mockResolvedValue({ ELEVENLABS_API_KEY: "env" });
+    const response = await POST(new Request("http://localhost/api/connections", {
+      method: "POST",
+      body: JSON.stringify({ values: { ELEVENLABS_API_KEY: "new" } })
+    }));
+    expect(response.status).toBe(409);
+    expect(saveCredentials).not.toHaveBeenCalled();
+  });
+
+  it("still refuses environment names that are not app credentials", async () => {
+    const response = await POST(new Request("http://localhost/api/connections", {
+      method: "POST",
+      body: JSON.stringify({ values: { NODE_OPTIONS: "--inspect" } })
+    }));
+    expect(response.status).toBe(400);
+    expect(saveCredentials).not.toHaveBeenCalled();
+  });
+
   it("returns refreshed connection status after saving", async () => {
     vi.mocked(accountIdConfigured).mockImplementation(async (platform) => platform === "youtube");
     const response = await POST(new Request("http://localhost/api/connections", {

@@ -94,7 +94,7 @@ export async function startMusicJob(
   request: StudioRequest & { title?: string }
 ): Promise<{ job: MusicJobRecord | null; error: string | null }> {
   if (!falConfigured()) {
-    return { job: null, error: "FAL_KEY is not set — add it to .env to generate music." };
+    return { job: null, error: "Music Studio needs a fal.ai key. Add it in Settings, AI and services." };
   }
   const model = getMusicModel(request.modelId);
   if (!model) return { job: null, error: "Unknown model." };

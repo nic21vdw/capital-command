@@ -14,6 +14,7 @@ already shipped.
 
 ## Unreleased
 
+- **A fresh install now says what each screen is missing and opens the setting that fixes it.** Music Studio, Voiceover, Sourceflow Agents, Outlier Radar, Inbox and Performance show one "needs setup" card with a button straight to the right row in Settings, and the new Settings > AI and services section takes the fal.ai, ElevenLabs, OpenAI, xAI, Product Hunt and DeepSeek keys without editing `.env`. The public edition no longer shows the update check, the backup line or the Listening quota.
 - **Cancellation checks keep unfinished synthetic exports out of the next test.** Each check now waits for its own work and assertions to settle before resetting shared test state. This changes validation only; the running app and export behavior are unchanged.
 - CoLateral Marketing can now be packaged as a free download for other people: `npm run package:marketing` builds a copy with no finance screens, no Segment Deck, none of your data or keys, and a blank brand kit, and refuses to finish if anything of yours slipped in. Your own app is unchanged.
 - **Your on-screen name card no longer says structural engineer.** The lower third in the Free AI Builds intro and the signal-free-ai-builds video now reads "Founder, Building CoLateral", so new videos keep your engineering day job out of the CoLateral brand.

@@ -35,7 +35,7 @@ import {
   type YoutubeChecklist
 } from "@/lib/publisher/getStarted";
 
-type ConnectionState = {
+export type ConnectionState = {
   present: Record<string, boolean>;
   /** Where each credential's value comes from: Settings, or .env (which wins). */
   sources?: Record<string, "env" | "saved" | null>;
@@ -298,7 +298,7 @@ export function ThreadsRecoveryNotice({ recovery }: { recovery?: ThreadsCredenti
 }
 
 /** One credential input: masked, never showing the saved value, and honest about where it lives. */
-function FieldInput({
+export function FieldInput({
   field,
   state,
   drafts,
@@ -387,9 +387,15 @@ export function ConnectionsSettings() {
         setFailures(readConnectFailures());
         const params = new URLSearchParams(window.location.search);
         const failure = params.get("connect_error");
-        if (!failure) return;
         const platform = params.get("connect");
         const known = platform && CONNECTIONS.some((connection) => connection.id === platform) ? platform : null;
+        if (!failure) {
+          if (!known) return;
+          setExpanded(known);
+          window.history.replaceState({}, "", `${window.location.pathname}#accounts`);
+          window.setTimeout(() => document.getElementById(`connection-row-${known}`)?.scrollIntoView({ block: "start" }), 1500);
+          return;
+        }
         // The message itself is the page's inline banner and toast
         // (useOAuthLanding in SettingsPage); this keeps the row and the address.
         if (known) {
