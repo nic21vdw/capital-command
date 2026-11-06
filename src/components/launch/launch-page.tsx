@@ -18,6 +18,7 @@ import { buildLaunchPlan } from "@/lib/launch/playbook";
 import { cn } from "@/lib/utils";
 import type { LaunchTask } from "@/lib/launch/types";
 import type { LaunchCopy, LaunchStats, LaunchStatus, ProductLaunch } from "@/types/domain";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type EditableField = "product" | "productUrl" | "hunter" | "slug" | "notes";
 
@@ -356,7 +357,6 @@ export function LaunchPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Step 2 · Formats"
         title="Launch Pad"
         description="Plan a Product Hunt launch as a content event: a playbook dated backwards from launch day, the listing copy, and the live standing once it goes up."
         actions={
@@ -368,17 +368,17 @@ export function LaunchPage() {
       />
 
       {launches.length === 0 ? (
-        <Card className="text-center">
-          <Rocket className="mx-auto h-8 w-8 text-[var(--accent)]" />
-          <p className="mt-3 text-lg font-semibold text-white">No launch planned</p>
-          <p className="mx-auto mt-2 max-w-xl text-sm text-[var(--muted-foreground)]">
-            Product Hunt gives a product one shot at being featured, and everything that decides the outcome happens in the two
-            weeks before. Create a launch to date the playbook backwards from the day you pick.
-          </p>
-          <Button className="mt-5" onClick={createLaunch}>
-            Plan a launch
-          </Button>
-        </Card>
+        <EmptyState
+          icon={Rocket}
+          title="No launch planned"
+          description="Product Hunt gives a product one shot at being featured, and everything that decides the outcome happens in the two weeks before. Create a launch to date the playbook backwards from the day you pick."
+          action={
+            <Button onClick={createLaunch}>
+              <Plus className="mr-2 h-4 w-4" />
+              New launch
+            </Button>
+          }
+        />
       ) : null}
 
       {launches.length > 1 ? (

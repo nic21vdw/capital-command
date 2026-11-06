@@ -129,7 +129,7 @@ export function ExecutionPage() {
   if (loading && data.executionGoals.length === 0) {
     return (
       <div className="space-y-6">
-        <PageHeader eyebrow="Execution" title="Execution" description="Loading your accountability dashboard…" />
+        <PageHeader title="Execution" description="Loading your accountability dashboard…" />
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, index) => (
             <Skeleton key={index} className="h-28 w-full rounded-[28px]" />
@@ -144,7 +144,6 @@ export function ExecutionPage() {
     return (
       <div className="space-y-6">
         <PageHeader
-          eyebrow="Execution"
           title="Execution"
           description="Recurring content, networking, and build goals with streaks and carry-forward debt."
         />
@@ -167,7 +166,6 @@ export function ExecutionPage() {
   return (
     <div className="space-y-8">
       <PageHeader
-        eyebrow="Execution"
         title="Execution"
         description={`Week of ${formatWeekRange(view.weekStart)} · ${formatLongDate(today)}`}
         actions={

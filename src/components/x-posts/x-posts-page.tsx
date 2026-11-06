@@ -378,7 +378,6 @@ export function XPostsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Step 2 · Formats"
         title="Threads Autopilot"
         description={
           // Promising that they post themselves is only true when autopilot is

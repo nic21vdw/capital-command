@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Clapperboard, Film, Loader2, Plus, Trash2 } from "lucide-react";
@@ -25,6 +26,7 @@ import { workflowLoadMessage } from "@/lib/marketing/workflow-resource";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import type { CaptionSegment, ClipProject } from "@/types/domain";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
+import { EmptyState } from "@/components/ui/empty-state";
 
 function formatDate(value?: string) {
   if (!value) return "Unknown date";
@@ -388,14 +390,18 @@ export function ClipEditorPage() {
   const projectList = (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Step 2 · Formats"
         title="Clip Editor"
         description="Open a clip to trim it, caption it and export it."
         actions={
-          <Button onClick={openPicker}>
-            <Plus className="mr-2 h-4 w-4" />
-            New project
-          </Button>
+          <>
+            <Link href="/editor?mode=story" className="inline-flex items-center rounded-lg px-3 py-2 text-sm font-medium text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white max-sm:min-h-10">
+              Story edits (long-form)
+            </Link>
+            <Button onClick={openPicker}>
+              <Plus className="mr-2 h-4 w-4" />
+              New project
+            </Button>
+          </>
         }
       />
 
@@ -438,17 +444,17 @@ export function ClipEditorPage() {
       ) : null}
 
       {projects.length === 0 ? (
-        <Card className="flex flex-col items-center gap-3 py-14 text-center">
-          <Clapperboard className="h-8 w-8 text-[var(--accent)]" />
-          <p className="text-sm font-semibold text-white">No clip projects yet</p>
-          <p className="max-w-md text-sm text-[var(--muted-foreground)]">
-            Generate clips from a stream in the Clip Generator first, then open one here to trim, caption, and export it.
-          </p>
-          <Button onClick={openPicker} className="mt-1">
-            <Plus className="mr-2 h-4 w-4" />
-            New project
-          </Button>
-        </Card>
+        <EmptyState
+          icon={Clapperboard}
+          title="No clip projects yet"
+          description="Find clips from a stream in Short Clips first, then open one here to trim, caption, and export it."
+          action={
+            <Button onClick={openPicker}>
+              <Plus className="mr-2 h-4 w-4" />
+              New project
+            </Button>
+          }
+        />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {visibleProjects.map((project) => (

@@ -293,7 +293,6 @@ export function PodcastPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Step 2 · Formats"
         title="Podcast / Spotify"
         description="Every finished long-form edit becomes a scheduled podcast release. The app publishes it to the RSS feed at its due time, then Spotify pulls it in."
         actions={

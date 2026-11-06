@@ -638,7 +638,6 @@ export function PerformancePage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Step 4 · Calendar"
         title="Performance"
         description="How every published post performed: views, engagement and trend for YouTube, Instagram, Facebook and Threads. The numbers are read back from each platform every 6 hours."
         actions={

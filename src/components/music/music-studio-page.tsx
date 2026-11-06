@@ -274,7 +274,6 @@ export function MusicStudioPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Create"
         title="Music Studio"
         description="Write background music with licensed models on fal.ai. Every finished take lands in the shared music library, ready to drop onto a long-form timeline."
       />

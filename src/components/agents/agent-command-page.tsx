@@ -332,7 +332,6 @@ export function AgentCommandPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Agentic command centre"
         title="Sourceflow Agents"
         description="Where the agent team is configured and its work is reviewed. For a one-off instruction, use the command bar at the bottom of any screen — this page is for choosing the brain, picking the specialists, and approving anything they want to change."
         actions={

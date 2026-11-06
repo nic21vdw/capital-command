@@ -14,6 +14,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { cn } from "@/lib/utils";
 import type { VideoIdea, VideoIdeaStatus } from "@/types/domain";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface GenerateResponse {
   ideas: VideoIdea[];
@@ -108,7 +109,6 @@ export function IdeasPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Studio"
         title="Idea Lab"
         description="Type a seed keyword (or leave it open) and get scored video ideas: working titles in the channel voice, the search phrases they target, intent, and how crowded each one is. Save the winners, then send them to Scripts."
         actions={
@@ -147,11 +147,10 @@ export function IdeasPage() {
             content: (
               <IdeaGrid
                 ideas={suggested}
-                empty={
-                  generating || loading
-                    ? "Researching ideas…"
-                    : "No suggestions yet — run a research pass to fill the board."
-                }
+                loading={generating || loading}
+                loadingLabel={generating ? "Researching ideas…" : undefined}
+                title="No suggestions yet"
+                empty="Run a research pass to fill the board."
                 onLocalChange={(next) => setFreshIdeas(next.filter((idea) => idea.status === "suggested"))}
                 refresh={refresh}
               />
@@ -164,7 +163,8 @@ export function IdeasPage() {
             content: (
               <IdeaGrid
                 ideas={saved}
-                empty="Nothing saved yet — save the suggestions worth making."
+                title="Nothing saved yet"
+                empty="Save the suggestions worth making."
                 onLocalChange={() => undefined}
                 refresh={refresh}
               />
@@ -175,7 +175,7 @@ export function IdeasPage() {
             label: `Archive (${archived.length})`,
             icon: Archive,
             content: (
-              <IdeaGrid ideas={archived} empty="No archived ideas." onLocalChange={() => undefined} refresh={refresh} />
+              <IdeaGrid ideas={archived} title="No archived ideas" empty="Ideas you archive land here." onLocalChange={() => undefined} refresh={refresh} />
             )
           }
         ]}
@@ -186,24 +186,23 @@ export function IdeasPage() {
 
 function IdeaGrid({
   ideas,
+  title,
   empty,
+  loading = false,
+  loadingLabel,
   onLocalChange,
   refresh
 }: {
   ideas: VideoIdea[];
+  title: string;
   empty: string;
+  loading?: boolean;
+  loadingLabel?: string;
   onLocalChange: (ideas: VideoIdea[]) => void;
   refresh: () => Promise<void> | void;
 }) {
   if (ideas.length === 0) {
-    return (
-      <Card>
-        <div className="flex flex-col items-center gap-3 py-12 text-center">
-          <Lightbulb className="h-8 w-8 text-[var(--accent)]" />
-          <p className="text-sm text-[var(--muted-foreground)]">{empty}</p>
-        </div>
-      </Card>
-    );
+    return <EmptyState icon={Lightbulb} loading={loading} loadingLabel={loadingLabel} title={title} description={empty} />;
   }
   const sorted = [...ideas].sort((a, b) => b.score - a.score);
   return (

@@ -164,7 +164,6 @@ export function FacebookPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Step 2 · Formats"
         title="FB / IG Post Library"
         description="Write a Facebook or Instagram post — a hook in the main post, the real content as numbered comments underneath — and Save this post files it in your library ready to paste up; nothing here posts for you."
       />

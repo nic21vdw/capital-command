@@ -135,7 +135,6 @@ export function StoryEditorPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Editor"
         title="Story edit"
         description="A long stream cut into an 8-12 minute story: hook, setup, development, payoff, close. Every cut, zoom and reason is below; override any of them and re-render."
         actions={
