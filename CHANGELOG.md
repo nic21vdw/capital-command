@@ -14,6 +14,7 @@ already shipped.
 
 ## Unreleased
 
+- **Long YouTube uploads and Clip Editor exports use much less memory.** The streamed YouTube upload still held the whole video in memory because Node's fetch kept an unread copy of it; a 1 GB upload now peaks around 220 MB instead of 1.2 GB (3.1 GB before the batch). A 1080x1920 Clip Editor export peaks about 250 MB lower because loudness mastering no longer holds video frames back, and its file is byte for byte the same. `node scripts/bench/run.mjs` measures renders and uploads on main against a branch.
 - **Video processing uses less memory.** YouTube uploads stream the remaining bytes from disk, transcription shares bounded decode windows even when a duration header cannot be read, and long-recording energy analysis parses FFmpeg output as it arrives. Interrupted transfers clean up their partial files, and a transcription worker that exits while starting no longer blocks the shared queue.
 
 - **Previews and exports skip work they do not show.** Opaque H.264 crop-fill exports avoid blurring a covered background, native-shape previews avoid a redundant video decoder, and late long-form selections skip discarded opening footage while retaining decode preroll. Needed preview backgrounds still follow playback and paused scrubbing; existing render quality settings are unchanged.

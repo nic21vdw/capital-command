@@ -129,7 +129,7 @@ async function doFetch(url: string, request: JsonRequest): Promise<Response> {
       headers: request.headers,
       // Node accepts Buffers and Readable streams beyond the DOM BodyInit type.
       body: request.body as BodyInit | undefined,
-      ...(request.body instanceof Readable ? { duplex: "half" as const } : {}),
+      ...(request.body instanceof Readable ? { duplex: "half" as const, redirect: "error" as const } : {}),
       signal: request.timeoutMs ? AbortSignal.timeout(request.timeoutMs) : undefined
     };
     return await fetch(url, init);

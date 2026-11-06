@@ -227,6 +227,7 @@ describe("clip editor export scratch folder", () => {
     { name: "visible center blur", codec: "h264 (High), yuv420p", mode: "center-blur", blur: true }
   ] as const)("preserves composition for $name", async ({ codec, mode, blur }) => {
     const graphs: string[] = [];
+    const videoGraphs: string[] = [];
     ffmpeg.mockImplementation(async (args) => {
       if (args.includes("-hide_banner")) {
         return {
@@ -235,8 +236,11 @@ describe("clip editor export scratch folder", () => {
           code: 1
         };
       }
-      const filterIndex = args.indexOf("-filter_complex");
-      if (filterIndex >= 0) graphs.push(args[filterIndex + 1]);
+      const separate = args.filter((_, index) => args[index - 1] === "-filter_complex");
+      if (separate.length > 0) {
+        graphs.push(separate.join(";"));
+        videoGraphs.push(separate[0]);
+      }
       await writeFile(args.at(-1) as string, Buffer.alloc(4096));
       return { stdout: "", stderr: "", code: 0 };
     });
@@ -249,6 +253,8 @@ describe("clip editor export scratch folder", () => {
     expect(graphs[0]).toContain("split=2[__bg][__fg]");
     expect(graphs[0]).toContain("[__bgb][__fgs]overlay=");
     if (codec) expect(graphs[0]).toContain("[0:a]"); // Reusing the probe retains audio.
+    expect(videoGraphs[0]).not.toContain("loudnorm");
+    if (codec) expect(graphs[0]).toContain("loudnorm");
   });
 
   it("deletes its subtitle and overlay scratch folder after a successful export", async () => {

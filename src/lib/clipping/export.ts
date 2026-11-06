@@ -404,6 +404,7 @@ async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePa
   // one delayed copy of a sound effect per hit), then a single amix folds
   // them together. A lone source skips the mix entirely.
   let audioMapped = false;
+  const audioParts: string[] = [];
   const fadeOutStart = Math.max(0, dur - spec.audio.fadeOut);
   const audioLabels: string[] = [];
   if (hasAudio) {
@@ -414,11 +415,11 @@ async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePa
     ];
     if (spec.audio.fadeIn > 0) af.push(`afade=t=in:st=0:d=${spec.audio.fadeIn}`);
     if (spec.audio.fadeOut > 0) af.push(`afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${spec.audio.fadeOut}`);
-    parts.push(`[0:a]${af.join(",")}[a0]`);
+    audioParts.push(`[0:a]${af.join(",")}[a0]`);
     audioLabels.push("[a0]");
   }
   if (musicIndex >= 0) {
-    parts.push(
+    audioParts.push(
       `[${musicIndex}:a]volume=${spec.audio.musicVolume.toFixed(3)},atrim=0:${dur.toFixed(2)},asetpts=N/SR/TB[am]`
     );
     audioLabels.push("[am]");
@@ -427,14 +428,14 @@ async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePa
     const base = `[${shot.index}:a]atrim=0:4,asetpts=PTS-STARTPTS,volume=${sfxVolume.toFixed(3)}`;
     if (shot.offsetsSec.length === 1) {
       const offMs = Math.round(shot.offsetsSec[0] * 1000);
-      parts.push(`${base}${offMs > 0 ? `,adelay=${offMs}|${offMs}` : ""}[s${shotIndex}_0]`);
+      audioParts.push(`${base}${offMs > 0 ? `,adelay=${offMs}|${offMs}` : ""}[s${shotIndex}_0]`);
       audioLabels.push(`[s${shotIndex}_0]`);
     } else {
       const splits = shot.offsetsSec.map((_, hit) => `[u${shotIndex}_${hit}]`).join("");
-      parts.push(`${base},asplit=${shot.offsetsSec.length}${splits}`);
+      audioParts.push(`${base},asplit=${shot.offsetsSec.length}${splits}`);
       shot.offsetsSec.forEach((offsetSec, hit) => {
         const offMs = Math.round(offsetSec * 1000);
-        parts.push(`[u${shotIndex}_${hit}]${offMs > 0 ? `adelay=${offMs}|${offMs}` : "anull"}[s${shotIndex}_${hit}]`);
+        audioParts.push(`[u${shotIndex}_${hit}]${offMs > 0 ? `adelay=${offMs}|${offMs}` : "anull"}[s${shotIndex}_${hit}]`);
         audioLabels.push(`[s${shotIndex}_${hit}]`);
       });
     }
@@ -446,7 +447,7 @@ async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePa
   // balance is what gets normalized, never each source separately.
   const master = (label: string) => `[${label}]${shortsAudioFilter()}[aout]`;
   if (audioLabels.length === 1) {
-    parts.push(master(audioLabels[0].slice(1, -1)));
+    audioParts.push(master(audioLabels[0].slice(1, -1)));
     audioMapped = true;
   } else if (audioLabels.length > 1) {
     // duration=first keeps the clip's own audio in charge of length; without
@@ -454,11 +455,13 @@ async function buildArgs(spec: ExportSpec, dir: string, preparation?: { sourcePa
     const tail = hasAudio
       ? `amix=inputs=${audioLabels.length}:duration=first:dropout_transition=0:normalize=0,${shortsAudioFilter()}[aout]`
       : `amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0,apad,atrim=0:${dur.toFixed(2)},${shortsAudioFilter()}[aout]`;
-    parts.push(`${audioLabels.join("")}${tail}`);
+    audioParts.push(`${audioLabels.join("")}${tail}`);
     audioMapped = true;
   }
 
-  const args = ["-y", ...inputs, "-filter_complex", parts.join(";"), "-map", "[vout]"];
+  const args = ["-y", ...inputs, "-filter_complex", parts.join(";")];
+  if (audioParts.length > 0) args.push("-filter_complex", audioParts.join(";"));
+  args.push("-map", "[vout]");
   if (audioMapped) args.push("-map", "[aout]");
   args.push("-r", String(settings.fps), "-t", dur.toFixed(2));
 

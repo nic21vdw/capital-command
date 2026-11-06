@@ -1155,6 +1155,11 @@ posted.
   balance is what gets normalized and not each source separately. Long-form has
   its own loudnorm in `longform/render.ts`; don't fold the two together, the
   targets and the LRA differ on purpose.
+- KEEP THE MASTER IN ITS OWN FILTERGRAPH. `loudnorm` holds about three seconds
+  of audio, and inside the video's `-filter_complex` that held three seconds of
+  1080x1920 frames too: about 250 MB more per export, for a byte-identical file.
+  The Clip Editor export passes its audio as a second `-filter_complex`; the
+  other renders use `-af`, which is already separate.
 - A SHORT OPENS ON THE FIRST WORD (`hookTrimSec`). `leadingSilenceSec` has
   always known where that is, but only the Uploading Center's PREVIEW acted on
   it — it seeked past the pause, so the dead air was invisible in the app and

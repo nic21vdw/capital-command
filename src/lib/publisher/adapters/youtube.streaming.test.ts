@@ -71,6 +71,7 @@ function installFetch(options: { resumeFrom?: number; completed?: boolean; failU
     expect(stream).toBeInstanceOf((await import("node:fs")).ReadStream);
     uploads.push(stream);
     expect((init as RequestInit & { duplex?: string }).duplex).toBe("half");
+    expect(init?.redirect).toBe("error");
     expect(init?.signal).toBeUndefined();
     if (options.failUpload) throw new TypeError("connection reset");
     for await (const chunk of stream) sent.push(Buffer.from(chunk));
