@@ -297,7 +297,6 @@ export function MasterCalendarPage() {
     return (
       <div aria-busy="true">
         <PageHeader
-          eyebrow="Step 4 · Calendar"
           title="Master Calendar"
           description="Every distribution calendar in one place: scheduled shorts uploads, carousel schedules, Threads packs, FB/IG thread posts and dated long-form content — what goes out where, and when."
         />
@@ -595,7 +594,6 @@ function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: Master
   return (
     <div className="@container min-w-0">
       <PageHeader
-        eyebrow="Step 4 · Calendar"
         title="Master Calendar"
         description="Every distribution calendar in one place: scheduled shorts uploads, carousel schedules, Threads packs, FB/IG thread posts and dated long-form content — what goes out where, and when."
       />

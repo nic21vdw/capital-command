@@ -1315,7 +1315,6 @@ export function UploadingCenterPage() {
     // Phones scroll the whole page instead (see `.app-frame` in globals.css).
     <div className="app-frame-pane">
       <PageHeader
-        eyebrow="Step 3 · Schedule"
         title="Uploading Center"
         description="Book your finished clips onto the posting schedule — one button fills the next free slots, or drag a clip onto any slot yourself."
         actions={overview ? <div className="w-full max-w-sm"><QuotaMeter quota={overview.quota} /></div> : undefined}

@@ -1,5 +1,7 @@
 "use client";
 
+import { NeedsSetup } from "@/components/ui/needs-setup";
+import { accountSetupHref } from "@/lib/setup/services";
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
@@ -315,7 +317,6 @@ export function OutliersPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Studio"
         title="Outlier Radar"
         description="Watch other channels, baseline them on the median views of their recent uploads, and flag videos breaking out above the baseline. One click analyzes your competition as a group — shared breakout topics, packaging patterns, and an AI brief on what to make next."
       />
@@ -332,13 +333,9 @@ export function OutliersPage() {
       ) : null}
 
       {state && !state.configured ? (
-        <Card className="mb-4 tone-warning tone-edge tone-soft text-sm tone-text">
-          <p className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            YouTube is not connected. Set YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET and use Connect YouTube in the
-            Uploading Center — the Radar reuses that connection read-only.
-          </p>
-        </Card>
+        <NeedsSetup title="Outlier Radar needs YouTube" href={accountSetupHref("youtube")} action="Connect YouTube" className="mb-4">
+          The Radar reads other channels through your YouTube connection, read-only. Connect YouTube in Settings and add channels below.
+        </NeedsSetup>
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-3">

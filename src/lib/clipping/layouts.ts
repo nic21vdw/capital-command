@@ -115,14 +115,6 @@ export function resolveClipLayout(
   };
 }
 
-/** Replaces the face-camera source rect across every face layer of a layout. */
-export function withFaceSource(
-  definition: ClipLayoutDefinition,
-  faceSource: Rect | undefined
-): ClipLayoutDefinition {
-  return withLayerSources(definition, { face: faceSource });
-}
-
 /** Replaces the source rects of a layout's layers by kind (face camera and/or
  *  screen). Undefined entries leave that kind's sources untouched. */
 export function withLayerSources(
@@ -139,12 +131,4 @@ export function withLayerSources(
       return source ? { ...layer, source } : layer;
     })
   };
-}
-
-export function getFaceSource(
-  layout: ClipLayoutPreset = DEFAULT_CLIP_LAYOUT,
-  overrides?: ClipLayoutOverrides
-): Rect {
-  const definition = resolveClipLayout(layout, overrides);
-  return cloneRect(definition.layers.find((layer) => layer.kind === "face")?.source ?? definition.layers[0]?.source ?? { x: 0, y: 0, w: 1, h: 1 });
 }

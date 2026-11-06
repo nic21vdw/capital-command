@@ -1,6 +1,6 @@
 import { detectFaceFrames, pickSpeakerFace, planFaceFraming } from "@/lib/clipping/face";
 import { probeVideoStream } from "@/lib/clipping/ffmpeg";
-import { planFraming, type ClipFraming, type FramingTarget } from "@/lib/clipping/framing";
+import { planFraming, type FramingTarget } from "@/lib/clipping/framing";
 import { detectSubjectTrack } from "@/lib/clipping/subject";
 import type { ClipFramingSpec } from "@/lib/clipping/render";
 
@@ -32,11 +32,4 @@ export async function planClipFraming(
   } catch {
     return null;
   }
-}
-
-/** One-line summary of a framing decision, for job notices and the clip card. */
-export function framingLabel(framing: ClipFraming): string {
-  if (framing.mode === "subject-fill") return "Framed on speaker";
-  if (framing.mode === "speaker-stack") return "Camera lead";
-  return "Centered + blur";
 }

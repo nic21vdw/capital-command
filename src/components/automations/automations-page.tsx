@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, ArrowUpRight, Check, Clock3, Copy, ExternalLink, Loader2, Moon, Pause, Play, RefreshCw, TriangleAlert } from "lucide-react";
+import { Activity, ArrowUpRight, Check, Clock3, Copy, ExternalLink, Loader2, Moon, Pause, Play, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
@@ -17,6 +17,7 @@ import { isNotSetUp } from "@/lib/automations/setup";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import type { AutomationCard, AutomationId, AutomationOverview, CadenceRow, HeldPost } from "@/lib/automations/types";
 import { cn } from "@/lib/utils";
+import { RefreshButton } from "@/components/ui/refresh-button";
 
 const stateLabels = {
   paused: "Paused", blocked: "Blocked", running: "Running", ready: "Idle - waiting for next run", attention: "Needs attention", unknown: "Has not run yet"
@@ -454,7 +455,7 @@ export function AutomationsPage() {
 
   return (
     <div>
-      <PageHeader eyebrow="Step 3 · Schedule" title="Automations" description="See what runs in the background, when it runs, what happened last and what needs fixing. Pause switches are saved, and each background job checks them before it acts." actions={<Button variant="secondary" onClick={() => void load()} disabled={refreshing || busy !== null}><RefreshCw className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")} />Refresh</Button>} />
+      <PageHeader title="Automations" description="See what runs in the background, when it runs, what happened last and what needs fixing. Pause switches are saved, and each background job checks them before it acts." actions={<RefreshButton onClick={() => void load()} busy={refreshing} disabled={busy !== null} />} />
       {error && <div role="alert" className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">Status is unavailable: {error} {overview ? "The last snapshot is shown below; controls are disabled until status returns." : "Nothing is assumed about what is running."}</div>}
       {!overview && !error && <p className="flex items-center gap-2 py-10 text-sm text-[var(--muted-foreground)]"><Loader2 className="h-4 w-4 animate-spin" />Loading saved switches and recent activity...</p>}
       {overview && <>

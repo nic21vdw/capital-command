@@ -106,7 +106,3 @@ export async function removeEpisode(id: string): Promise<PodcastState> {
     })
   ).state;
 }
-
-export function episodeForExport(state: PodcastState, exportId: string): PodcastEpisode | undefined {
-  return state.episodes.find((item) => item.exportId === exportId);
-}

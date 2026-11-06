@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { serviceSetupHref } from "@/lib/setup/services";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -2599,7 +2600,9 @@ function MusicPanel({
         </div>
         {!studioReady && (
           <p className="tone-warning tone-text text-[10px]">
-            Set FAL_KEY in .env to turn this on — until then, upload songs below.
+            Needs a fal.ai key.{" "}
+            <Link href={serviceSetupHref("fal")} className="underline underline-offset-2">Add it in Settings</Link>
+            {" "}to turn this on. Until then, upload songs below.
           </p>
         )}
       </div>

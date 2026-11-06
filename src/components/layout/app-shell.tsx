@@ -47,6 +47,7 @@ import { UpdateBanner } from "@/components/layout/update-banner";
 import { UpdateCheckButton } from "@/components/layout/update-check";
 import { StreamBanner } from "@/components/layout/stream-banner";
 import { StreamCard } from "@/components/layout/stream-card";
+import { NavSectionContext } from "@/components/layout/nav-section";
 import { ListeningLeadsProvider, useListeningLeads } from "@/components/listening/leads-badge";
 import { useInboxUnread } from "@/components/inbox/unread";
 import { PipelineAttentionProvider, usePipelineAttention } from "@/components/pipeline/attention";
@@ -54,7 +55,7 @@ import { useAppData } from "@/components/providers/app-provider";
 import { useColateralBridge } from "@/components/providers/colateral-bridge-provider";
 import { StreamProvider, useStream } from "@/components/providers/stream-provider";
 import { PERSONAL_GROUP_LABEL, PERSONAL_NAV } from "@/lib/personal-routes";
-import { isRouteShipped } from "@/lib/edition";
+import { isPublicEdition, isRouteShipped } from "@/lib/edition";
 import { streamHref } from "@/lib/pipeline/streams";
 import { reconnectBlocker, signInVerifiable } from "@/lib/publisher/connections";
 import { PlatformIcon, PLATFORM_LABEL, type PlatformIconKey } from "@/components/ui/platform-icon";
@@ -169,6 +170,15 @@ const STUDIO_ITEMS: NavItem[] = [
  */
 const PERSONAL_ITEMS: NavItem[] = PERSONAL_NAV.filter((item) => isRouteShipped(item.href)).map((item) => ({ ...item, icon: WalletCards }));
 const SETTINGS_ITEM: NavItem = { href: "/settings", label: "Settings", icon: Settings };
+
+export function navSectionFor(pathname: string): string | undefined {
+  const stage = PIPELINE_STAGES.find((candidate) => candidate.items.some((item) => isActivePath(pathname, item.href)));
+  if (stage) return `Step ${stage.step} · ${stage.label}`;
+  if (STUDIO_ITEMS.some((item) => item.href === pathname)) return "Studio";
+  if (PERSONAL_ITEMS.some((item) => item.href === pathname)) return PERSONAL_GROUP_LABEL;
+  if (pathname === SETTINGS_ITEM.href) return "Preferences";
+  return undefined;
+}
 
 function personalItemsFor(personalDashboard: boolean | undefined): NavItem[] {
   return personalDashboard === true ? PERSONAL_ITEMS : [];
@@ -1269,7 +1279,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
           </SidebarScroll>
 
           <div className="mt-3 space-y-1.5 border-t border-[var(--border)] pt-3">
-            <UpdateCheckButton collapsed={sidebarCollapsed} />
+            {isPublicEdition() ? null : <UpdateCheckButton collapsed={sidebarCollapsed} />}
             <NavLink
               item={SETTINGS_ITEM}
               active={settingsActive}
@@ -1282,7 +1292,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
       <main id="main-content" tabIndex={-1} className={cn("min-w-0 flex-1 focus:outline-none", frame && "app-frame-pane")}>
         {/* Above everything, on every page: a release waiting on `dev` is the
             one thing worth interrupting whatever is on screen for. */}
-        <UpdateBanner />
+        {isPublicEdition() ? null : <UpdateBanner />}
         {!hosted && <NarrowChrome key={`navigation:${pathname}`} pathname={pathname} />}
         {/* Keyed on the route so each navigation pushes the new page in with an
             iOS-style transition. Query-param changes (e.g. tab switches) keep
@@ -1291,7 +1301,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
           {/* Which recording this screen is showing, on every screen that can
               show one. Without it a Formats page is an undated pile of work. */}
           <StreamBanner />
-          {children}
+          <NavSectionContext.Provider value={navSectionFor(pathname)}>{children}</NavSectionContext.Provider>
         </div>
         {!hostedBare && <div className={cn(frame && "app-frame-hide")}><AppFooter /></div>}
         {/* Bare cards still have a command bar. Only a framed page with its

@@ -1,5 +1,7 @@
 "use client";
 
+import { NeedsSetup } from "@/components/ui/needs-setup";
+import { serviceSetupHref } from "@/lib/setup/services";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Music4, Sparkles, Trash2, Wand2 } from "lucide-react";
 import { toast } from "sonner";
@@ -217,7 +219,7 @@ export function MusicStudioPage() {
       { label: "Model", value: model?.label ?? "—" },
       { label: "Pending generations", value: String(pending.length) },
       { label: "Tracks in library", value: String(state.tracks.length) },
-      { label: "Studio configured", value: state.configured ? "Yes" : "No — needs FAL_KEY" }
+      { label: "Studio configured", value: state.configured ? "Yes" : "No - needs a fal.ai key in Settings, AI and services" }
     ],
     setField: (id, value) => {
       switch (id) {
@@ -274,18 +276,14 @@ export function MusicStudioPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Create"
         title="Music Studio"
         description="Write background music with licensed models on fal.ai. Every finished take lands in the shared music library, ready to drop onto a long-form timeline."
       />
 
       {!state.configured && (
-        <Card className="tone-warning tone-edge tone-soft mb-6">
-          <p className="tone-warning tone-text text-sm">
-            Set <code className="rounded bg-black/30 px-1.5 py-0.5">FAL_KEY</code> in <code>.env</code> to turn the studio
-            on. Grab one from fal.ai/dashboard/keys — generations are billed per second of audio by fal.
-          </p>
-        </Card>
+        <NeedsSetup title="Music Studio needs a fal.ai key" href={serviceSetupHref("fal")} action="Add a fal.ai key">
+          The models below run on fal.ai, which bills each generation per second of audio. Add your key in Settings and the studio turns on straight away.
+        </NeedsSetup>
       )}
 
       <Card className="mb-6 space-y-4">

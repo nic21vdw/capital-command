@@ -504,7 +504,6 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
     return (
       <div aria-busy="true">
         <PageHeader
-          eyebrow="Step 4 · Calendar"
           title="Day Summary"
           description="One day's output as a briefing: everything going out, what state it is in, and a way straight into the screen that owns each piece."
         />
@@ -698,7 +697,6 @@ function DaySummaryBody({
   return (
     <div>
       <PageHeader
-        eyebrow="Step 4 · Calendar"
         title="Day Summary"
         description="One day's output as a briefing: everything going out, what state it is in, and a way straight into the screen that owns each piece."
         actions={

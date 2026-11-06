@@ -626,13 +626,3 @@ export function laneDemand(
       .sort((a, b) => b.over - a.over)
   };
 }
-
-export function describeSchedulePlan(plan: ShufflePlan): string {
-  const parts = [
-    `${plan.moves.length} post${plan.moves.length === 1 ? "" : "s"} move`,
-    `${plan.unchanged} stay put`
-  ];
-  if (plan.collisions.length > 0) parts.push(`${plan.collisions.length} slot conflict(s) could not be cleared`);
-  if (plan.repeats.length > 0) parts.push(`${plan.repeats.length} back-to-back from one stream`);
-  return parts.join(", ");
-}

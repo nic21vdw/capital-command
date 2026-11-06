@@ -17,8 +17,7 @@ export function FinancePage() {
   return (
     <div className="space-y-8">
       <PageHeader
-        eyebrow="Finance"
-        title="Finance & billing"
+        title="Personal Finance"
         description="Stripe revenue alongside your spending on AI, cloud, and hardware."
         actions={
           <Button variant="secondary" onClick={() => setShowAppearance((value) => !value)}>

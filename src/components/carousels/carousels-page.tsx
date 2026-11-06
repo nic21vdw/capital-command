@@ -63,6 +63,7 @@ import {
 } from "@/lib/carousels/render";
 import { cn } from "@/lib/utils";
 import type { Carousel, CarouselAspectRatio, CarouselSchedule, CarouselSlide } from "@/types/domain";
+import { EmptyState } from "@/components/ui/empty-state";
 
 /**
  * Carousels: turn a script, a long-form video's transcript, a short-form video
@@ -433,7 +434,6 @@ export function CarouselsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Step 2 · Formats"
         title="Carousels & Images"
         description="Turn a script, a video, a batch of photos, or pasted text into a swipeable carousel you can edit, download, and schedule."
       />
@@ -590,16 +590,12 @@ export function CarouselsPage() {
       ) : null}
 
       {carousels.length === 0 ? (
-        <Card>
-          <div className="flex flex-col items-center gap-3 py-12 text-center">
-            <Images className="h-8 w-8 text-[var(--accent)]" />
-            <p className="text-sm text-[var(--muted-foreground)]">
-              {loading
-                ? "Loading…"
-                : "No carousels yet — generate one from a script, a video, a short-form video, a batch of photos, or pasted text."}
-            </p>
-          </div>
-        </Card>
+        <EmptyState
+          icon={Images}
+          loading={loading}
+          title="No carousels yet"
+          description="Generate one from a script, a video, a short-form video, a batch of photos, or pasted text."
+        />
       ) : (
         <div className="space-y-6">
           <ScheduleCalendar carousels={carousels} onUnschedule={unschedule} onPrepare={prepare} />

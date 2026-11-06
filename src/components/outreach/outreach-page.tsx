@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarClock, Copy, ExternalLink, Gauge, Handshake, Loader2, Pencil, Plus, RefreshCw, Trash2, Upload, Users } from "lucide-react";
+import { CalendarClock, Copy, ExternalLink, Gauge, Handshake, Loader2, Pencil, Plus, Trash2, Upload, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ import {
   type OutreachStore
 } from "@/lib/outreach/model";
 import { cn } from "@/lib/utils";
+import { RefreshButton } from "@/components/ui/refresh-button";
 
 const STATUS_LABELS: Record<OutreachStatus, string> = {
   "to-contact": "To contact",
@@ -415,19 +416,16 @@ export function OutreachPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Studio"
         title="Outreach"
         description="The creators, newsletters and podcasts worth offering CoLateral to, and where each conversation stands. A tracker only: writing to someone stays something you do yourself."
         actions={
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => void load()}>
-              <RefreshCw className="h-4 w-4" />
-            </Button>
+          <>
+            <RefreshButton onClick={() => void load()} />
             <Button onClick={() => setDraft({ ...EMPTY_DRAFT })}>
               <Plus className="mr-2 h-4 w-4" />
               Add contact
             </Button>
-          </div>
+          </>
         }
       />
 

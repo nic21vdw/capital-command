@@ -11,7 +11,6 @@ import { createJsonStore } from "@/lib/storage/json-store";
 const store = createJsonStore("listening.json", listeningStoreSchema, defaultListeningStore);
 
 export const readListeningStore = (): Promise<ListeningStore> => store.read();
-export const writeListeningStore = (value: ListeningStore): Promise<void> => store.write(value);
 export const updateListeningStore = (mutate: (value: ListeningStore) => ListeningStore | Promise<ListeningStore>) => store.update(mutate);
 
 export async function readListeningSnapshot(): Promise<ListeningSnapshot> {

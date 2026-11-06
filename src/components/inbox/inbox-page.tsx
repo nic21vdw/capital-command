@@ -1,8 +1,10 @@
 "use client";
 
+import { NeedsSetup, anyAccountConnected, useSetupStatus } from "@/components/ui/needs-setup";
+import { accountSetupHref } from "@/lib/setup/services";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCheck, CheckCircle2, ExternalLink, Inbox as InboxIcon, Loader2, MessageSquareReply, RefreshCw, Send, TriangleAlert } from "lucide-react";
+import { CheckCheck, CheckCircle2, ExternalLink, Inbox as InboxIcon, Loader2, MessageSquareReply, Send, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { setInboxUnread } from "@/components/inbox/unread";
 import {
@@ -33,6 +35,7 @@ import { REPLY_LIMITS } from "@/lib/inbox/limits";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { RECONNECT_URL } from "@/lib/platform-health/types";
 import { cn } from "@/lib/utils";
+import { RefreshButton } from "@/components/ui/refresh-button";
 
 type InboxResponse = {
   items: InboxItem[];
@@ -64,6 +67,7 @@ function messageOf(error: unknown): string {
 }
 
 export function InboxPage() {
+  const setup = useSetupStatus();
   const [data, setData] = useState<InboxResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
@@ -326,16 +330,18 @@ export function InboxPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Studio"
         title="Inbox"
         description="Comments and replies on your published posts, from YouTube, Instagram, Facebook and Threads in one place. Draft a reply in your voice, edit it, and send it yourself. Nothing is sent until you press Send."
         actions={
-          <Button onClick={() => void refresh()} disabled={busy.refresh}>
-            {busy.refresh ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-            {busy.refresh ? "Refreshing…" : "Refresh"}
-          </Button>
+          <RefreshButton onClick={() => void refresh()} busy={busy.refresh} />
         }
       />
+
+      {setup && !anyAccountConnected(setup) ? (
+        <NeedsSetup title="No account is connected yet" href={accountSetupHref()} action="Connect an account">
+          The inbox collects comments on your posts from YouTube, Instagram, Facebook and Threads. Connect one in Settings and new comments arrive here every 30 minutes.
+        </NeedsSetup>
+      ) : null}
 
       {loadError ? (
         <Card className="tone-danger tone-edge tone-soft mb-5">

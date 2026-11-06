@@ -64,8 +64,6 @@ export async function exists(file: string): Promise<boolean> {
   }
 }
 
-export const EMPTY_OVERRIDES: StoryOverrides = { disabledUnitIds: [], takeChoices: {}, zoom: {} };
-
 export async function readOverrides(id: string): Promise<StoryOverrides> {
   const stored = await readJson<Partial<StoryOverrides>>(projectFile(id, "overrides.json"));
   return {
