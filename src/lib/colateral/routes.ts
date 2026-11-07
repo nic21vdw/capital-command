@@ -27,6 +27,7 @@ export const CAPITAL_COMMAND_ROUTES: RouteEntry[] = [
   { path: "/carousels", label: "Carousels & Images", group: "Formats" },
   { path: "/podcast", label: "Podcast / Spotify", group: "Formats" },
   { path: "/x-posts", label: "Threads Autopilot", group: "Formats" },
+  { path: "/x-drafts", label: "X Drafts", group: "Formats" },
   { path: "/facebook", label: "FB / IG Post Library", group: "Formats" },
   { path: "/launch", label: "Launch Pad", group: "Formats" },
 

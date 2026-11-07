@@ -129,6 +129,34 @@ tools while you talk. Read `src/lib/voice/README.md`.
   themselves (`runReferenceFrom` tolerates whatever the model calls the
   argument); an ambiguous name comes back as a question, never a guess.
 
+## X Drafts (`/x-drafts`, `src/lib/x-drafts`)
+
+Nic posts to X by hand and wants a steady supply of drafts in his X voice, with
+every draft also going out on Threads without him.
+
+- The Threads tick (`threadsTick`) starts `ensureXDraftsInBackground`: today's
+  batch if none was written and its last slot has not passed, and tomorrow's
+  after `X_DRAFTS_WRITE_AHEAD_HOUR` (17). One write at a time per process
+  (`globalThis`), and a failed day waits `X_DRAFTS_RETRY_MINUTES` before trying
+  again. The writer is Opus through `claude -p` (`writer: "claude-code"`,
+  switch `X_DRAFTS_WRITER`), falling back to the configured models.
+- There is NO idea-library fallback. A day the writer cannot fill stays empty
+  and says why; stock copy must never go out under his name as a hot take.
+- `draftProblem` is the gate: a model or product named in the first line, no
+  link in the post, at most 480 characters (so the Threads copy is never cut),
+  no brand-kit blocking violation, and `breaksPersona`: nothing that calls
+  CoLateral engineering or structural software or talks about selling to
+  engineering firms. His public persona and his engineering work stay apart.
+- Each draft is booked on the Threads queue as an `origin: "pipeline"` item
+  with `sourceDraftId`, from the first account only, `X_DRAFTS_THREADS_OFFSET_MINUTES`
+  (30) after its X slot, never sooner than `X_DRAFTS_MIN_LEAD_MINUTES` (60) from
+  the write. It is not approved on booking: a review hold still holds it.
+  "Don't post" skips its Threads item unless sending has started.
+- The phone page is static HTML uploaded to the media bucket at
+  `x-drafts/<random key>/index.html` (`noindex`), rebuilt after every write and
+  status change. It needs `S3_PUBLIC_BASE_URL`; without it the screen says so.
+  Its "Posted on X" marks live in the phone's own storage.
+
 ## Podcast / Spotify (`/podcast`, `src/lib/podcast`)
 
 Every long-form edit also goes out as a podcast episode. Spotify has NO write

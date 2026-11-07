@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import {
   AtSign,
+  PenLine,
   Bot,
   CalendarRange,
   ChevronDown,
@@ -109,6 +110,7 @@ const PIPELINE_STAGES: PipelineStage[] = [
       // The long-form edit again as audio, delivered to Spotify by RSS.
       { href: "/podcast", label: "Podcast / Spotify", icon: Podcast },
       { href: "/x-posts", label: "Threads Autopilot", icon: AtSign },
+      { href: "/x-drafts", label: "X Drafts", icon: PenLine },
       // Thread-format content engine for Facebook/Instagram (hook post +
       // numbered comment thread + CTA comment).
       { href: "/facebook", label: "FB / IG Post Library", icon: Facebook },
