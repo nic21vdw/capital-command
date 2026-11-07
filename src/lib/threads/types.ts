@@ -61,6 +61,8 @@ export type ThreadsQueueItem = {
   origin?: "autopilot" | "pipeline";
   /** The pipeline run whose stream this post was written from. */
   sourceRunId?: string;
+  /** The X draft this post was copied from (see src/lib/x-drafts). */
+  sourceDraftId?: string;
   /** Link reply posted under this one once it is live (see plug.ts). */
   plugText?: string;
   plugPostId?: string;

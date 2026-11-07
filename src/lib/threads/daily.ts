@@ -1,4 +1,5 @@
 import { localCalendarParts, zonedToUtc } from "@/lib/publisher/time";
+import { ensureXDraftsInBackground } from "@/lib/x-drafts/service";
 import { envAccessTokens, threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
 import { endOfPostingDay, planBatch } from "@/lib/threads/plan";
 import { autopilotItemsForDate, isAutopilotItem, mutateQueue, pruneOld, readQueue } from "@/lib/threads/queue";
@@ -381,6 +382,7 @@ async function threadsTickInternal(
     // Both of these change what is queued, so a dry run stays out of them.
     catchUp = options.dryRun ? null : await catchUpToday({ config, now: planningNow(), log: options.log });
     ahead = options.dryRun ? null : await planTomorrow({ config, now: planningNow(), log: options.log });
+    if (!options.dryRun) ensureXDraftsInBackground({ threads: config, now: planningNow(), log: options.log });
   } catch (error) {
     planningError = error instanceof Error ? error.message : String(error);
     plan.skipped ??= "Planning failed; existing due posts were processed first.";
