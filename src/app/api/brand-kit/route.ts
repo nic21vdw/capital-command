@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { BrandKitInvalidError, brandKitResolution, saveBrandKitOverrides } from "@/lib/brand/kit";
+import { BrandKitConflictError, BrandKitInvalidError, brandKitResolution, saveBrandKitOverrides } from "@/lib/brand/kit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,12 +25,32 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "Send a JSON body with an overrides object." }, { status: 400 });
   }
   try {
-    await saveBrandKitOverrides(overrides);
+    await saveBrandKitOverrides(overrides, (body as { expectedOverrides?: unknown }).expectedOverrides);
   } catch (error) {
+    if (error instanceof BrandKitConflictError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     if (error instanceof BrandKitInvalidError) {
       return NextResponse.json({ error: error.message, issues: error.issues }, { status: 400 });
     }
     return NextResponse.json({ error: "The brand kit could not be saved." }, { status: 500 });
   }
   return NextResponse.json(snapshot());
+}
+
+// A scoped write from the editor keeps every other brand preference intact.
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json();
+    if (!body || !Array.isArray(body.videoLooks) || !body.expectedOverrides || typeof body.expectedOverrides !== "object" || Array.isArray(body.expectedOverrides)) {
+      return NextResponse.json({ error: "Send videoLooks and the expected brand overrides." }, { status: 400 });
+    }
+    await saveBrandKitOverrides({ videoLooks: body.videoLooks }, body.expectedOverrides, true);
+    return NextResponse.json(snapshot());
+  } catch (error) {
+    if (error instanceof BrandKitConflictError) return NextResponse.json({ error: error.message }, { status: 409 });
+    if (error instanceof BrandKitInvalidError) return NextResponse.json({ error: error.message, issues: error.issues }, { status: 400 });
+    if (error instanceof SyntaxError) return NextResponse.json({ error: "Send a JSON body." }, { status: 400 });
+    return NextResponse.json({ error: "The brand kit could not be saved. Your saved kit was left untouched." }, { status: 500 });
+  }
 }

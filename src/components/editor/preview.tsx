@@ -81,7 +81,7 @@ function CaptionWordSpan({
   );
 }
 
-function CaptionLayer({
+export function CaptionLayer({
   project,
   video,
   fallbackTime,

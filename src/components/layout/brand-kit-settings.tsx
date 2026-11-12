@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import Link from "next/link";
 import { Megaphone } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { saveBrandKit, useBrandKitState } from "@/lib/brand/client";
+import { loadBrandKit, saveBrandKit, useBrandKitState } from "@/lib/brand/client";
 import { BRAND_CHANNELS, type BrandChannel, type BrandKit } from "@/lib/brand/defaults";
 
 const lines = (value: string): string[] =>
@@ -73,7 +74,8 @@ function BrandKitEditor({
 }) {
   const [draft, setDraft] = useState<BrandKit>(saved);
   const [revision, setRevision] = useState(0);
-  const { busy } = useBrandKitState();
+  const { busy: saving, refreshing, error, issues } = useBrandKitState();
+  const busy = saving || refreshing;
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
   const config = draft.channels[channel];
 
@@ -90,6 +92,9 @@ function BrandKitEditor({
 
   return (
     <div className="mt-5 space-y-3">
+      {error || issues.length ? <Button variant="secondary" disabled={busy} onClick={() => {
+        if (!dirty || window.confirm("Reload the saved brand kit? If it changed, this replaces your unsaved brand edits.")) void loadBrandKit(true);
+      }}>Reload brand kit</Button> : null}
       <div key={revision} className="space-y-3">
         <Section title="Who it speaks for">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -353,6 +358,11 @@ export function BrandKitSettings() {
       </div>
       {error ? <p className="mt-3 text-xs text-amber-200">{error}</p> : null}
       {issues.length > 0 ? <p className="mt-3 text-xs text-amber-200">{issues.join(" ")}</p> : null}
+      <div className="mt-4 rounded-xl border border-[var(--border)] p-4">
+        <h3 className="font-medium">Video looks</h3>
+        <p className="mt-1 text-sm text-[var(--muted-foreground)]">{kit.videoLooks.length ? `${kit.videoLooks.length} saved: ${kit.videoLooks.map((look) => look.name).join(", ")}.` : "Keep your caption styles and editing guidance here with the rest of your brand."} Capture and compare looks in Clip Editor &gt; Style. Existing edits change only when you apply a look.</p>
+        <Link href="/editor" className="mt-2 inline-block text-sm text-[var(--accent)] underline">Open Clip Editor</Link>
+      </div>
       {loaded ? (
         <BrandKitEditor key={JSON.stringify(kit)} saved={kit} channel={channel} setChannel={setChannel} />
       ) : (
