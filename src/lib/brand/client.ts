@@ -3,20 +3,24 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { DEFAULT_BRAND_KIT, type BrandKit, type BrandKitOverrides } from "@/lib/brand/defaults";
 import { mergeOverrides } from "@/lib/brand/rules";
+import type { VideoLook } from "@/lib/brand/video-look";
 
 export type BrandKitState = {
   kit: BrandKit;
   overrides: BrandKitOverrides;
   issues: string[];
   loaded: boolean;
+  refreshing: boolean;
   busy: boolean;
   error: string | null;
 };
 
-const INITIAL: BrandKitState = { kit: DEFAULT_BRAND_KIT, overrides: {}, issues: [], loaded: false, busy: false, error: null };
+const INITIAL: BrandKitState = { kit: DEFAULT_BRAND_KIT, overrides: {}, issues: [], loaded: false, refreshing: false, busy: false, error: null };
 
 let state: BrandKitState = INITIAL;
 let loading: Promise<void> | null = null;
+let readGeneration = 0;
+let readable = false;
 const listeners = new Set<() => void>();
 
 function publish(next: Partial<BrandKitState>) {
@@ -31,26 +35,35 @@ async function readReply(response: Response): Promise<Reply> {
 }
 
 export function loadBrandKit(force = false): Promise<void> {
+  if (state.busy) return Promise.resolve();
   if (loading && !force) return loading;
-  loading = fetch("/api/brand-kit", { cache: "no-store" })
+  const generation = ++readGeneration;
+  readable = false;
+  publish({ refreshing: true });
+  loading = fetch("/api/brand-kit", { cache: "no-store", signal: AbortSignal.timeout(15_000) })
     .then(async (response) => {
       const body = await readReply(response);
+      if (generation !== readGeneration) return;
       if (!response.ok || !body.kit) throw new Error(body.error ?? `The brand kit could not be loaded (${response.status}).`);
-      publish({ kit: body.kit, overrides: body.overrides ?? {}, issues: body.issues ?? [], loaded: true, error: null });
+      readable = true;
+      publish({ kit: body.kit, overrides: body.overrides ?? {}, issues: body.issues ?? [], loaded: true, refreshing: false, error: null });
     })
     .catch((reason) => {
-      publish({ loaded: true, error: reason instanceof Error ? reason.message : String(reason) });
+      if (generation !== readGeneration) return;
+      publish({ loaded: true, refreshing: false, error: reason instanceof Error ? reason.message : String(reason) });
     });
   return loading;
 }
 
-export async function saveBrandKit(overrides: BrandKitOverrides): Promise<boolean> {
+export async function saveBrandKit(overrides: BrandKitOverrides, videoLooks?: VideoLook[]): Promise<boolean> {
+  if (!state.loaded || !readable || state.busy || state.issues.length) return false;
   publish({ busy: true });
   try {
     const response = await fetch("/api/brand-kit", {
-      method: "PUT",
+      method: videoLooks ? "PATCH" : "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ overrides })
+      body: JSON.stringify(videoLooks ? { videoLooks, expectedOverrides: state.overrides } : { overrides, expectedOverrides: state.overrides }),
+      signal: AbortSignal.timeout(15_000)
     });
     const body = await readReply(response);
     if (!response.ok || !body.kit) {
@@ -63,6 +76,10 @@ export async function saveBrandKit(overrides: BrandKitOverrides): Promise<boolea
     publish({ busy: false, error: reason instanceof Error ? reason.message : String(reason) });
     return false;
   }
+}
+
+export function saveVideoLooks(looks: VideoLook[]): Promise<boolean> {
+  return saveBrandKit({}, looks);
 }
 
 export function patchBrandKit(patch: BrandKitOverrides): Promise<boolean> {

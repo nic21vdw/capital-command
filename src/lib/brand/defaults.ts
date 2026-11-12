@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isPublicEdition } from "@/lib/edition";
 import { OWNER_IDENTITY } from "./owner-identity";
+import { videoLookSchema } from "./video-look";
 
 export const BRAND_CHANNELS = [
   "youtube",
@@ -55,6 +56,10 @@ const channelShape = Object.fromEntries(BRAND_CHANNELS.map((channel) => [channel
 >;
 
 export const brandKitSchema = z.object({
+  videoLooks: z.array(videoLookSchema).max(12).refine(
+    (looks) => new Set(looks.map((look) => look.id)).size === looks.length,
+    "Each video look needs a unique id."
+  ).default([]),
   identity: z.object({
     name: z.string().trim().min(1).max(120),
     firstName: z.string().trim().min(1).max(60),

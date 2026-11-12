@@ -39,6 +39,7 @@ import { useAppData } from "@/components/providers/app-provider";
 import { Button } from "@/components/ui/button";
 import { ColorField, Field, NumberField, RangeField, SelectField, Toggle } from "@/components/editor/controls";
 import { SfxSection } from "@/components/editor/sfx-section";
+import { VideoLooks } from "@/components/editor/video-looks";
 import { cn, safeFilename } from "@/lib/utils";
 import type { AspectRatioId, CaptionPresetId, ClipCompositionMode, ExportPresetId, OverlayKind } from "@/types/domain";
 import type { EditorApi } from "@/components/editor/types";
@@ -263,6 +264,7 @@ export const StylePanel = memo(function StylePanel({ api }: { api: EditorApi }) 
 
   return (
     <div className="space-y-4">
+      <VideoLooks api={api} />
       <Group label="Presets">
         <div className="flex flex-wrap gap-1.5">
           {(Object.keys(CAPTION_PRESETS) as CaptionPresetId[]).map((id) => (
