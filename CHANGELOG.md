@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-11-16
+
 - **Keep a video look for your next edit.** Save named caption styles and editing notes in your brand kit from Clip Editor > Style, compare them with another edit, and apply one without changing its words, cuts, framing or audio. Copy the editing brief into ChatGPT when you want help shaping the story. Existing projects change only when you apply a look.
 
 - **New X Drafts screen: a fresh day of X posts in your voice, every day, and each one goes to Threads on its own.** Every evening after 5pm it writes tomorrow's seven posts (8am to 8pm, every two hours) with a spicy hook that names Grok Bot, Dots, Duet or a model, short paragraphs and a closing question, and books each one on your Threads queue about 30 minutes after its X slot. Copy the ones you like to X, press Posted on X, or Don't post to stop its Threads copy. "Write drafts for ..." adds another day. If the R2 bucket has a public address, the same list is published as a phone page with Copy buttons, and its link is on the screen. The CoLateral canvas can drive it too. `X_DRAFTS=off` turns it off, `X_DRAFTS_THREADS=off` keeps the drafts off Threads.
