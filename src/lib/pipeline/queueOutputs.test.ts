@@ -1,5 +1,6 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { assignSlots, carouselCandidate, type QueueCandidate } from "@/lib/pipeline/queueOutputs";
+import { assignSlots, carouselCandidate, clipOffer, type QueueCandidate } from "@/lib/pipeline/queueOutputs";
 import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
 import type { Carousel } from "@/types/domain";
 
@@ -113,5 +114,22 @@ describe("booking a run's carousel", () => {
       )
     );
     expect(positions.size).toBe(3);
+  });
+});
+
+describe("which file a clip books as", () => {
+  const dir = "/data/clips/outputs/j1";
+  const clip = { id: "clip-1", title: "A", file: "clip-01.mp4", downloadFile: "clip-01-ready.mp4", editedFile: "clip-01-edit.mp4" };
+
+  it("books his Clip Editor export over the 9:16 render, and the render over the master", () => {
+    expect(clipOffer(clip, dir, new Set())).toEqual({ title: "A", filePath: path.resolve(dir, "clip-01-edit.mp4") });
+    expect(clipOffer({ ...clip, editedFile: undefined }, dir, new Set())).toEqual({ title: "A", filePath: path.resolve(dir, "clip-01-ready.mp4") });
+    expect(clipOffer({ id: "clip-2", file: "clip-02.mp4" }, dir, new Set())).toEqual({ title: "Clip clip-2", filePath: path.resolve(dir, "clip-02.mp4") });
+    expect(clipOffer({ id: "clip-3" }, dir, new Set())).toEqual({ title: "Clip clip-3", reason: "No rendered file yet." });
+  });
+
+  it("is already scheduled when any of its files is on the queue, so an edit made after booking is not offered twice", () => {
+    const queued = new Set([path.resolve(dir, "clip-01-ready.mp4").toLowerCase()]);
+    expect(clipOffer(clip, dir, queued)).toEqual({ title: "A", reason: "Already scheduled." });
   });
 });

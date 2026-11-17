@@ -34,14 +34,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { MAX_CLIP_COUNT, TARGET_CLIP_COUNT } from "@/lib/clipping/clip-count";
-import {
-  CAPTION_PRESETS,
-  DEFAULT_GENERATOR_CAPTION_PRESET,
-  GENERATOR_CAPTION_PRESETS,
-  chunkWords,
-  isCaptionPresetId,
-  windowSegments
-} from "@/lib/clipping/captions";
+import { CAPTION_PRESETS, DEFAULT_GENERATOR_CAPTION_PRESET, GENERATOR_CAPTION_PRESETS, chunkWords, isCaptionPresetId, windowSegments, spokenWords } from "@/lib/clipping/captions";
 import { loadJobCaptions, loadJobSilences } from "@/lib/clipping/captions-client";
 import { CLIP_LENGTHS, CLIP_LENGTH_IDS, DEFAULT_CLIP_LENGTH, isClipLengthId, type ClipLengthId } from "@/lib/clipping/clip-length";
 import { captionStyleForPreset, generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
@@ -391,7 +384,7 @@ export function ClipGeneratorPage() {
       if (job.captionPreset) project.captionStyle = captionStyleForPreset(job.captionPreset);
       const [captions, silences] = await Promise.all([loadJobCaptions(job.id), loadJobSilences(job.id)]);
       const windowed = windowSegments(captions, clip.start, clip.end);
-      const words = windowed.flatMap((segment) => segment.words);
+      const words = spokenWords(windowed);
       project.captions = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
       const localSilences = silences
         .filter((silence) => silence.end > clip.start && silence.start < clip.end)

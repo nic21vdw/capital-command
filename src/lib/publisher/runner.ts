@@ -74,7 +74,31 @@ export type RunOutcome = {
    */
   outcome: "published" | "scheduled" | "uploaded" | "retrying" | "failed" | "deferred";
   detail: string;
+  /** Why a deferred leg waited ("daily cap", "inbox full", ...). */
+  deferral?: string;
 };
+
+/**
+ * A deferral that only a person can clear. The daily caps reset by themselves;
+ * a full TikTok inbox empties only from the phone, and counting it as fine kept
+ * the publisher green for three months while no TikTok post went out.
+ */
+const NEEDS_A_PERSON = new Set(["inbox full"]);
+
+export function describeDeferrals(outcomes: RunOutcome[]): { total: number; needsPerson: number; text: string } {
+  const counts = new Map<string, number>();
+  let total = 0;
+  let needsPerson = 0;
+  for (const outcome of outcomes) {
+    if (outcome.outcome !== "deferred") continue;
+    total += 1;
+    if (outcome.deferral && NEEDS_A_PERSON.has(outcome.deferral)) needsPerson += 1;
+    const key = `${outcome.platform} ${outcome.deferral ?? "waiting"}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const parts = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([key, count]) => `${count} ${key}`);
+  return { total, needsPerson, text: total ? ` ${total} deferred (${parts.join(", ")}).` : "" };
+}
 
 export type RunReport = {
   dryRun: boolean;
@@ -220,11 +244,12 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
     if (!options.dryRun && !options.itemId) {
       const outcomes = [...report.outcomes, ...(report.bufferOutcomes ?? [])];
       const failed = outcomes.filter((outcome) => outcome.outcome === "failed").length + Number(Boolean(report.bufferError));
-      const attention = outcomes.filter((outcome) => outcome.outcome === "retrying" || outcome.outcome === "manual").length;
+      const deferrals = describeDeferrals(report.outcomes);
+      const attention = outcomes.filter((outcome) => outcome.outcome === "retrying" || outcome.outcome === "manual").length + deferrals.needsPerson;
       await recordAutomationOutcome("publisher", {
         at: now.toISOString(),
         status: failed || attention ? "failed" : "completed",
-        detail: `${report.outcomes.length} platform outcomes, ${report.bufferOutcomes?.length ?? 0} Buffer outcomes, ${failed} failures, ${attention} requiring attention.${report.bufferError ? ` ${report.bufferError}` : ""}`
+        detail: `${report.outcomes.length} platform outcomes, ${report.bufferOutcomes?.length ?? 0} Buffer outcomes, ${failed} failures, ${attention} requiring attention.${deferrals.text}${report.bufferError ? ` ${report.bufferError}` : ""}`
       }).catch(() => undefined);
     }
     return report;
@@ -461,7 +486,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
       if (await accountHeld(platform, accountId)) continue;
       const adapter = adapters[platform];
       const record = async (outcome: RunOutcome["outcome"], detail: string, deferralReason?: string) => {
-        report.outcomes.push({ itemId: item.id, clip: item.clipPath, platform, outcome, detail });
+        report.outcomes.push({ itemId: item.id, clip: item.clipPath, platform, outcome, detail, ...(outcome === "deferred" && deferralReason ? { deferral: deferralReason } : {}) });
         const state = item.platforms[platform];
         const at = new Date().toISOString();
         await recordAutomationEventSafely({

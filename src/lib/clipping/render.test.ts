@@ -126,7 +126,7 @@ describe("reframeChain", () => {
     expect(CLIP_LAYOUTS["face-focus"].layers[1]).toMatchObject({
       kind: "face",
       fit: "cover",
-      dest: { x: 0, y: 0.36, w: 1, h: 0.56 }
+      dest: { x: 0, y: 0.42, w: 1, h: 0.5 }
     });
   });
 

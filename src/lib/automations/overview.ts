@@ -5,6 +5,13 @@ import { activeIngestJob } from "@/lib/ingest/service";
 import type { IngestLedger } from "@/lib/ingest/types";
 import { bufferConfigured, hostingConfigured, publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { publishQueue } from "@/lib/publisher/queue";
+import { runwayIssues } from "@/lib/publisher/runway";
+import { tiktokRelayOn } from "@/lib/publisher/tiktokInbox";
+import { heldFrom, type LegHeld } from "@/lib/publisher/approval";
+import { readReviewPolicy } from "@/lib/publisher/approvalStore";
+import { listJobs } from "@/lib/clipping/jobs";
+import type { ClipJob } from "@/lib/clipping/types";
+import { runBacklog } from "@/lib/pipeline/shortsBacklog";
 import type { BufferState, QueueItem } from "@/lib/publisher/types";
 import { threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
 import { readQueue } from "@/lib/threads/queue";
@@ -55,6 +62,12 @@ export type AutomationInputs = {
   spotifyShowLinked: boolean;
   episodes: number;
   autoScheduleOvernight: boolean;
+  /** Whether TikTok posts go through a relay instead of its app inbox. Absent reads as no relay. */
+  tiktokRelayOn?: boolean;
+  /** Clip jobs, so finished-but-unbooked Shorts can be counted. Absent reads as none. */
+  jobs?: ClipJob[];
+  /** Legs waiting for approval under the review policy. Absent reads as nothing held. */
+  reviewHeld?: LegHeld;
   /** Delivery outcomes since local midnight; absent when history could not be read. */
   today?: { delivered: number; failed: number };
 };
@@ -153,6 +166,13 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
   const bufferPending = bufferStates.filter(({ state }) => ["pending", "scheduled"].includes(state.status));
   const publisherIssues = platformStates.filter(({ state }) => Boolean(state.error)).map(({ item, platform, state }) => issueLine(item.title || item.caption, state.error ?? "", platform)).slice(0, 5);
   publisherIssues.push(...bufferStates.filter(({ state }) => state.error || state.status === "manual").map(({ item, state }) => issueLine(item.title, state.error ?? state.note ?? "Manual posting is required.", "buffer")).slice(0, 5));
+  if (input.publisher.enabled) {
+    publisherIssues.unshift(...runwayIssues({
+      queue: input.queue, backlog: runBacklog(input.runs, input.jobs ?? [], input.queue, now), platforms: input.publisher.platforms,
+      shortsPerDay: input.publisher.shortsPerDay, timezone: input.publisher.timezone, tiktokInboxLimit: input.publisher.tiktok.inboxLimit,
+      tiktokRelayOn: input.tiktokRelayOn ?? false, held: input.reviewHeld
+    }, now));
+  }
   if (publisherTick?.status === "failed") publisherIssues.unshift(publisherTick.detail);
   if (publisherTick && now.getTime() - Date.parse(publisherTick.at) > 15 * 60_000) publisherIssues.unshift("The publisher has not run in over 15 minutes.");
   const publisher = card("publisher", {
@@ -218,11 +238,12 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
 export async function automationOverview(): Promise<AutomationOverview> {
   const config = publisherConfig();
   const now = new Date();
-  const [controls, tasks, runs, ledger, queue, threadsItems, threadsState, podcast, state, data, connected, outcomes, history] = await Promise.all([
+  const [controls, tasks, runs, ledger, queue, threadsItems, threadsState, podcast, state, data, connected, outcomes, history, jobs] = await Promise.all([
     readAutomationControls(), readAutomationTasks(), listRuns(), readLedger(), publishQueue(config).list(), readQueue(),
     readThreadsState(), podcastAutomationStatus(), readPodcastState(), readAppData(), spotifyConnected(),
     Promise.all(AUTOMATION_IDS.map(async (id) => [id, await readAutomationOutcome(id)] as const)),
-    readAutomationHistory({ timeZone: config.timezone }, now).catch(() => null)
+    readAutomationHistory({ timeZone: config.timezone }, now).catch(() => null),
+    listJobs().catch(() => [] as ClipJob[])
   ]);
   return buildAutomationOverview({
     controls, tasks, runs, ledger, queue, publisher: config, threads: threadsConfig(), threadsItems, threadsState, podcast,
@@ -230,6 +251,7 @@ export async function automationOverview(): Promise<AutomationOverview> {
     podcastBlockers: feedBlockers(state.show, state.episodes, { hosted: podcastConfigured(config), bucketConnected: hostingConfigured(config) }).filter((blocker) => blocker.code !== "episodes").map((blocker) => `${blocker.problem} ${blocker.fix}`),
     spotifyConnected: connected, spotifyShowLinked: Boolean(state.show.spotifyShowId), episodes: state.episodes.length,
     autoScheduleOvernight: data.settings.autoScheduleOvernight === true,
+    tiktokRelayOn: tiktokRelayOn(), jobs, reviewHeld: heldFrom(readReviewPolicy()),
     today: history?.today
   }, now);
 }

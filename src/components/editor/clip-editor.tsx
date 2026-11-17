@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
-import { chunkWords, retimeWords, serializeSrt, serializeVtt, splitSegment, mergeSegments, windowSegments } from "@/lib/clipping/captions";
+import { chunkWords, retimeWords, serializeSrt, serializeVtt, splitSegment, mergeSegments, windowSegments, spokenWords } from "@/lib/clipping/captions";
 import { formatClock, generateClipTitle } from "@/lib/clipping/editor";
 import {
   buildClipSegments,
@@ -551,7 +551,7 @@ export function ClipEditor({
         const data = (await res.json()) as { captions?: CaptionSegment[]; error?: string };
         if (res.ok) {
           const windowed = windowSegments(data.captions ?? [], project.clipStart, project.clipEnd);
-          const words = windowed.flatMap((s) => s.words);
+          const words = spokenWords(windowed);
           captions = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
         } else {
           toast.error(data.error ?? "Could not fetch captions for title generation.");
@@ -598,7 +598,7 @@ export function ClipEditor({
         return;
       }
       const windowed = windowSegments(data.captions ?? [], project.clipStart, project.clipEnd);
-      const words = windowed.flatMap((s) => s.words);
+      const words = spokenWords(windowed);
       const rechunked = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
       patch({ captions: rechunked, segments: buildClipSegments(duration, rechunked) });
       toast.success(`Loaded ${rechunked.length} caption segments.`);

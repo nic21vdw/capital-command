@@ -238,4 +238,51 @@ describe("automation dashboard evidence", () => {
     input.queue = [];
     expect(buildAutomationOverview(input, now).cards.find((card) => card.id === "publisher")!.itemHref).toBeUndefined();
   });
+
+  it("puts the TikTok inbox wall and a dry Shorts schedule on the publisher card", () => {
+    const input = inputs();
+    input.publisher.tiktok.inboxLimit = 2;
+    input.tasks.publisher = { state: "ready", nextRunAt: "2026-10-01T15:05:00Z", lastRunAt: now.toISOString(), lastResult: 0, schedule: "PT5M" };
+    input.queue = [
+      testItem({ id: "d1", publishAt: "2026-09-01T15:00:00Z", platforms: { tiktok: { status: "scheduled", attempts: 0 } } }),
+      testItem({ id: "d2", publishAt: "2026-09-02T15:00:00Z", platforms: { tiktok: { status: "scheduled", attempts: 0 } } }),
+      testItem({ id: "p1", publishAt: "2026-08-22T21:30:00Z", platforms: { tiktok: { status: "pending", attempts: 0 } } })
+    ];
+    const card = buildAutomationOverview(input, now).cards.find((entry) => entry.id === "publisher")!;
+    expect(card.state).toBe("attention");
+    expect(card.issues[0]).toContain("TikTok is holding too many unfinished drafts (2 of 2)");
+    expect(card.issues[1]).toContain("Shorts booked for the next 7 days: YouTube 0 of");
+    expect(card.issues[1]).not.toContain("TikTok");
+  });
+
+  it("leaves the TikTok inbox alone when TikTok posts through a relay", () => {
+    const input = inputs();
+    input.publisher.tiktok.inboxLimit = 1;
+    input.tiktokRelayOn = true;
+    input.queue = [
+      testItem({ id: "d1", publishAt: "2026-09-01T15:00:00Z", platforms: { tiktok: { status: "scheduled", attempts: 0 } } }),
+      testItem({ id: "p1", publishAt: "2026-08-22T21:30:00Z", platforms: { tiktok: { status: "pending", attempts: 0 } } })
+    ];
+    const card = buildAutomationOverview(input, now).cards.find((entry) => entry.id === "publisher")!;
+    expect(card.issues.join(" ")).not.toContain("unfinished drafts");
+  });
+
+  it("names finished Shorts that are not booked, from the clip jobs and not from any queue item of the run", () => {
+    const input = inputs();
+    input.runs = [
+      { id: "r1", name: "Stream - Day 98", status: "running", notices: [], createdAt: "2026-09-28T10:00:00Z", clipJobId: "j1" } as unknown as AutomationInputs["runs"][number]
+    ];
+    input.jobs = [
+      {
+        id: "j1", fileName: "j1", sourceUrl: "https://example.test", status: "processing", stage: "rendering", progress: 50, notices: [], createdAt: "2026-09-28T10:00:00Z",
+        clips: [
+          { id: "clip-1", start: 0, end: 30, score: 80, breakdown: { hook: 0, pacing: 0, standalone: 0, intensity: 0 }, rationale: "", title: "A", downloadFile: "clip-01-ready.mp4" },
+          { id: "clip-2", start: 0, end: 30, score: 70, breakdown: { hook: 0, pacing: 0, standalone: 0, intensity: 0 }, rationale: "", title: "B", file: "clip-02.mp4" }
+        ]
+      } as unknown as NonNullable<AutomationInputs["jobs"]>[number]
+    ];
+    input.queue = [testItem({ id: "deck", runId: "r1", mediaKind: "image", clipPath: "data/carousel-images/a.png", imagePaths: ["data/carousel-images/a.png"], publishAt: "2026-10-03T15:00:00Z" })];
+    const card = buildAutomationOverview(input, now).cards.find((entry) => entry.id === "publisher")!;
+    expect(card.issues.join(" ")).toContain("1 finished Short is not booked yet, from 1 recent stream: Day 98 (1).");
+  });
 });

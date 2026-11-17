@@ -1,6 +1,6 @@
 import { centerBlurVideoTopFrac, DEFAULT_CENTER_BLUR_ZOOM } from "@/lib/clipping/centerBlur";
 import { coverScale } from "@/lib/clipping/encode";
-import type { Rect } from "@/lib/clipping/layouts";
+import { CLIP_LAYOUTS, type Rect } from "@/lib/clipping/layouts";
 import type { SubjectTrack } from "@/lib/clipping/subject";
 
 /**
@@ -64,7 +64,13 @@ const SUBJECT_ANCHOR = 0.56;
 const MAX_KEYFRAMES = 12;
 /** The layout `speaker-stack` renders through, and where its camera slot starts. */
 export const SPEAKER_STACK_LAYOUT = "face-focus" as const;
-const SPEAKER_STACK_FACE_TOP = 0.36;
+/**
+ * Read from the layout itself so the title and the camera slot cannot drift
+ * apart. The slot sits 0.10 of the frame below the screen banner so a two-line
+ * title fits in the gap; at 0.36 the gap was 0.04 and every face-lead Short
+ * burned its title over the bottom of the screen.
+ */
+const SPEAKER_STACK_FACE_TOP = CLIP_LAYOUTS[SPEAKER_STACK_LAYOUT].layers.find((layer) => layer.kind === "face")?.dest.y ?? 0.42;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));

@@ -1,3 +1,4 @@
+import { isFillerWord } from "@/lib/longform/fillers";
 import type { CaptionPresetId, CaptionSegment, CaptionStyle, CaptionWord } from "@/types/domain";
 
 // --- Time formatting -------------------------------------------------------
@@ -205,6 +206,16 @@ export function chunkWords(words: CaptionWord[], maxWords = 7): CaptionSegment[]
 /** Full pipeline: subtitle file text -> phrase segments with word timing. */
 export function parseSubtitles(content: string, maxWords = 7): CaptionSegment[] {
   return chunkWords(parseSubtitleWords(content), maxWords);
+}
+
+/**
+ * The words a Short's captions show: every word of the window except the
+ * standalone fillers (um, uh, erm; never "like" or "so"). The audio keeps them,
+ * the captions do not: a burned "Um" reads as a mistake on a muted phone. The
+ * stored transcript is untouched, because the long-form filler cuts read it.
+ */
+export function spokenWords(segments: CaptionSegment[]): CaptionWord[] {
+  return segments.flatMap((segment) => segment.words).filter((word) => !isFillerWord(word.text));
 }
 
 // --- Clip-local windowing --------------------------------------------------
