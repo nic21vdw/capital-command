@@ -760,9 +760,11 @@ capped at 90 (`metrics.ts`). Numbers a platform did not report are absent, never
   single photo has neither `shares` nor an insights edge. Instagram drops `plays` from
   Graph v22. TikTok is marked unsupported until the app's scope (`TIKTOK_SCOPE`) includes
   `video.list`.
-  Production's YouTube grant today is `youtube.upload`, `youtube.readonly` and
-  `youtube.force-ssl`, so watch time does not arrive until YouTube is reconnected with the
-  extra scope; Connect YouTube does not ask for it.
+  Connect YouTube asks for `yt-analytics.readonly` (`YOUTUBE_SCOPES` in `googleAuth.ts`,
+  added 2026-11-17 with Nic's yes). A grant made before that has only `youtube.upload`,
+  `youtube.readonly` and `youtube.force-ssl`, so watch time does not arrive until YouTube
+  is reconnected, and the YouTube Analytics API must be enabled on the OAuth client's
+  Google Cloud project.
 - **Failures** (`http.ts`, `classifyFailure`): a 429 backs off (honouring `Retry-After`
   up to 60 s, else the account is left alone for the advised time and shown as rate
   limited); an auth failure goes through the platform-health breaker per account

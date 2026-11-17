@@ -14,6 +14,7 @@ already shipped.
 
 ## Unreleased
 
+- **Connect YouTube now asks for read-only YouTube Analytics access.** That is what lets Performance show watch time and average view duration for each Short. Your current connection keeps working as it is; reconnect YouTube once after this release to grant it. The YouTube Analytics API must be enabled on the Google Cloud project behind your YouTube client.
 - **Reels, Facebook videos and TikToks now open on the Short's own title.** A generated caption used to be the same standing description on every post (652 queue items shared 11 captions), and that caption is the visible text on Instagram, Facebook and TikTok. It now leads with the title the post is booked under, then your standing description. No new AI copy is written.
 
 - **Weekly Shorts Review: fix a title before you book it.** Each tile has an edit button for the title the Short is booked under, and a title with no number and no named model or tool gets a nudge, because your Shorts with one of those got more views (median 250 against 177 for a number). Your typed title is the one that posts; nothing is rewritten for you.
