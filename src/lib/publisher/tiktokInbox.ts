@@ -20,17 +20,26 @@ export function tiktokRelayOn(): boolean {
   );
 }
 
-export function usesTiktokInbox(item: Pick<QueueItem, "tiktok">): boolean {
-  return !tiktokRelayOn() && (item.tiktok?.delivery ?? "inbox") !== "direct";
+/** The rule itself, with the relay switch passed in, so pure callers share it. */
+export function deliversViaInbox(item: Pick<QueueItem, "tiktok">, relayOn: boolean): boolean {
+  return !relayOn && (item.tiktok?.delivery ?? "inbox") !== "direct";
 }
 
-export function outstandingTiktokDrafts(items: QueueItem[]): number {
+export function usesTiktokInbox(item: Pick<QueueItem, "tiktok">): boolean {
+  return deliversViaInbox(item, tiktokRelayOn());
+}
+
+export function countInboxDrafts(items: QueueItem[], relayOn: boolean): number {
   let waiting = 0;
   for (const item of items) {
-    if (!usesTiktokInbox(item)) continue;
+    if (!deliversViaInbox(item, relayOn)) continue;
     if (item.platforms.tiktok?.status === "scheduled") waiting += 1;
   }
   return waiting;
+}
+
+export function outstandingTiktokDrafts(items: QueueItem[]): number {
+  return countInboxDrafts(items, tiktokRelayOn());
 }
 
 export function remainingTiktokInboxUploads(items: QueueItem[], config: PublisherConfig): number {

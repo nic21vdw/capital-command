@@ -31,6 +31,7 @@ export const CAPITAL_COMMAND_ROUTES: RouteEntry[] = [
   { path: "/facebook", label: "FB / IG Post Library", group: "Formats" },
   { path: "/launch", label: "Launch Pad", group: "Formats" },
 
+  { path: "/shorts-review", label: "Weekly Shorts Review", group: "Schedule" },
   { path: "/uploading-center", label: "Uploading Center", group: "Schedule" },
   { path: "/automations", label: "Automations", group: "Schedule" },
   { path: "/distribution", label: "Distribution Centre", group: "Schedule" },

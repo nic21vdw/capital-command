@@ -14,7 +14,15 @@ already shipped.
 
 ## Unreleased
 
-- **The publisher card now says when your Shorts are running out, and why.** Automations > Video and image publisher lists how many Shorts are booked for the next 7 days on each platform against your daily cadence, names the recent streams whose clips are made but not booked, and says plainly when TikTok has stopped taking uploads because its inbox holds too many unfinished drafts. A full TikTok inbox now counts as needing attention instead of reading as a clean run, and the run summary lists what was deferred and why.
+- **New Weekly Shorts Review screen: every finished Short from the last 3 weeks of streams that is not booked yet, in one list, best first.** Watch each one, tick the ones you want and book them in one go into the next free slots from tomorrow. Nothing is ticked for you, booking asks you to confirm first, and pressing it twice or after a dropped connection never books a clip twice. Anything you leave unticked stays for next week; Skip takes a clip off the list (tick it on the stream's booking sheet to bring it back). Same-day, duplicate, Shorts-per-day and review-hold rules all still apply. "Tick the best N" fills the emptiest platform's week without booking anything.
+
+- **The publisher card now says when your Shorts are running out, and why.** Automations > Video and image publisher lists how many Shorts are booked for the next 7 days on each platform against your daily cadence (with approval holds shown beside it), counts the finished Shorts not booked yet by stream, and says plainly when TikTok has stopped taking uploads because its inbox holds too many unfinished drafts. A clip only counts once its 9:16 render or editor export exists, a carousel or long-form booking no longer hides a stream's unbooked Shorts, direct and relay TikTok posts are not counted as inbox drafts, and a TikTok inbox draft is not counted as booked. A full TikTok inbox now counts as needing attention instead of reading as a clean run, and the run summary lists what was deferred and why.
+
+- **Booking a stream's clips now posts your Clip Editor export.** The pipeline's booking sheet used to post the 9:16 render even when you had edited the clip; it now posts the edit, the same file the Uploading Center and Short Clips play, and a clip booked before you edited it is not offered again.
+
+- **Short captions leave out um, uh and erm.** The burned captions on new Shorts and fresh editor projects drop standalone fillers; the audio and the stored transcript are unchanged.
+
+- **On face-lead Shorts the title no longer covers the screen.** The camera now starts a little lower so a two-line title fits between the screen and the camera. Applies to new renders.
 
 - **#shorts only goes on YouTube Shorts.** Instagram, Facebook, TikTok and LinkedIn captions no longer carry the YouTube-only #shorts tag, and long-form uploads never do.
 

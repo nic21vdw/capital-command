@@ -5,8 +5,12 @@ import {
   keyframeExpression,
   planFraming,
   subjectFillChain,
+  SPEAKER_STACK_LAYOUT,
+  type ClipFraming,
   type FramingTarget
 } from "./framing";
+import { buildClipTitleDialogue } from "./captions";
+import { CLIP_LAYOUTS } from "./layouts";
 import type { SubjectSample, SubjectTrack } from "./subject";
 
 const target: FramingTarget = { sourceW: 1920, sourceH: 1080, targetW: 1080, targetH: 1920 };
@@ -161,5 +165,19 @@ describe("framingVideoTopFrac", () => {
     // Zooming in grows the video band, which pushes the title up.
     expect(framingVideoTopFrac(neutral, target, 1)).toBeCloseTo(0.342, 3);
     expect(framingVideoTopFrac(neutral, target, 1.6)).toBeLessThan(framingVideoTopFrac(neutral, target, 1.25));
+  });
+});
+
+describe("the burned title on a face-lead Short", () => {
+  it("fits two lines between the screen banner and the camera, over neither", () => {
+    const H = 1920;
+    const [screen, face] = CLIP_LAYOUTS[SPEAKER_STACK_LAYOUT].layers;
+    const top = framingVideoTopFrac({ mode: "speaker-stack", confidence: 1, reason: "" } as ClipFraming, { sourceW: 1920, sourceH: 1080, targetW: 1080, targetH: H });
+    expect(top).toBe(face.dest.y);
+    const line = buildClipTitleDialogue("I Gave Claude Full Control of My App", 1080, H, 0, 5, top);
+    const y = Number(line.match(/\\pos\(\d+,(\d+)\)/)![1]);
+    const fontSize = Math.round(H * 0.034);
+    expect(y).toBeLessThanOrEqual(face.dest.y * H);
+    expect(y - 2 * fontSize * 1.2).toBeGreaterThanOrEqual((screen.dest.y + screen.dest.h) * H);
   });
 });

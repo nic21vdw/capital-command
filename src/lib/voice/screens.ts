@@ -21,6 +21,7 @@ export const SCREENS: Screen[] = [
   { id: "x-posts", href: "/x-posts", label: "Threads Autopilot", purpose: "the daily Threads posts, their schedule, and the X wording to copy" },
   { id: "x-drafts", href: "/x-drafts", label: "X Drafts", purpose: "fresh X post drafts to pick from and copy to X, each one also booked on Threads" },
   { id: "facebook", href: "/facebook", label: "FB / IG Post Library", purpose: "Facebook and Instagram hook-and-comment-thread posts" },
+  { id: "shorts-review", href: "/shorts-review", label: "Weekly Shorts Review", purpose: "every finished Short from recent streams that is not booked yet, best first, to tick and book in one pass" },
   { id: "distribution", href: "/distribution", label: "Distribution Centre", purpose: "the publish queue and what is scheduled" },
   { id: "uploading-center", href: "/uploading-center", label: "Uploading Center", purpose: "connected channels and uploads" },
   { id: "automations", href: "/automations", label: "Automations", purpose: "background workers: pause or resume posting, last runs, what still goes live" },

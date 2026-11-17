@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Clapperboard, Film, Loader2, Plus, Trash2 } from "lucide-react";
 import { useAppData } from "@/components/providers/app-provider";
 import { ClipFrame } from "@/components/clips/clip-frame";
-import { chunkWords, windowSegments } from "@/lib/clipping/captions";
+import { chunkWords, windowSegments, spokenWords } from "@/lib/clipping/captions";
 import { loadJobCaptions } from "@/lib/clipping/captions-client";
 import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
 import { Badge } from "@/components/ui/badge";
@@ -57,7 +57,7 @@ function projectFromClip(
     output: job.output
   });
   const windowed = windowSegments(captions, clip.start, clip.end);
-  const words = windowed.flatMap((segment) => segment.words);
+  const words = spokenWords(windowed);
   project.captions = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
   project.title = clip.title || generateClipTitle(project.captions, `Clip ${index + 1}`);
   if (project.title) project.name = project.title;

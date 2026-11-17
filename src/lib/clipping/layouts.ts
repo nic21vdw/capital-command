@@ -76,7 +76,7 @@ export const CLIP_LAYOUTS: Record<ClipLayoutPreset, ClipLayoutDefinition> = {
     previewHint: "Best for reaction, commentary, and talking-head moments from screen-share streams.",
     layers: [
       { kind: "screen", fit: "contain", source: { x: 0, y: 0, w: 1, h: 1 }, dest: { x: 0.05, y: 0.06, w: 0.9, h: 0.26 } },
-      { kind: "face", fit: "cover", source: streamerCameraSource, dest: { x: 0, y: 0.36, w: 1, h: 0.56 } }
+      { kind: "face", fit: "cover", source: streamerCameraSource, dest: { x: 0, y: 0.42, w: 1, h: 0.5 } }
     ]
   }
 };

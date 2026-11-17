@@ -21,7 +21,7 @@ import {
   Youtube,
 } from "lucide-react";
 import { toast } from "sonner";
-import { chunkWords, windowSegments } from "@/lib/clipping/captions";
+import { chunkWords, windowSegments, spokenWords } from "@/lib/clipping/captions";
 import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
 import { writeDraftProject } from "@/components/editor/drafts";
 import { useAppData } from "@/components/providers/app-provider";
@@ -729,7 +729,7 @@ export function UploadingCenterPage() {
         output: activeJob.output,
       });
       const windowed = windowSegments(activeCaptions, candidate.start, candidate.end);
-      const words = windowed.flatMap((segment) => segment.words);
+      const words = spokenWords(windowed);
       project.captions = words.length
         ? chunkWords(words, project.captionStyle.maxWordsPerCaption)
         : windowed;

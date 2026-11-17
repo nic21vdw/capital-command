@@ -8,7 +8,7 @@ import {
   fallbackCandidates,
   selectCandidates
 } from "@/lib/clipping/analysis";
-import { buildAss, buildClipTitleDialogue, chunkWords, isCaptionPresetId, windowSegments } from "@/lib/clipping/captions";
+import { buildAss, buildClipTitleDialogue, chunkWords, isCaptionPresetId, windowSegments, spokenWords } from "@/lib/clipping/captions";
 import { clipLengthBounds, isClipLengthId, type ClipLengthId } from "@/lib/clipping/clip-length";
 import { dataPath } from "@/lib/paths";
 import { atomicWriteFile } from "@/lib/storage/atomic-json";
@@ -713,7 +713,7 @@ async function writeClipDownloadAss(
   // same way the editor does so the burned captions match what opening the clip
   // in the editor would show.
   const windowed = shiftSegments(windowSegments(job.sourceCaptions ?? [], clip.start, clip.end), trimSec);
-  const words = windowed.flatMap((segment) => segment.words);
+  const words = spokenWords(windowed);
   const captions = words.length ? chunkWords(words, style.maxWordsPerCaption) : windowed;
   const captionDoc = buildAss(captions, style, frame.width, frame.height, true);
   // Every clip ships with its title burned in by default. Top edge of the

@@ -19,6 +19,7 @@ import {
   Images,
   Inbox,
   LayoutList,
+  ListChecks,
   Lightbulb,
   Link2,
   Megaphone,
@@ -124,6 +125,7 @@ const PIPELINE_STAGES: PipelineStage[] = [
     label: "Schedule",
     items: [
       // Mass-schedule the finished outputs across accounts and platforms.
+      { href: "/shorts-review", label: "Weekly Shorts Review", icon: ListChecks },
       { href: "/uploading-center", label: "Uploading Center", icon: UploadCloud },
       { href: "/automations", label: "Automations", icon: Workflow },
       { href: "/distribution", label: "Distribution Centre", icon: Rocket }

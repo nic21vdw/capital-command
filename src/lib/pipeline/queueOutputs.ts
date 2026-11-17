@@ -1,6 +1,8 @@
 import path from "node:path";
 import { renderCarouselDeck } from "@/lib/carousels/renderDeck";
 import { getJob, outputDir } from "@/lib/clipping/jobs";
+import type { ClipCandidate } from "@/lib/clipping/types";
+import { clipCandidateId, readyFile } from "@/lib/pipeline/shortsBacklog";
 import { MIN_LONGFORM_SEC, shortOfLongformNote } from "@/lib/longform/length";
 import { CAR_YAP_YOUTUBE_NOTE, isCarYapTitle } from "@/lib/publisher/carYaps";
 import { getProject, projectOutputDir } from "@/lib/longform/store";
@@ -195,25 +197,41 @@ async function collectClips(
   if (!job) return;
   const dir = outputDir(job.id);
   for (const clip of job.clips) {
-    const file = clip.downloadFile ?? clip.editedFile ?? clip.file;
-    const title = clip.title ?? `Clip ${clip.id}`;
-    if (!file) {
-      skipped.push({ title, reason: "No rendered file yet." });
-      continue;
-    }
-    const filePath = path.resolve(dir, file);
-    if (alreadyQueued.has(filePath.toLowerCase())) {
-      skipped.push({ title, reason: "Already scheduled." });
+    const offer = clipOffer(clip, dir, alreadyQueued);
+    if ("reason" in offer) {
+      skipped.push({ title: offer.title, reason: offer.reason });
       continue;
     }
     candidates.push({
-      id: `clip:${job.id}:${clip.id}`,
+      id: clipCandidateId(job.id, clip.id),
       kind: "clip",
-      title,
-      filePath,
+      title: offer.title,
+      filePath: offer.filePath,
       platforms: []
     });
   }
+}
+
+/**
+ * The file a clip books as, or why it is not offered. His Clip Editor export
+ * wins over the 9:16 render, the same order the Uploading Center and the Short
+ * Clips tiles play it in: booking the render instead posted the version he had
+ * not edited. A clip counts as scheduled when ANY of its files is on the queue,
+ * so a clip booked as its render before he edited it is not offered twice.
+ */
+export function clipOffer(
+  clip: Pick<ClipCandidate, "id" | "title" | "file" | "downloadFile" | "editedFile">,
+  dir: string,
+  alreadyQueued: Set<string>
+): { title: string; filePath: string } | { title: string; reason: string } {
+  const title = clip.title ?? `Clip ${clip.id}`;
+  const file = readyFile(clip) ?? clip.file;
+  if (!file) return { title, reason: "No rendered file yet." };
+  const queued = [clip.editedFile, clip.downloadFile, clip.file].some(
+    (name) => name && alreadyQueued.has(path.resolve(dir, name).toLowerCase())
+  );
+  if (queued) return { title, reason: "Already scheduled." };
+  return { title, filePath: path.resolve(dir, file) };
 }
 
 async function collectLongform(
