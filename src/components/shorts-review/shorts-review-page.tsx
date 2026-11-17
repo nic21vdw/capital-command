@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarCheck, CheckSquare, Film, RefreshCw, Square, X } from "lucide-react";
+import { CalendarCheck, CheckSquare, Film, Pencil, RefreshCw, Square, X } from "lucide-react";
 import { toast } from "sonner";
 import { ClipFrame } from "@/components/clips/clip-frame";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState, LoadingState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { cleanTypedTitle, MAX_SHORT_TITLE, titleHint } from "@/lib/clipping/titleSignals";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import type { ReviewClip, ShortsReviewState } from "@/lib/pipeline/shortsReview";
 import { bookingSummary, durationLabel, fillTheWeek, platformLabel, runwayLine, slotLabel, type BookReply } from "@/lib/pipeline/shortsReviewDisplay";
@@ -37,6 +38,8 @@ export function ShortsReviewPage() {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState<"book" | "skip" | null>(null);
   const [lastReply, setLastReply] = useState<Reply | null>(null);
+  const [titles, setTitles] = useState<Record<string, string>>({});
+  const [editing, setEditing] = useState<string | null>(null);
 
   const apply = useCallback((result: { state: ShortsReviewState } | { error: string }) => {
     if ("error" in result) {
@@ -47,6 +50,7 @@ export function ShortsReviewPage() {
     setState(result.state);
     const waiting = new Set(result.state.clips.map((clip) => clip.candidateId));
     setPicks((current) => new Set([...current].filter((id) => waiting.has(id))));
+    setTitles((current) => Object.fromEntries(Object.entries(current).filter(([id]) => waiting.has(id))));
   }, []);
 
   const load = useCallback(async () => apply(await readReview()), [apply]);
@@ -110,20 +114,22 @@ export function ShortsReviewPage() {
 
   const book = useCallback(async () => {
     if (busy || picks.size === 0 || blocked) return;
-    const reply = (await post({ action: "book", ids: [...picks], confirm: true }, "book")) as Reply | null;
+    const retitled = Object.fromEntries([...picks].flatMap((id) => (titles[id] ? [[id, titles[id]]] : [])));
+    const body = { action: "book", ids: [...picks], confirm: true, ...(Object.keys(retitled).length ? { titles: retitled } : {}) };
+    const reply = (await post(body, "book")) as Reply | null;
     if (!reply) return;
     setLastReply(reply);
     const summary = bookingSummary(reply);
     toast[summary.tone](summary.text);
-  }, [blocked, busy, picks, post]);
+  }, [blocked, busy, picks, post, titles]);
 
   const skip = useCallback(
     async (clip: ReviewClip) => {
       if (busy) return;
       const reply = (await post({ action: "skip", ids: [clip.candidateId] }, "skip")) as { skipped: number } | null;
-      if (reply?.skipped) toast.success(`Skipped "${clip.title}". Tick it on ${clip.stream}'s booking sheet to bring it back.`);
+      if (reply?.skipped) toast.success(`Skipped "${titles[clip.candidateId] ?? clip.title}". Tick it on ${clip.stream}'s booking sheet to bring it back.`);
     },
-    [busy, post]
+    [busy, post, titles]
   );
 
   useColateralSurface({
@@ -255,7 +261,24 @@ export function ShortsReviewPage() {
                     <Badge tone="info">{clip.stream}</Badge>
                     {clip.framing ? <Badge>{clip.framing}</Badge> : null}
                   </div>
-                  <p className="text-sm font-semibold leading-snug">{clip.title}</p>
+                  <TitleField
+                    title={titles[clip.candidateId] ?? clip.title}
+                    edited={Boolean(titles[clip.candidateId])}
+                    editing={editing === clip.candidateId}
+                    disabled={busy !== null}
+                    onEdit={() => setEditing(clip.candidateId)}
+                    onDone={(value) => {
+                      setEditing(null);
+                      if (value === null) return;
+                      setConfirming(false);
+                      setTitles((current) => {
+                        const next = { ...current };
+                        if (value === clip.title) delete next[clip.candidateId];
+                        else next[clip.candidateId] = value;
+                        return next;
+                      });
+                    }}
+                  />
                   {clip.hookQuote ? <p className="text-xs text-[var(--muted-foreground)]">Opens on: “{clip.hookQuote}”</p> : null}
                   <div className="mt-auto flex gap-2 pt-1">
                     <Button variant={ticked ? "primary" : "secondary"} className="flex-1" onClick={() => toggle(clip.candidateId)} aria-pressed={ticked} disabled={busy !== null}>
@@ -289,6 +312,59 @@ export function ShortsReviewPage() {
         </Card>
       ) : null}
 
+    </div>
+  );
+}
+
+function TitleField({
+  title,
+  edited,
+  editing,
+  disabled,
+  onEdit,
+  onDone
+}: {
+  title: string;
+  edited: boolean;
+  editing: boolean;
+  disabled: boolean;
+  onEdit: () => void;
+  onDone: (value: string | null) => void;
+}) {
+  const hint = titleHint(title);
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        defaultValue={title}
+        maxLength={MAX_SHORT_TITLE}
+        aria-label="Title this Short is booked under"
+        className="w-full rounded-lg border border-[var(--border-strong)] bg-transparent px-2 py-1 text-sm font-semibold"
+        onKeyDown={(event) => {
+          if (event.key === "Enter") onDone(cleanTypedTitle(event.currentTarget.value));
+          if (event.key === "Escape") onDone(null);
+        }}
+        onBlur={(event) => onDone(cleanTypedTitle(event.currentTarget.value))}
+      />
+    );
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-semibold leading-snug">{title}</p>
+        <button
+          type="button"
+          onClick={onEdit}
+          disabled={disabled}
+          className="shrink-0 rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--accent)] disabled:opacity-40"
+          aria-label="Edit title"
+          title="Edit the title it is booked under"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {edited ? <span className="text-xs text-[var(--accent)]">Your title. It is booked under this.</span> : null}
+      {hint ? <span className="text-xs tone-warning tone-text">{hint}</span> : null}
     </div>
   );
 }

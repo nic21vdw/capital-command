@@ -515,7 +515,7 @@ function sendWhatCanGoUpNow(): void {
 export async function queueRunOutputs(
   runId: string,
   ids?: string[],
-  options: { standing?: boolean; seen?: string[] } = {}
+  options: { standing?: boolean; seen?: string[]; titles?: Record<string, string> } = {}
 ): Promise<QueueResult> {
   const run = await getRun(runId);
   if (!run) throw new Error(`No pipeline run called ${runId}.`);
@@ -569,7 +569,9 @@ export async function queueRunOutputs(
   // whatever random order the slots were dealt in.
   const problems = new Map<string, QueueResult["failed"][number]>();
   const bookedIds: string[] = [];
-  for (const { candidate, publishAt } of assignSlots(chosen, slots, Date.now(), cap)) {
+  // A title he retyped at the weekly review is the one the post goes out under.
+  const titled = options.titles ? chosen.map((item) => ({ ...item, title: options.titles?.[item.id] ?? item.title })) : chosen;
+  for (const { candidate, publishAt } of assignSlots(titled, slots, Date.now(), cap)) {
     if (!publishAt) {
       // Naming the way out matters: the grid is his own configuration, not a
       // limit the platforms impose, and "the calendar is full" reads like the

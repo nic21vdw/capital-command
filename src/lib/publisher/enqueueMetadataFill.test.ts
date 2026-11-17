@@ -82,4 +82,15 @@ describe("enqueue with a blank caption", () => {
     expect(item.caption).toBe("My words");
     expect(item.hashtags).toEqual(["#mine"]);
   });
+
+  it("opens a generated caption on the post's own title, then the standing description", async () => {
+    vi.resetModules();
+    const { setClipDescription } = await import("@/lib/clipping/editor");
+    setClipDescription("I'm building CoLateral in public.");
+    const item = await book({ title: "Claude rebuilt my map in 4 minutes #AI", caption: "" });
+    expect(item.caption).toBe("Claude rebuilt my map in 4 minutes\n\nI'm building CoLateral in public.");
+    const second = await book({ title: "Fable fixed the build", caption: " " });
+    expect(second.caption.split("\n\n")[0]).toBe("Fable fixed the build");
+    setClipDescription("");
+  });
 });

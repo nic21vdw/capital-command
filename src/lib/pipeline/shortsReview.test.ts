@@ -81,6 +81,21 @@ describe("bookShortsPicks", () => {
   });
 });
 
+describe("retyped titles", () => {
+  it("books a clip under the title he typed, and only for the clips he retitled", async () => {
+    const calls: unknown[][] = [];
+    const d = deps([backlog("97", ["a", "b"]), backlog("98", ["x"])], async (runId, ids, titles) => {
+      calls.push([runId, ids, titles]);
+      return { queued: [], failed: [] };
+    });
+    await bookShortsPicks(["clip:j97:a", "clip:j97:b", "clip:j98:x"], d, { "clip:j97:b": "Claude rebuilt my map in 4 minutes", "clip:j99:z": "stale" });
+    expect(calls).toEqual([
+      ["97", ["clip:j97:a", "clip:j97:b"], { "clip:j97:b": "Claude rebuilt my map in 4 minutes" }],
+      ["98", ["clip:j98:x"], undefined]
+    ]);
+  });
+});
+
 describe("skipShorts", () => {
   it("holds back only clips that are still waiting", async () => {
     const d = deps([backlog("97", ["a", "b"])]);
