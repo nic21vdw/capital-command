@@ -30,14 +30,19 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 // youtube.upload can create a video but cannot modify one afterwards, so a
 // token without force-ssl uploads fine and then fails the privacy update with
 // a 403 ACCESS_TOKEN_SCOPE_INSUFFICIENT, stranding the video as private.
+// yt-analytics.readonly is read-only and lets the analytics sync read watch
+// time and average view duration; without it those fall back to Data API
+// counts (analytics/youtube.ts).
 // Tokens minted before a scope was added keep working for everything they
 // already covered and fail only the newer call — the UI surfaces that as a
 // "reconnect" prompt.
-const SCOPE = [
+export const YOUTUBE_SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
   "https://www.googleapis.com/auth/youtube.readonly",
-  "https://www.googleapis.com/auth/youtube.force-ssl"
-].join(" ");
+  "https://www.googleapis.com/auth/youtube.force-ssl",
+  "https://www.googleapis.com/auth/yt-analytics.readonly"
+] as const;
+const SCOPE = YOUTUBE_SCOPES.join(" ");
 const CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true";
 
 /** Stable, user-safe reason recorded when Google revokes an OAuth grant. */

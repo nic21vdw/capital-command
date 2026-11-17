@@ -50,7 +50,7 @@ type Sources = { backlog: RunBacklog[]; queue: QueueItem[] };
 
 export type ReviewDeps = {
   load: () => Promise<Sources>;
-  book: (runId: string, ids: string[]) => Promise<QueueResult>;
+  book: (runId: string, ids: string[], titles?: Record<string, string>) => Promise<QueueResult>;
   holdBack: (runId: string, ids: string[]) => Promise<void>;
 };
 
@@ -64,7 +64,7 @@ async function loadSources(now = new Date()): Promise<Sources> {
 
 export const defaultDeps: ReviewDeps = {
   load: () => loadSources(),
-  book: (runId, ids) => queueRunOutputs(runId, ids, { seen: [] }),
+  book: (runId, ids, titles) => queueRunOutputs(runId, ids, { seen: [], titles }),
   holdBack: async (runId, ids) => {
     const run = await getRun(runId);
     if (!run) return;
@@ -106,14 +106,15 @@ async function exclusive<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
-export async function bookShortsPicks(picks: string[], deps: ReviewDeps = defaultDeps): Promise<BookOutcome> {
+export async function bookShortsPicks(picks: string[], deps: ReviewDeps = defaultDeps, titles: Record<string, string> = {}): Promise<BookOutcome> {
   return exclusive(async () => {
     const { backlog } = await deps.load();
     const { byRun, stale } = groupPicks(picks, waitingClips(backlog));
     const outcome: BookOutcome = { booked: [], failed: [], stale };
     for (const [runId, ids] of byRun) {
       try {
-        const result = await deps.book(runId, ids);
+        const retitled = Object.fromEntries(ids.flatMap((id) => (titles[id] ? [[id, titles[id]]] : [])));
+        const result = Object.keys(retitled).length ? await deps.book(runId, ids, retitled) : await deps.book(runId, ids);
         outcome.booked.push(...result.queued.map((entry) => ({ runId, ...entry })));
         outcome.failed.push(...result.failed.map((entry) => ({ runId, ...entry })));
       } catch (error) {
