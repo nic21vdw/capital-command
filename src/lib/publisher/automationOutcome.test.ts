@@ -42,3 +42,17 @@ describe("publisher worker evidence", () => {
     expect(await readAutomationOutcome("publisher")).toMatchObject({ status: "completed", detail: expect.stringContaining("0 failures") });
   });
 });
+
+describe("deferrals in the publisher outcome", () => {
+  it("names each deferral and counts a full TikTok inbox as needing a person", async () => {
+    const { describeDeferrals } = await import("@/lib/publisher/runner");
+    const deferred = (platform: "tiktok" | "youtube", deferral: string) => ({ itemId: "i", clip: "c.mp4", platform, outcome: "deferred" as const, detail: "", deferral });
+    const summary = describeDeferrals([deferred("tiktok", "inbox full"), deferred("tiktok", "inbox full"), deferred("youtube", "daily cap"), { itemId: "p", clip: "p.mp4", platform: "youtube", outcome: "published", detail: "" }]);
+    expect(summary).toEqual({ total: 3, needsPerson: 2, text: " 3 deferred (2 tiktok inbox full, 1 youtube daily cap)." });
+  });
+
+  it("adds nothing when nothing was deferred", async () => {
+    const { describeDeferrals } = await import("@/lib/publisher/runner");
+    expect(describeDeferrals([])).toEqual({ total: 0, needsPerson: 0, text: "" });
+  });
+});

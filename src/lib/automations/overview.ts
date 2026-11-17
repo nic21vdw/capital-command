@@ -5,6 +5,8 @@ import { activeIngestJob } from "@/lib/ingest/service";
 import type { IngestLedger } from "@/lib/ingest/types";
 import { bufferConfigured, hostingConfigured, publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { publishQueue } from "@/lib/publisher/queue";
+import { runwayIssues } from "@/lib/publisher/runway";
+import { tiktokRelayOn } from "@/lib/publisher/tiktokInbox";
 import type { BufferState, QueueItem } from "@/lib/publisher/types";
 import { threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
 import { readQueue } from "@/lib/threads/queue";
@@ -55,6 +57,8 @@ export type AutomationInputs = {
   spotifyShowLinked: boolean;
   episodes: number;
   autoScheduleOvernight: boolean;
+  /** Whether TikTok posts go through its app inbox (no relay configured). Absent reads as true. */
+  tiktokViaInbox?: boolean;
   /** Delivery outcomes since local midnight; absent when history could not be read. */
   today?: { delivered: number; failed: number };
 };
@@ -153,6 +157,12 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
   const bufferPending = bufferStates.filter(({ state }) => ["pending", "scheduled"].includes(state.status));
   const publisherIssues = platformStates.filter(({ state }) => Boolean(state.error)).map(({ item, platform, state }) => issueLine(item.title || item.caption, state.error ?? "", platform)).slice(0, 5);
   publisherIssues.push(...bufferStates.filter(({ state }) => state.error || state.status === "manual").map(({ item, state }) => issueLine(item.title, state.error ?? state.note ?? "Manual posting is required.", "buffer")).slice(0, 5));
+  if (input.publisher.enabled) {
+    publisherIssues.unshift(...runwayIssues({
+      queue: input.queue, runs: input.runs, platforms: input.publisher.platforms, shortsPerDay: input.publisher.shortsPerDay,
+      timezone: input.publisher.timezone, tiktokInboxLimit: input.publisher.tiktok.inboxLimit, tiktokViaInbox: input.tiktokViaInbox ?? true
+    }, now));
+  }
   if (publisherTick?.status === "failed") publisherIssues.unshift(publisherTick.detail);
   if (publisherTick && now.getTime() - Date.parse(publisherTick.at) > 15 * 60_000) publisherIssues.unshift("The publisher has not run in over 15 minutes.");
   const publisher = card("publisher", {
@@ -230,6 +240,7 @@ export async function automationOverview(): Promise<AutomationOverview> {
     podcastBlockers: feedBlockers(state.show, state.episodes, { hosted: podcastConfigured(config), bucketConnected: hostingConfigured(config) }).filter((blocker) => blocker.code !== "episodes").map((blocker) => `${blocker.problem} ${blocker.fix}`),
     spotifyConnected: connected, spotifyShowLinked: Boolean(state.show.spotifyShowId), episodes: state.episodes.length,
     autoScheduleOvernight: data.settings.autoScheduleOvernight === true,
+    tiktokViaInbox: !tiktokRelayOn(),
     today: history?.today
   }, now);
 }

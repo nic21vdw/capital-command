@@ -238,4 +238,32 @@ describe("automation dashboard evidence", () => {
     input.queue = [];
     expect(buildAutomationOverview(input, now).cards.find((card) => card.id === "publisher")!.itemHref).toBeUndefined();
   });
+
+  it("puts the TikTok inbox wall and a dry Shorts schedule on the publisher card", () => {
+    const input = inputs();
+    input.publisher.tiktok.inboxLimit = 2;
+    input.tasks.publisher = { state: "ready", nextRunAt: "2026-10-01T15:05:00Z", lastRunAt: now.toISOString(), lastResult: 0, schedule: "PT5M" };
+    input.queue = [
+      testItem({ id: "d1", publishAt: "2026-09-01T15:00:00Z", platforms: { tiktok: { status: "scheduled", attempts: 0 } } }),
+      testItem({ id: "d2", publishAt: "2026-09-02T15:00:00Z", platforms: { tiktok: { status: "scheduled", attempts: 0 } } }),
+      testItem({ id: "p1", publishAt: "2026-08-22T21:30:00Z", platforms: { tiktok: { status: "pending", attempts: 0 } } })
+    ];
+    const card = buildAutomationOverview(input, now).cards.find((entry) => entry.id === "publisher")!;
+    expect(card.state).toBe("attention");
+    expect(card.issues[0]).toContain("TikTok is holding too many unfinished drafts (2 of 2)");
+    expect(card.issues[1]).toContain("Shorts booked for the next 7 days: YouTube 0 of");
+    expect(card.issues[1]).not.toContain("TikTok");
+  });
+
+  it("leaves the TikTok inbox alone when TikTok posts through a relay", () => {
+    const input = inputs();
+    input.publisher.tiktok.inboxLimit = 1;
+    input.tiktokViaInbox = false;
+    input.queue = [
+      testItem({ id: "d1", publishAt: "2026-09-01T15:00:00Z", platforms: { tiktok: { status: "scheduled", attempts: 0 } } }),
+      testItem({ id: "p1", publishAt: "2026-08-22T21:30:00Z", platforms: { tiktok: { status: "pending", attempts: 0 } } })
+    ];
+    const card = buildAutomationOverview(input, now).cards.find((entry) => entry.id === "publisher")!;
+    expect(card.issues.join(" ")).not.toContain("unfinished drafts");
+  });
 });

@@ -127,10 +127,20 @@ export async function generateClipMetadata(source: {
   }
 }
 
-type CaptionItem = Pick<QueueItem, "caption" | "hashtags"> & { id?: string };
+type CaptionItem = Pick<QueueItem, "caption" | "hashtags"> & Partial<Pick<QueueItem, "format">> & { id?: string };
+
+/**
+ * `#shorts` is a YouTube Shorts tag. On a Reel, a TikTok or a Facebook post it
+ * is noise, and on a long-form upload it is wrong (the queue's only long-form
+ * item carried it to Instagram and Facebook). No platform means YouTube.
+ */
+function tagsFor(item: Pick<CaptionItem, "hashtags" | "format">, platform: AttributionPlatform | undefined): string[] {
+  const youtubeShort = (platform === undefined || platform === "youtube") && item.format !== "long";
+  return normalizeHashtags(item.hashtags).filter((tag) => youtubeShort || tag.toLowerCase() !== "#shorts");
+}
 
 function captionWith(item: CaptionItem, platform: AttributionPlatform | undefined, code: string | undefined): string {
-  const tags = normalizeHashtags(item.hashtags).join(" ");
+  const tags = tagsFor(item, platform).join(" ");
   const caption = platform ? attributeLinks(item.caption, platform, code).trim() : item.caption.trim();
   return tags ? `${caption}\n\n${tags}` : caption;
 }
@@ -150,6 +160,6 @@ export function composeDescription(item: CaptionItem, limit?: number): string {
 }
 
 /** Bare tag words (no #) for YouTube's snippet.tags. */
-export function bareTags(item: Pick<QueueItem, "hashtags">): string[] {
-  return normalizeHashtags(item.hashtags).map((tag) => tag.slice(1));
+export function bareTags(item: Pick<QueueItem, "hashtags"> & Partial<Pick<QueueItem, "format">>): string[] {
+  return tagsFor(item, "youtube").map((tag) => tag.slice(1));
 }

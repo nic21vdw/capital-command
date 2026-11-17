@@ -1,0 +1,23 @@
+{
+  "syntheticOnly": true,
+  "boundary": "Public HTTP handlers installed through synthetic installMarketingRuntime; middleware/network/hosted ingress unrun",
+  "requestId": "bfc0b10f-1acd-4a9d-ac33-72a81d151a38",
+  "receiptState": "pending_dispatch",
+  "snapshotState": "prepared",
+  "prepareCalls": 1,
+  "sha256": "95bdedc51ee321460a477b270af19b5511c3979e14970e8d0497876315f0aa1c",
+  "byteLength": 34017,
+  "videoCodec": "h264",
+  "width": 160,
+  "height": 160,
+  "decodeExitCode": 0,
+  "getStatus": 200,
+  "headStatus": 200,
+  "headLength": 34017,
+  "headEmptyBody": true,
+  "rangeStatus": 206,
+  "range": "bytes 5-36/34017",
+  "rangeMatchesBytes": true,
+  "cacheControl": "private, no-store",
+  "noAttachmentEnqueueProviderOrQueueChange": true
+}

@@ -14,6 +14,10 @@ already shipped.
 
 ## Unreleased
 
+- **The publisher card now says when your Shorts are running out, and why.** Automations > Video and image publisher lists how many Shorts are booked for the next 7 days on each platform against your daily cadence, names the recent streams whose clips are made but not booked, and says plainly when TikTok has stopped taking uploads because its inbox holds too many unfinished drafts. A full TikTok inbox now counts as needing attention instead of reading as a clean run, and the run summary lists what was deferred and why.
+
+- **#shorts only goes on YouTube Shorts.** Instagram, Facebook, TikTok and LinkedIn captions no longer carry the YouTube-only #shorts tag, and long-form uploads never do.
+
 ## 2026-11-16
 
 - **Keep a video look for your next edit.** Save named caption styles and editing notes in your brand kit from Clip Editor > Style, compare them with another edit, and apply one without changing its words, cuts, framing or audio. Copy the editing brief into ChatGPT when you want help shaping the story. Existing projects change only when you apply a look.
