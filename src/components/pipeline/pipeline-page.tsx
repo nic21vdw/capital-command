@@ -1029,6 +1029,14 @@ export function PipelinePage() {
           <div className="mt-4">
             <OutputQualityPicker value={outputQuality} onChange={setOutputQuality} disabled={busy} />
           </div>
+          <div className="mt-4 text-center">
+            <Link
+              href="/clips?mode=draft"
+              className="inline-flex min-h-10 items-center rounded-lg border border-[var(--border)] px-3 text-sm text-white hover:border-[var(--border-strong)] hover:bg-white/10"
+            >
+              Draft one Short
+            </Link>
+          </div>
           <div className="mt-8">
             <PipelineBoard stages={null} onPickFile={() => uploadInputRef.current?.click()} />
           </div>

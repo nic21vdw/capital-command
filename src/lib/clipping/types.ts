@@ -121,6 +121,8 @@ export type ClipJob = {
    * upload time (defaults to TARGET_CLIP_COUNT) and drives every selection pass.
    */
   clipCount?: number;
+  /** Keeps this job's exports off the automatic schedule. */
+  reviewOnly?: true;
   /**
    * Whether the ready-to-post renders are framed on the speaker. On unless the
    * creator turned it off, in which case every clip is composed the neutral

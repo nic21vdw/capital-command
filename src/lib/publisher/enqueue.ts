@@ -517,8 +517,8 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
 
 /**
  * Opt-in hook called by the clip export pipeline when an export finishes.
- * Does nothing unless PUBLISH_ENABLED and PUBLISH_AUTO_ENQUEUE are both true,
- * and never throws (a publishing hiccup must not fail the export).
+ * Requires both publishing flags and a known job eligible for automatic booking.
+ * A publishing hiccup must never fail the export.
  *
  * It used to schedule the post PUBLISH_AUTO_ENQUEUE_DELAY_MINUTES from now,
  * which is the same day — so every export of a batch queued itself for this
@@ -536,6 +536,7 @@ export async function maybeAutoEnqueueExport(input: {
   if (!config.enabled || !config.autoEnqueue) return null;
   try {
     const job = await getJob(input.jobId);
+    if (!job || job.reviewOnly) return null;
     const slots = generateSlots({ timeZone: config.timezone, days: config.bookingHorizonDays })
       .filter((slot) => slot.bookable)
       .map((slot) => slot.utc);
@@ -554,8 +555,8 @@ export async function maybeAutoEnqueueExport(input: {
       jobId: input.jobId,
       platforms: configuredPlatforms(config),
       metadataSource: {
-        streamTitle: job?.fileName,
-        topic: job?.topic,
+        streamTitle: job.fileName,
+        topic: job.topic,
         spokenText: input.spokenText
       }
     });

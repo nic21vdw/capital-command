@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
     autoFrame?: unknown;
     captionPreset?: unknown;
     clipLength?: unknown;
+    reviewOnly?: unknown;
   };
   try {
     body = (await request.json()) as typeof body;
@@ -59,13 +60,15 @@ export async function POST(request: NextRequest) {
   const sourceId = typeof body.sourceId === "string" ? body.sourceId.trim() : "";
   // The creator-chosen number of clips; clamped into the supported range by the
   // job layer, so out-of-range or missing values fall back to the default.
-  const clipCount = typeof body.clipCount === "number" ? body.clipCount : undefined;
+  const reviewOnly = body.reviewOnly === true;
+  const clipCount = reviewOnly ? 1 : typeof body.clipCount === "number" ? body.clipCount : undefined;
   // Framing the clip on the speaker is the default; only an explicit false
   // asks for the old centered-over-blur composition.
   const autoFrame = body.autoFrame !== false;
   const options: ClipJobOptions = {
     captionPreset: isCaptionPresetId(body.captionPreset) ? body.captionPreset : undefined,
-    clipLength: isClipLengthId(body.clipLength) ? body.clipLength : undefined
+    clipLength: isClipLengthId(body.clipLength) ? body.clipLength : undefined,
+    ...(reviewOnly ? { reviewOnly } : {})
   };
 
   if (sourceId) {
