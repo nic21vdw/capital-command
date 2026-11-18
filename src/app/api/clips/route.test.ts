@@ -25,4 +25,19 @@ describe("clip job request validation", () => {
     expect(response.status).toBe(201);
     expect(mocks.createJobFromUpload).toHaveBeenCalledWith("source", "topic", 4, false, { captionPreset: undefined, clipLength: undefined });
   });
+
+  it.each([
+    { input: { sourceId: "source" }, create: mocks.createJobFromUpload, source: "source" },
+    { input: { url: "https://example.com/video" }, create: mocks.createJobFromUrl, source: "https://example.com/video" }
+  ])("starts just one review-only clip for $source even if a batch was requested", async ({ input, create, source }) => {
+    create.mockResolvedValue({ id: "draft", reviewOnly: true });
+    const response = await POST(new NextRequest("http://localhost:3100/api/clips", {
+      method: "POST", body: JSON.stringify({ ...input, topic: "viewer retest", clipCount: 12, reviewOnly: true }),
+    }));
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ job: { id: "draft", reviewOnly: true } });
+    expect(create).toHaveBeenCalledExactlyOnceWith(source, "viewer retest", 1, true, {
+      captionPreset: undefined, clipLength: undefined, reviewOnly: true
+    });
+  });
 });

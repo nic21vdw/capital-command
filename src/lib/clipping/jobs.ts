@@ -36,12 +36,18 @@ import { transcribeSource } from "@/lib/clipping/source-transcript";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { CaptionPresetId } from "@/types/domain";
 
-export type ClipJobOptions = { captionPreset?: CaptionPresetId; clipLength?: ClipLengthId; output?: OutputQuality };
+export type ClipJobOptions = {
+  captionPreset?: CaptionPresetId;
+  clipLength?: ClipLengthId;
+  output?: OutputQuality;
+  reviewOnly?: true;
+};
 
-function jobOptions(options: ClipJobOptions): Pick<ClipJob, "captionPreset" | "clipLength"> {
+function jobOptions(options: ClipJobOptions): Pick<ClipJob, "captionPreset" | "clipLength" | "reviewOnly"> {
   return {
     captionPreset: isCaptionPresetId(options.captionPreset) ? options.captionPreset : undefined,
-    clipLength: isClipLengthId(options.clipLength) ? options.clipLength : undefined
+    clipLength: isClipLengthId(options.clipLength) ? options.clipLength : undefined,
+    ...(options.reviewOnly ? { reviewOnly: options.reviewOnly } : {})
   };
 }
 
@@ -652,7 +658,7 @@ async function runPipeline(job: ClipJob, url: string) {
   // Optionally mirror the finished clips into a Google Drive-synced folder.
   // No API or sign-in: this just copies files into a local folder that Google
   // Drive for Desktop syncs (see CLIPS_DRIVE_DIR in .env). Off unless set.
-  if (driveDir()) {
+  if (!job.reviewOnly && driveDir()) {
     const rendered = job.clips
       .filter((clip) => clip.downloadFile || clip.file)
       .map((clip) => {
@@ -931,7 +937,9 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
       } catch {
         // Even the plain vertical render failed (ffmpeg trouble); the UI
         // falls back to the master and publishing re-renders on demand.
-        job.notices.push(`Clip ${i + 1}: the 9:16 vertical render failed — it will be re-rendered when scheduled.`);
+        job.notices.push(job.reviewOnly
+          ? "The vertical render failed. Open the clip to review the cut and export it again."
+          : `Clip ${i + 1}: the 9:16 vertical render failed — it will be re-rendered when scheduled.`);
       }
     } catch (error) {
       job.notices.push(

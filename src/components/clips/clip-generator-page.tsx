@@ -153,9 +153,13 @@ export function ClipGeneratorPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const refreshInFlight = useRef(false);
+  const jobsGeneration = useRef(0);
   // `?job=` is how the sidebar and the Stream Pipeline hand this page the
   // stream you are working on, instead of opening on whatever ran last.
-  const requestedJobId = useSearchParams().get("job");
+  const params = useSearchParams();
+  const requestedJobId = params.get("job");
+  const reviewOnly = params.get("mode") === "draft";
+  const submitLabel = reviewOnly ? "Draft one Short" : "Find clips";
   const [pickedJobId, setActiveJobId] = useState<string | null>(null);
   const [lastRequested, setLastRequested] = useState<string | null>(requestedJobId);
   // Switching streams in the sidebar navigates the page you are already on, so
@@ -167,7 +171,8 @@ export function ClipGeneratorPage() {
   const activeJobId = pickedJobId ?? requestedJobId;
   const [url, setUrl] = useState("");
   const [brief, setBrief] = useState("");
-  const [clipCount, setClipCount] = useState(TARGET_CLIP_COUNT);
+  const [batchClipCount, setClipCount] = useState(TARGET_CLIP_COUNT);
+  const clipCount = reviewOnly ? 1 : batchClipCount;
   const [autoFrame, setAutoFrame] = useState(true);
   const [captionPreset, setCaptionPresetState] = useState<CaptionPresetId>(() =>
     readStored(PRESET_STORAGE_KEY, isCaptionPresetId, DEFAULT_GENERATOR_CAPTION_PRESET)
@@ -192,10 +197,8 @@ export function ClipGeneratorPage() {
   const dragDepth = useRef(0);
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
-  const activeJob = useMemo(
-    () => jobs.find((job) => job.id === activeJobId) ?? jobs[0] ?? null,
-    [activeJobId, jobs]
-  );
+  const listedJobs = useMemo(() => reviewOnly ? jobs.filter((job) => job.reviewOnly) : jobs, [jobs, reviewOnly]);
+  const activeJob = listedJobs.find((job) => job.id === activeJobId) ?? listedJobs[0] ?? null;
   const processing = activeJob?.status === "processing" || activeJob?.status === "queued";
   // A clip is viewable as soon as it has an instant preview OR its final HD
   // render — clips stream into the workspace while the job is still running.
@@ -210,13 +213,15 @@ export function ClipGeneratorPage() {
     if (refreshInFlight.current) return;
     refreshInFlight.current = true;
     setRefreshing(true);
+    const generation = jobsGeneration.current;
     try {
       const { jobs: list } = await loadWorkflowJson<{ jobs: ClipJob[] }>("/api/clips", "jobs");
+      if (generation !== jobsGeneration.current) return;
       setJobs(list);
       setLoaded(true);
       setLoadError(null);
     } catch (error) {
-      setLoadError(workflowLoadMessage(error));
+      if (generation === jobsGeneration.current) setLoadError(workflowLoadMessage(error));
     } finally {
       refreshInFlight.current = false;
       setRefreshing(false);
@@ -241,20 +246,25 @@ export function ClipGeneratorPage() {
       const response = await fetch("/api/clips", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...body, captionPreset, clipLength })
+        body: JSON.stringify({ ...body, captionPreset, clipLength, ...(reviewOnly ? { reviewOnly } : {}) })
       });
       const data = (await response.json()) as { job?: ClipJob; error?: string };
       if (response.ok && data.job) {
-        setActiveJobId(data.job.id);
+        const job = data.job;
+        // An older list response can otherwise erase this job and stop polling.
+        jobsGeneration.current += 1;
+        setJobs((current) => [job, ...current.filter((entry) => entry.id !== job.id)]);
+        setActiveJobId(job.id);
         setUrl("");
         setBrief("");
-        toast.success("Stream added. Finding the best moments now.");
+        setMinScore(0);
+        toast.success(reviewOnly ? "Recording added. Looking for one Short." : "Stream added. Finding the best moments now.");
         void refresh();
       } else {
         toast.error(data.error ?? "Could not start clipping that source.");
       }
     },
-    [captionPreset, clipLength, refresh]
+    [captionPreset, clipLength, refresh, reviewOnly]
   );
 
   const submitUrl = useCallback(async () => {
@@ -470,13 +480,13 @@ export function ClipGeneratorPage() {
     title: "Short Clips",
     summary: "Turn a stream into short, captioned clips ready for Shorts and Reels.",
     fields: [
-      { id: "url", label: "Stream URL", value: url, kind: "text", hint: "Paste a VOD link, then run Find clips." },
+      { id: "url", label: "Stream URL", value: url, kind: "text", hint: `Paste a VOD link, then select ${submitLabel}.` },
       { id: "focus", label: "Focus", value: brief, kind: "longtext", hint: "Leave blank to pick moments from the whole stream." },
-      { id: "clipCount", label: "Clips to generate", value: clipCount, kind: "number" },
+      ...(reviewOnly ? [] : [{ id: "clipCount", label: "Clips to generate", value: clipCount, kind: "number" as const }]),
       { id: "autoFrame", label: "Frame on the speaker", value: autoFrame, kind: "boolean" }
     ],
     controls: [
-      { id: "submitUrl", label: "Find clips", group: "Add a stream", disabled: submitting || uploading || !url.trim() },
+      { id: "submitUrl", label: submitLabel, group: "Add a stream", disabled: submitting || uploading || !url.trim() },
       { id: "refresh", label: loadError ? "Retry loading streams" : "Refresh streams", group: "Streams", disabled: refreshing },
       {
         id: "retryFailed",
@@ -494,7 +504,7 @@ export function ClipGeneratorPage() {
     ],
     readings: [
       { label: "Stream data", value: loadError ? `Needs retry: ${loadError}` : loaded ? "Loaded" : "Loading…" },
-      { label: "Streams", value: String(jobs.length) },
+      { label: "Streams", value: String(listedJobs.length) },
       { label: "Active stream", value: activeJob?.fileName ?? "None" },
       { label: "Status", value: activeJob ? statusLabel(activeJob) : "—" },
       { label: "Clips ready", value: String(previewableClips.length) },
@@ -511,7 +521,7 @@ export function ClipGeneratorPage() {
         setBrief(value);
         return true;
       }
-      if (id === "clipCount") {
+      if (id === "clipCount" && !reviewOnly) {
         const n = Number(value);
         if (!Number.isFinite(n) || n < 1 || n > MAX_CLIP_COUNT) return false;
         setClipCount(Math.round(n));
@@ -585,11 +595,27 @@ export function ClipGeneratorPage() {
                 <Scissors className="h-4 w-4" />
               </span>
               <div>
-                <h2 className="text-base font-semibold text-white">Add a stream</h2>
-                <p className="text-xs text-[var(--muted-foreground)]">Paste a VOD link or upload a recording</p>
+                <h2 className="text-base font-semibold text-white">{reviewOnly ? "Draft one Short" : "Add a stream"}</h2>
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  {reviewOnly ? "Make one vertical clip for review. Scheduling is a separate step." : "Paste a VOD link or upload a recording"}
+                </p>
               </div>
             </div>
             <div className="mt-4 space-y-3">
+              {reviewOnly && (
+                <div className="space-y-1">
+                  <label htmlFor="short-draft-focus" className="block text-xs font-medium text-[var(--muted-foreground)]">
+                    Moment to look for (optional)
+                  </label>
+                  <Input
+                    id="short-draft-focus"
+                    value={brief}
+                    onChange={(event) => setBrief(event.target.value)}
+                    placeholder="The viewer retests the fix"
+                    disabled={busy}
+                  />
+                </div>
+              )}
               <Input
                 aria-label="Video link to import"
                 placeholder="https://youtube.com/watch?v=..."
@@ -603,7 +629,7 @@ export function ClipGeneratorPage() {
               />
               <Button onClick={() => void submitUrl()} disabled={busy || !url.trim()} className="w-full">
                 {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LinkIcon className="mr-2 h-4 w-4" />}
-                Find clips
+                {submitLabel}
               </Button>
               <div className="flex items-center gap-3 text-[11px] uppercase tracking-wider text-[var(--muted-foreground)]">
                 <span className="h-px flex-1 bg-[var(--border)]" />
@@ -651,118 +677,126 @@ export function ClipGeneratorPage() {
                   {dragActive ? "Drop to upload" : uploading ? "Uploading..." : "Upload a video file"}
                 </Button>
               </div>
-              <div className="space-y-1.5 pt-1">
-                <p className="text-xs font-medium text-[var(--muted-foreground)]">Clip length</p>
-                <div role="radiogroup" aria-label="Clip length" className="grid grid-cols-4 gap-1 rounded-full border border-white/10 bg-[var(--well)] p-1">
-                  {CLIP_LENGTH_IDS.map((id) => {
-                    const selected = id === clipLength;
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        role="radio"
-                        aria-checked={selected}
+              {reviewOnly ? (
+                <Link href="/clips" className="block text-xs text-[var(--accent)] hover:underline">
+                  Make a batch of clips
+                </Link>
+              ) : (
+                <>
+                  <div className="space-y-1.5 pt-1">
+                    <p className="text-xs font-medium text-[var(--muted-foreground)]">Clip length</p>
+                    <div role="radiogroup" aria-label="Clip length" className="grid grid-cols-4 gap-1 rounded-full border border-white/10 bg-[var(--well)] p-1">
+                      {CLIP_LENGTH_IDS.map((id) => {
+                        const selected = id === clipLength;
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            role="radio"
+                            aria-checked={selected}
+                            disabled={busy}
+                            onClick={() => setClipLength(id)}
+                            className={cn(
+                              "flex flex-col items-center justify-center rounded-full px-1 py-1 leading-tight transition max-sm:min-h-10",
+                              selected
+                                ? "bg-[var(--accent)] text-[var(--accent-contrast)]"
+                                : "text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white"
+                            )}
+                          >
+                            <span className="text-[11px] font-semibold">{CLIP_LENGTHS[id].label}</span>
+                            <span className={cn("text-[10px] tabular-nums", selected ? "opacity-80" : "opacity-70")}>
+                              {CLIP_LENGTHS[id].hint}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="shrink-0 text-xs font-medium text-[var(--muted-foreground)]">Caption style</p>
+                      <p className="truncate text-[11px] text-[var(--muted-foreground)]">
+                        {CAPTION_PRESETS[captionPreset].description}
+                      </p>
+                    </div>
+                    <CaptionStylePicker
+                      value={captionPreset}
+                      options={GENERATOR_CAPTION_PRESETS}
+                      onChange={setCaptionPreset}
+                      disabled={busy}
+                    />
+                  </div>
+                  <p className="flex items-start gap-1.5 text-[11px] leading-4 text-[var(--muted-foreground)]">
+                    <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-300" />
+                    Transcribed on this PC and picked by free AI models, so a run normally costs nothing. Ctrl+Enter starts it.
+                  </p>
+                  <AdvancedOptions id="clips-generate" summary={settingsSummary}>
+                    <div className="space-y-1.5">
+                      <label htmlFor="clip-focus" className="block text-xs font-medium text-[var(--muted-foreground)]">
+                        Focus
+                      </label>
+                      <Textarea
+                        id="clip-focus"
+                        placeholder="Trading mistakes, best stories, spicy takes..."
+                        value={brief}
+                        onChange={(event) => setBrief(event.target.value)}
                         disabled={busy}
-                        onClick={() => setClipLength(id)}
-                        className={cn(
-                          "flex flex-col items-center justify-center rounded-full px-1 py-1 leading-tight transition max-sm:min-h-10",
-                          selected
-                            ? "bg-[var(--accent)] text-[var(--accent-contrast)]"
-                            : "text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white"
-                        )}
+                        className="min-h-20"
+                      />
+                      <p className="text-[11px] leading-4 text-[var(--muted-foreground)]">
+                        Leave blank and the best moments are picked from the whole stream.
+                      </p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label
+                        htmlFor="clip-count"
+                        className="block text-xs font-medium text-[var(--muted-foreground)]"
                       >
-                        <span className="text-[11px] font-semibold">{CLIP_LENGTHS[id].label}</span>
-                        <span className={cn("text-[10px] tabular-nums", selected ? "opacity-80" : "opacity-70")}>
-                          {CLIP_LENGTHS[id].hint}
+                        Clips to generate
+                      </label>
+                      <Select
+                        id="clip-count"
+                        value={clipCount}
+                        onChange={(event) => setClipCount(Number(event.target.value))}
+                        disabled={busy}
+                        aria-label="Number of clips to generate"
+                      >
+                        {CLIP_COUNT_OPTIONS.map((count) => (
+                          <option key={count} value={count}>
+                            {count} clip{count === 1 ? "" : "s"}
+                            {count === TARGET_CLIP_COUNT ? " (default)" : ""}
+                          </option>
+                        ))}
+                      </Select>
+                      <p className="text-[11px] leading-4 text-[var(--muted-foreground)]">
+                        Longer streams have more clippable moments — pick more for a multi-hour VOD (up to {MAX_CLIP_COUNT}).
+                      </p>
+                    </div>
+                    <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-[var(--border)] px-3 py-2.5">
+                      <input
+                        type="checkbox"
+                        checked={autoFrame}
+                        onChange={(event) => setAutoFrame(event.target.checked)}
+                        disabled={busy}
+                        className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-xs font-medium text-white">Frame on the speaker</span>
+                        <span className="mt-0.5 block text-[11px] leading-4 text-[var(--muted-foreground)]">
+                          Finds you in the shot and fills the whole vertical frame with you, tracking as you move.
+                          Off renders the old centered-over-blur crop.
                         </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex items-baseline justify-between gap-2">
-                  <p className="shrink-0 text-xs font-medium text-[var(--muted-foreground)]">Caption style</p>
-                  <p className="truncate text-[11px] text-[var(--muted-foreground)]">
-                    {CAPTION_PRESETS[captionPreset].description}
-                  </p>
-                </div>
-                <CaptionStylePicker
-                  value={captionPreset}
-                  options={GENERATOR_CAPTION_PRESETS}
-                  onChange={setCaptionPreset}
-                  disabled={busy}
-                />
-              </div>
-              <p className="flex items-start gap-1.5 text-[11px] leading-4 text-[var(--muted-foreground)]">
-                <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-300" />
-                Transcribed on this PC and picked by free AI models, so a run normally costs nothing. Ctrl+Enter starts it.
-              </p>
-              <AdvancedOptions id="clips-generate" summary={settingsSummary}>
-                <div className="space-y-1.5">
-                  <label htmlFor="clip-focus" className="block text-xs font-medium text-[var(--muted-foreground)]">
-                    Focus
-                  </label>
-                  <Textarea
-                    id="clip-focus"
-                    placeholder="Trading mistakes, best stories, spicy takes..."
-                    value={brief}
-                    onChange={(event) => setBrief(event.target.value)}
-                    disabled={busy}
-                    className="min-h-20"
-                  />
-                  <p className="text-[11px] leading-4 text-[var(--muted-foreground)]">
-                    Leave blank and the best moments are picked from the whole stream.
-                  </p>
-                </div>
-                <div className="space-y-1.5">
-                  <label
-                    htmlFor="clip-count"
-                    className="block text-xs font-medium text-[var(--muted-foreground)]"
-                  >
-                    Clips to generate
-                  </label>
-                  <Select
-                    id="clip-count"
-                    value={clipCount}
-                    onChange={(event) => setClipCount(Number(event.target.value))}
-                    disabled={busy}
-                    aria-label="Number of clips to generate"
-                  >
-                    {CLIP_COUNT_OPTIONS.map((count) => (
-                      <option key={count} value={count}>
-                        {count} clip{count === 1 ? "" : "s"}
-                        {count === TARGET_CLIP_COUNT ? " (default)" : ""}
-                      </option>
-                    ))}
-                  </Select>
-                  <p className="text-[11px] leading-4 text-[var(--muted-foreground)]">
-                    Longer streams have more clippable moments — pick more for a multi-hour VOD (up to {MAX_CLIP_COUNT}).
-                  </p>
-                </div>
-                <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-[var(--border)] px-3 py-2.5">
-                  <input
-                    type="checkbox"
-                    checked={autoFrame}
-                    onChange={(event) => setAutoFrame(event.target.checked)}
-                    disabled={busy}
-                    className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-xs font-medium text-white">Frame on the speaker</span>
-                    <span className="mt-0.5 block text-[11px] leading-4 text-[var(--muted-foreground)]">
-                      Finds you in the shot and fills the whole vertical frame with you, tracking as you move.
-                      Off renders the old centered-over-blur crop.
-                    </span>
-                  </span>
-                </label>
-              </AdvancedOptions>
+                      </span>
+                    </label>
+                  </AdvancedOptions>
+                </>
+              )}
             </div>
           </Card>
 
           <Card className="p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="text-base font-semibold text-white">Your streams</h2>
+              <h2 className="text-base font-semibold text-white">{reviewOnly ? "Your Short drafts" : "Your streams"}</h2>
               <Button variant="ghost" className="px-2 py-1 text-xs" disabled={refreshing} onClick={() => void refresh()}>
                 <RotateCw className={cn("mr-1 h-3.5 w-3.5", refreshing && "animate-spin")} />
                 {refreshing ? "Refreshing…" : "Refresh"}
@@ -770,13 +804,13 @@ export function ClipGeneratorPage() {
             </div>
             {!loaded && loadError ? null : !loaded ? (
               <LoadingState />
-            ) : jobs.length === 0 ? (
+            ) : listedJobs.length === 0 ? (
               <p className="text-sm text-[var(--muted-foreground)]">
-                No streams yet. Paste a link or upload a recording above.
+                {reviewOnly ? "No Short drafts yet." : "No streams yet. Paste a link or upload a recording above."}
               </p>
             ) : (
               <div className="space-y-2">
-                {jobs.map((job) => (
+                {listedJobs.map((job) => (
                   <div
                     key={job.id}
                     onClick={() => setActiveJobId(job.id)}
@@ -851,8 +885,10 @@ export function ClipGeneratorPage() {
             <EmptyState
               icon={Film}
               className="min-h-[420px] max-lg:min-h-0"
-              title="Ready for a stream"
-              description="Add a stream on the left and the best moments will show up here, ready to open in the editor."
+              title={reviewOnly ? "Your draft will appear here" : "Ready for a stream"}
+              description={reviewOnly
+                ? "Add a recording to preview and review one Short."
+                : "Add a stream on the left and the best moments will show up here, ready to open in the editor."}
             />
           ) : (
             <>
@@ -905,6 +941,12 @@ export function ClipGeneratorPage() {
                 {processing && <PipelineProgress job={activeJob} />}
 
                 {activeJob.status === "done" && <RunStats job={activeJob} />}
+
+                {activeJob.reviewOnly && !processing && activeJob.clips.some((clip) => clip.downloadFile || clip.editedFile) && (
+                  <p className="mt-3 text-sm text-[var(--muted-foreground)]">
+                    Watch it once on mute for framing and captions, then with sound for the opening and payoff.
+                  </p>
+                )}
 
                 {activeJob.status === "error" && (
                   <Notice tone="danger" text={activeJob.error ?? "This job could not finish."} />
@@ -976,6 +1018,7 @@ export function ClipGeneratorPage() {
                           clip={clip}
                           index={index}
                           jobId={activeJob.id}
+                          reviewOnly={activeJob.reviewOnly}
                           onEdit={() => void editClip(activeJob, clip, index)}
                           onRename={(title) => void renameClip(activeJob, clip, title)}
                         />
@@ -1105,12 +1148,14 @@ function ClipCard({
   clip,
   index,
   jobId,
+  reviewOnly,
   onEdit,
   onRename
 }: {
   clip: ClipCandidate;
   index: number;
   jobId: string;
+  reviewOnly?: true;
   onEdit: () => void;
   onRename: (title: string) => void;
 }) {
@@ -1189,10 +1234,10 @@ function ClipCard({
     <Card className="group animate-in flex flex-col overflow-hidden rounded-2xl p-1.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--border-strong)] hover:shadow-lg">
       <div
         className="relative overflow-hidden rounded-xl"
-        onPointerEnter={startPreview}
-        onPointerLeave={stopPreview}
-        onFocus={startPreview}
-        onBlur={stopPreview}
+        onPointerEnter={reviewOnly ? undefined : startPreview}
+        onPointerLeave={reviewOnly ? undefined : stopPreview}
+        onFocus={reviewOnly ? undefined : startPreview}
+        onBlur={reviewOnly ? undefined : stopPreview}
       >
         <ClipFrame
           ref={videoRef}
@@ -1205,7 +1250,9 @@ function ClipCard({
                 : undefined
           }
           preload="none"
-          loop
+          loop={!reviewOnly}
+          controls={reviewOnly}
+          aria-label={reviewOnly ? "Short draft preview" : undefined}
         />
         <div className="pointer-events-none absolute inset-x-2 top-2 flex items-start justify-between gap-2">
           {clip.score > 0 ? (
@@ -1225,15 +1272,19 @@ function ClipCard({
             {duration}s
           </span>
         </div>
-        <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white/80 backdrop-blur-md">
-          #{index + 1}
-        </span>
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white ring-1 ring-white/25 backdrop-blur-md">
-            <Play className="ml-0.5 h-5 w-5" fill="currentColor" />
-          </span>
-        </span>
-        {clip.file && (
+        {!reviewOnly && (
+          <>
+            <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white/80 backdrop-blur-md">
+              #{index + 1}
+            </span>
+            <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white ring-1 ring-white/25 backdrop-blur-md">
+                <Play className="ml-0.5 h-5 w-5" fill="currentColor" />
+              </span>
+            </span>
+          </>
+        )}
+        {!reviewOnly && clip.file && (
           <div className="absolute bottom-2 right-2 flex gap-1.5 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover:opacity-100">
             <button
               type="button"
