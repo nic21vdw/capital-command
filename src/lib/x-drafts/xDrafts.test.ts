@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { draftProblem, parseDrafts } from "@/lib/x-drafts/generator";
+import { freshFacts } from "@/lib/x-drafts/facts";
+import { draftProblem, draftsPrompt, mixFor, parseDrafts, POST_MIX } from "@/lib/x-drafts/generator";
 import { renderPhonePage } from "@/lib/x-drafts/phone";
 import { bookDraftsOnThreads, datesDue, nextUnwrittenDate, slotTimes, threadsInstant } from "@/lib/x-drafts/schedule";
 import { breaksPersona } from "@/lib/x-drafts/voice";
@@ -205,5 +206,47 @@ describe("the phone page", () => {
     expect(html).not.toContain("Dismissed draft text");
     expect(html).not.toContain("Old draft text");
     expect(html).toContain('name="robots" content="noindex, nofollow"');
+  });
+});
+
+describe("the facts list", () => {
+  it("keeps dated facts from the last 14 days, newest first", () => {
+    const facts = freshFacts({ facts: [
+      { date: "2026-11-01", text: "too old" },
+      { date: "2026-11-18", text: "Day 100 stream" },
+      { date: "2026-11-19", text: "Desktop 1.0.92  shipped" },
+      { date: "2026-11-25", text: "not yet" },
+      { date: "Nov 19", text: "undated" },
+      { date: "2026-11-19", text: "   " }
+    ] }, "2026-11-19");
+    expect(facts).toEqual([
+      { date: "2026-11-19", text: "Desktop 1.0.92 shipped" },
+      { date: "2026-11-18", text: "Day 100 stream" }
+    ]);
+  });
+
+  it("reads a bare array and ignores anything else", () => {
+    expect(freshFacts([{ date: "2026-11-19", text: "a" }], "2026-11-19")).toHaveLength(1);
+    expect(freshFacts("nope", "2026-11-19")).toEqual([]);
+    expect(freshFacts(null, "2026-11-19")).toEqual([]);
+  });
+});
+
+describe("the day's mix", () => {
+  it("orders the slots by post type and wraps past ten", () => {
+    expect(mixFor(4)).toEqual(POST_MIX.slice(0, 4));
+    expect(mixFor(12).at(10)).toBe(POST_MIX[0]);
+  });
+
+  it("puts the dated facts and the angle rule in the prompt", () => {
+    const { prompt } = draftsPrompt({ date: "2026-11-20", count: 10, recentOpenings: ["Grok Bot is done"], facts: [{ date: "2026-11-19", text: "Desktop 1.0.92 shipped on Windows, Linux and Mac" }] });
+    expect(prompt).toContain("- 2026-11-19: Desktop 1.0.92 shipped on Windows, Linux and Mac");
+    expect(prompt).toContain("10. an honest build log");
+    expect(prompt).toContain("may come back from a different angle");
+    expect(prompt).not.toContain("do not repeat these ideas");
+  });
+
+  it("leaves the facts block out when there are none", () => {
+    expect(draftsPrompt({ date: "2026-11-20", count: 4, recentOpenings: [] }).prompt).not.toContain("Dated facts");
   });
 });

@@ -2,6 +2,7 @@ import { runAi } from "@/lib/ai";
 import { brandPromptBlock, brandViolations } from "@/lib/brand/kit";
 import { humanize } from "@/lib/x-posts/voice";
 import { breaksPersona, namesAProduct, X_EXAMPLES, X_FACTS, X_VOICE_RULES } from "@/lib/x-drafts/voice";
+import type { DatedFact } from "@/lib/x-drafts/facts";
 import type { XDraft } from "@/lib/x-drafts/types";
 
 export const X_DRAFT_MIN = 90;
@@ -80,25 +81,54 @@ export function parseDrafts(input: {
   return { drafts, dropped };
 }
 
-export function draftsPrompt(input: { date: string; count: number; recentOpenings: string[] }): { system: string; prompt: string } {
+export const POST_MIX = [
+  "model take: a comparison or power ranking",
+  "last night's stream: what the agents built",
+  "model take: usage limits, resets or money",
+  "a tip: how he actually uses Claude Code or Codex",
+  "an A or B question to the audience",
+  "model take: a cancel or switch story",
+  "a CoLateral or Arcade release, only if a dated fact below gives one, else another model take",
+  "a stream milestone, only if a dated fact below gives one, else another model take",
+  "model take: a hot take while he is live",
+  "an honest build log: what broke tonight"
+];
+
+export const ANGLES = ["hot take", "head to head", "his own story", "a tip", "a prediction", "an A or B question", "a cancel or switch story"];
+
+export function mixFor(count: number): string[] {
+  return Array.from({ length: count }, (_, index) => POST_MIX[index % POST_MIX.length]);
+}
+
+export function draftsPrompt(input: { date: string; count: number; recentOpenings: string[]; facts?: DatedFact[] }): { system: string; prompt: string } {
   const system = `You ghostwrite X posts for Nic, a builder who livestreams AI agents building software. Each post also goes to his Threads.
 
 ${brandPromptBlock("x")}
 
 Output strict JSON only.`;
   const recent = input.recentOpenings.length ? input.recentOpenings.slice(0, 60).map((line) => `- ${line}`).join("\n") : "- (none yet)";
-  const prompt = `Write ${input.count + 3} new X posts for ${input.date}, in Nic's voice. Every post is a different idea.
+  const dated = (input.facts ?? []).map((fact) => `- ${fact.date}: ${fact.text}`).join("\n");
+  const mix = mixFor(input.count).map((kind, index) => `${index + 1}. ${kind}`).join("\n");
+  const prompt = `Write ${input.count + 3} new X posts for ${input.date}, in Nic's voice. Every post opens on its own hook.
+
+Put the first ${input.count} in this order, then 3 spares of any kind:
+${mix}
+
+The same idea may come back from a different angle (${ANGLES.join(", ")}). What may never repeat is a hook, and no two posts in the set may take the same angle on the same idea.
 
 How his posts work:
 ${X_VOICE_RULES.map((rule) => `- ${rule}`).join("\n")}
 
 Facts you may use (nothing else about his life or results):
-${X_FACTS.map((fact) => `- ${fact}`).join("\n")}
+${X_FACTS.map((fact) => `- ${fact}`).join("\n")}${dated ? `
+
+Dated facts from the last two weeks (use them as written, never stretch a number or a date):
+${dated}` : ""}
 
 Posts of his that did well, for voice only (never reuse their hooks):
 ${X_EXAMPLES.map((example) => `"""\n${example}\n"""`).join("\n")}
 
-Hooks he has already used recently (do not repeat these ideas):
+Hooks he has already used recently (never reuse one; an idea behind them may return only from a new angle):
 ${recent}
 
 Each post is ${X_DRAFT_MIN + 60}-${X_DRAFT_MAX - 30} characters. At most two posts in the set mention CoLateral, and only where it fits the idea. For those, "reply" is a one-line self-reply that points to CoLateral and ends with [link]. Every other post has no reply.
@@ -115,8 +145,9 @@ export async function writeDraftBatch(input: {
   times: string[];
   recentOpenings: string[];
   now: Date;
+  facts?: DatedFact[];
 }): Promise<{ drafts: XDraft[]; dropped: string[] }> {
-  const { system, prompt } = draftsPrompt({ date: input.date, count: input.times.length, recentOpenings: input.recentOpenings });
+  const { system, prompt } = draftsPrompt({ date: input.date, count: input.times.length, recentOpenings: input.recentOpenings, facts: input.facts });
   const result = await runAi({
     system,
     messages: [{ role: "user", content: prompt }],

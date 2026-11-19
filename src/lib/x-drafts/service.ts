@@ -3,6 +3,7 @@ import { threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
 import { mutateQueue } from "@/lib/threads/queue";
 import { hasStarted } from "@/lib/threads/rewrite";
 import { xDraftsConfig, type XDraftsConfig } from "@/lib/x-drafts/config";
+import { readFacts } from "@/lib/x-drafts/facts";
 import { writeDraftBatch } from "@/lib/x-drafts/generator";
 import { newPhoneKey, renderPhonePage, uploadPhonePage } from "@/lib/x-drafts/phone";
 import { addDays, bookDraftsOnThreads, datesDue, nextUnwrittenDate, slotTimes } from "@/lib/x-drafts/schedule";
@@ -41,7 +42,7 @@ async function runWrite(date: string, now: Date, threads: ThreadsConfig, config:
   let dropped: string[] = [];
   let error: string | undefined;
   try {
-    ({ drafts, dropped } = await writeDraftBatch({ date, times: slotTimes(config), recentOpenings: recentOpenings(state), now }));
+    ({ drafts, dropped } = await writeDraftBatch({ date, times: slotTimes(config), recentOpenings: recentOpenings(state), now, facts: await readFacts(date) }));
     if (drafts.length === 0) error = `No usable drafts came back${dropped.length ? ` (${dropped.slice(0, 3).join("; ")})` : ""}.`;
   } catch (cause) {
     error = cause instanceof Error ? cause.message : String(cause);

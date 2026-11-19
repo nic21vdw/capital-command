@@ -113,6 +113,7 @@ export function plugReplyFor(
 ): string | undefined {
   const parent = text.trim();
   if (!config.plugReplies || !parent) return undefined;
+  if (config.plugScope === "colateral" && !mentionsColateral(parent)) return undefined;
 
   const angle = CONTEXTS.find((context) => context.pattern.test(parent))?.angle ?? "general";
   const url = threadsReplyUrl(config.plugUrl, { angle, origin });

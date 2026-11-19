@@ -95,6 +95,16 @@ export type ThreadsConfig = {
   plugDelayMinutes: number;
   /** A link reply that still hasn't landed this long after its post is dropped. */
   plugWindowMinutes: number;
+  /**
+   * "colateral" keeps the link reply to posts that name CoLateral. A link under
+   * every post of a ten-a-day feed reads as spam; absent means every post.
+   */
+  plugScope?: "all" | "colateral";
+  /**
+   * The generic daily pack. Off when X Drafts is the feed's only writer, so the
+   * day carries one voice. Absent means on.
+   */
+  dailyPack?: boolean;
 };
 
 /** Threads rejects anything longer than this; posts are fitted to it. */
@@ -192,7 +202,9 @@ export function threadsConfig(): ThreadsConfig {
     plugReplies: flag("THREADS_PLUG_REPLY", true),
     plugUrl: str("THREADS_PLUG_URL") ?? brandKit().links.site,
     plugDelayMinutes: Math.max(0, num("THREADS_PLUG_DELAY_MINUTES", 2)),
-    plugWindowMinutes: Math.max(10, num("THREADS_PLUG_WINDOW_MINUTES", 360))
+    plugWindowMinutes: Math.max(10, num("THREADS_PLUG_WINDOW_MINUTES", 360)),
+    plugScope: str("THREADS_PLUG_SCOPE")?.toLowerCase() === "colateral" ? "colateral" : "all",
+    dailyPack: flag("THREADS_DAILY_PACK", true)
   };
 }
 
