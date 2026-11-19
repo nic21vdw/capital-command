@@ -50,7 +50,7 @@ import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
 import { TiktokConsent } from "@/components/uploading-center/tiktok-consent";
 import { useTiktokCreatorInfo } from "@/components/uploading-center/use-tiktok-creator-info";
-import { consentBlocker as tiktokConsentBlocker } from "@/lib/publisher/tiktokPost";
+import { consentBlocker as tiktokConsentBlocker } from "@/lib/publisher/tiktokConsent";
 
 export const CLIP_DRAG_TYPE = "application/x-capital-command-clip";
 

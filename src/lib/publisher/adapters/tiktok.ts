@@ -7,13 +7,8 @@ import { publisherConfig } from "@/lib/publisher/config";
 import { PermanentError, StillProcessingError, fetchJson, fetchRaw } from "@/lib/publisher/http";
 import { IMAGE_REFUSALS, isImagePost } from "@/lib/publisher/images";
 import { composeCaption } from "@/lib/publisher/metadata";
-import {
-  CreatorCannotPostError,
-  PROCESSING_NOTICE,
-  consentProblem,
-  fetchCreatorPostingInfo,
-  reconcileWithCreator
-} from "@/lib/publisher/tiktokPost";
+import { PROCESSING_NOTICE, consentProblem, reconcileWithCreator } from "@/lib/publisher/tiktokConsent";
+import { CreatorCannotPostError, fetchCreatorPostingInfo } from "@/lib/publisher/tiktokPost";
 import { BUFFER_GRAPHQL_URL, isBufferHandle, publishViaBuffer, validateBufferTiktok } from "@/lib/publisher/tiktokBuffer";
 import { isRelayHandle, publishViaRelay, relayPrivacy, RELAY_API_BASE, validateRelayAuth } from "@/lib/publisher/tiktokRelay";
 import { BANNED_CODE, throttleFor } from "@/lib/publisher/tiktokThrottle";

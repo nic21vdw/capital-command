@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
  * No runtime is installed by default. A trusted owner-process composition may
  * supply the authenticated adapter. Existing loopback middleware still applies.
  */
-export function POST(request?: Request) {
+export function POST(request: Request) {
   const runtime = marketingRuntime();
   if (runtime && request) return runtime.operations(request);
   return NextResponse.json({

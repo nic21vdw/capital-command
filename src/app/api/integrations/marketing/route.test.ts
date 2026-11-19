@@ -7,13 +7,13 @@ import { POST } from "./operations/route";
 
 describe("disabled marketing connection", () => {
   it("returns a no-store capability response without loading the live ledger", async () => {
-    const response = await GET();
+    const response = await GET(new Request("http://127.0.0.1/api/integrations/marketing/workspace"));
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.json()).toEqual(unavailableWorkspace());
   });
   it("refuses every operation without a dispatch or false execution claim", async () => {
-    const response = await POST();
+    const response = await POST(new Request("http://127.0.0.1/api/integrations/marketing/operations", { method: "POST" }));
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({ executed: false, error: { code: "connection_unavailable" } });
   });

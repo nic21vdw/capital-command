@@ -116,7 +116,7 @@ export type EnqueueOptions = {
   /** Extra context for metadata generation (stream title, topic, spoken text). */
   metadataSource?: { streamTitle?: string; topic?: string; spokenText?: string };
   /**
-   * The creator's TikTok consent for this post (tiktokPost.ts). Without it a
+   * The creator's TikTok consent for this post (tiktokConsent.ts). Without it a
    * TikTok post takes the inbox flow, where the creator answers the same
    * questions inside TikTok before it goes live.
    */
