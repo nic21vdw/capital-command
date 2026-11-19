@@ -11,12 +11,20 @@ import type { PlatformId } from "@/lib/publisher/types";
  * The one case that stays Instagram-only is a non-primary Instagram account:
  * an extra account can only take its own platform's posts (`accounts.ts`), and
  * there is no Facebook Page paired with it to post to.
+ *
+ * A person can also ask for Instagram alone (`pairFacebook: false` on the
+ * booking): the post is then Instagram's only, and the Page is left alone.
  */
 export function facebookRidesAlong(accountId?: string): boolean {
   return !accountId || isPrimaryAccountId(accountId);
 }
 
-export function withFacebookAlongsideInstagram(platforms: PlatformId[], accountId?: string): PlatformId[] {
+export function withFacebookAlongsideInstagram(
+  platforms: PlatformId[],
+  accountId?: string,
+  pairFacebook = true
+): PlatformId[] {
+  if (!pairFacebook) return platforms;
   if (!platforms.includes("instagram") || platforms.includes("facebook")) return platforms;
   if (!facebookRidesAlong(accountId)) return platforms;
   return [...platforms, "facebook"];
