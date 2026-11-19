@@ -5,7 +5,7 @@ import { ensureVerticalClipFile, outputDir } from "@/lib/clipping/jobs";
 import { publisherConfig } from "@/lib/publisher/config";
 import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabled";
 import { enqueue } from "@/lib/publisher/enqueue";
-import { consentProblem, parseConsent } from "@/lib/publisher/tiktokPost";
+import { consentProblem, parseConsent } from "@/lib/publisher/tiktokConsent";
 import { FAILED_RETENTION_DAYS, publishQueue } from "@/lib/publisher/queue";
 import { connectRearmScope, rearmItems } from "@/lib/publisher/rearm";
 import { runDue, type RunReport } from "@/lib/publisher/runner";
@@ -94,7 +94,7 @@ const enqueueSchema = z.object({
   /** false books Instagram alone, without the Facebook Page riding along. */
   pairFacebook: z.boolean().optional(),
   /**
-   * The creator's TikTok consent (tiktokPost.ts). Shape-checked here and
+   * The creator's TikTok consent (tiktokConsent.ts). Shape-checked here and
    * rule-checked below: TikTok's posting rules are not the browser's to
    * enforce alone.
    */

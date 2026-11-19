@@ -14,7 +14,7 @@ import {
   disclosureOn,
   emptyConsent,
   privacyOptionHint
-} from "@/lib/publisher/tiktokPost";
+} from "@/lib/publisher/tiktokConsent";
 import type { TiktokPostOptions, TiktokPrivacyLevel } from "@/lib/publisher/types";
 
 /**

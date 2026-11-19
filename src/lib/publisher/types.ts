@@ -119,7 +119,7 @@ export type BufferState = {
 export type TiktokPrivacyLevel = "PUBLIC_TO_EVERYONE" | "MUTUAL_FOLLOW_FRIENDS" | "FOLLOWER_OF_CREATOR" | "SELF_ONLY";
 
 /**
- * The creator's answers for one TikTok post (see tiktokPost.ts).
+ * The creator's answers for one TikTok post (see tiktokConsent.ts).
  *
  * "direct" posts straight to the profile and needs every field below —
  * TikTok requires the creator to have chosen them, with nothing preselected.
@@ -214,7 +214,7 @@ export type QueueItem = {
    */
   failedSeenAt?: string;
   /**
-   * The creator's TikTok consent for this post (tiktokPost.ts). Absent on
+   * The creator's TikTok consent for this post (tiktokConsent.ts). Absent on
    * posts scheduled before the panel existed and on every post that does not
    * target TikTok; the adapter then falls back to the inbox flow, which is
    * what those posts have always used.

@@ -20,6 +20,8 @@ already shipped.
 
 - **Draft one Short from a recording.** Open it from Stream Pipeline, paste a VOD link or upload a file, and review a single clip in Short Clips. Editing and exporting it keeps it off the automatic schedule.
 
+- **Restore the Webpack build for Capital Command.** The Uploading Center shares TikTok consent rules with the publisher and keeps server connection code out of the browser.
+
 - **Connect YouTube now asks for read-only YouTube Analytics access.** That is what lets Performance show watch time and average view duration for each Short. Your current connection keeps working as it is; reconnect YouTube once after this release to grant it. The YouTube Analytics API must be enabled on the Google Cloud project behind your YouTube client.
 - **Reels, Facebook videos and TikToks now open on the Short's own title.** A generated caption used to be the same standing description on every post (652 queue items shared 11 captions), and that caption is the visible text on Instagram, Facebook and TikTok. It now leads with the title the post is booked under, then your standing description. No new AI copy is written.
 

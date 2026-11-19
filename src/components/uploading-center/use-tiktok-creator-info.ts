@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { TiktokCreatorPostingInfo } from "@/lib/publisher/tiktokPost";
+import type { TiktokCreatorPostingInfo } from "@/lib/publisher/tiktokConsent";
 
 export type CreatorInfoState =
   | { status: "loading" }

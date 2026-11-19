@@ -3,7 +3,6 @@ import { jsonResponse, mockFetchRoutes } from "@/lib/publisher/test-helpers";
 import {
   BRANDED_CONTENT_DECLARATION,
   BRANDED_PRIVATE_HINT,
-  CreatorCannotPostError,
   DISCLOSURE_REQUIRED_HINT,
   MUSIC_USAGE_DECLARATION,
   brandedContentHint,
@@ -13,12 +12,12 @@ import {
   disclosureNotice,
   disclosureOn,
   emptyConsent,
-  fetchCreatorPostingInfo,
   parseConsent,
   privacyOptionHint,
   reconcileWithCreator,
   type TiktokCreatorPostingInfo
-} from "@/lib/publisher/tiktokPost";
+} from "@/lib/publisher/tiktokConsent";
+import { CreatorCannotPostError, fetchCreatorPostingInfo } from "@/lib/publisher/tiktokPost";
 import type { TiktokPostOptions } from "@/lib/publisher/types";
 
 /**
