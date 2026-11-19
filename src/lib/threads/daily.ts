@@ -378,10 +378,14 @@ async function threadsTickInternal(
   let planningError: string | undefined;
   try {
     const planningNow = () => options.now ?? new Date();
-    plan = await planTodaysBatch({ config, now: planningNow(), log: options.log });
-    // Both of these change what is queued, so a dry run stays out of them.
-    catchUp = options.dryRun ? null : await catchUpToday({ config, now: planningNow(), log: options.log });
-    ahead = options.dryRun ? null : await planTomorrow({ config, now: planningNow(), log: options.log });
+    if (config.dailyPack === false) {
+      plan.skipped = "The daily pack is switched off (THREADS_DAILY_PACK=off); X Drafts writes the feed.";
+    } else {
+      plan = await planTodaysBatch({ config, now: planningNow(), log: options.log });
+      // Both of these change what is queued, so a dry run stays out of them.
+      catchUp = options.dryRun ? null : await catchUpToday({ config, now: planningNow(), log: options.log });
+      ahead = options.dryRun ? null : await planTomorrow({ config, now: planningNow(), log: options.log });
+    }
     if (!options.dryRun) ensureXDraftsInBackground({ threads: config, now: planningNow(), log: options.log });
   } catch (error) {
     planningError = error instanceof Error ? error.message : String(error);

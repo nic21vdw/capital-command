@@ -35,4 +35,14 @@ describe("queued delivery before generation", () => {
     expect(result.planningError).toBe("writer unavailable");
     expect(mocks.outcome).toHaveBeenCalledWith("threads", expect.objectContaining({ status: "failed", detail: expect.stringContaining("1 posts published") }));
   });
+
+  it("plans no generic pack when THREADS_DAILY_PACK is off, and still delivers", async () => {
+    const config = { ...threadsConfig(), enabled: true, timezone: "UTC", dailyPack: false,
+      accounts: [{ id: "primary", label: "Fixture", userId: "fixture-user", accessToken: "fixture-token", posts: "text" as const, offsetMinutes: 0 }] };
+    const result = await threadsTick({ now: new Date("2026-10-14T12:00:00Z"), config, log: () => {} });
+    expect(mocks.runDue).toHaveBeenCalledOnce();
+    expect(mocks.ensureDailyPack).not.toHaveBeenCalled();
+    expect(result.plan.skipped).toMatch(/THREADS_DAILY_PACK=off/);
+    expect(result.planningError).toBeUndefined();
+  });
 });

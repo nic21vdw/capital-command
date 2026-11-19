@@ -152,3 +152,16 @@ describe("contextual CoLateral self-replies", () => {
     }
   );
 });
+
+describe("THREADS_PLUG_SCOPE=colateral", () => {
+  it("keeps the link reply to posts that name CoLateral", () => {
+    const scoped = config({ plugScope: "colateral" });
+    expect(plugReplyFor("Claude Code shipped the lobby fix tonight.", "post-2", scoped)).toBeUndefined();
+    expect(plugReplyFor("CoLateral runs Claude Code and Codex side by side.", "post-3", scoped)).toBeDefined();
+  });
+
+  it("replies under every post when unscoped", () => {
+    expect(plugReplyFor("Claude Code shipped the lobby fix tonight.", "post-2", config({ plugScope: "all" }))).toBeDefined();
+    expect(plugReplyFor("Claude Code shipped the lobby fix tonight.", "post-2", config({ plugScope: undefined }))).toBeDefined();
+  });
+});

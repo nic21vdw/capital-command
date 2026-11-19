@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- Threads can now run on X Drafts alone, at up to 10 posts a day in your X voice. `THREADS_DAILY_PACK=off` stops the generic daily pack, `THREADS_PLUG_SCOPE=colateral` keeps the CoLateral link reply to posts that name CoLateral instead of every post, and the writer now takes a dated facts list (`data/x-drafts-facts.json`, kept 14 days), orders the day by post type, and may revisit an idea from a new angle but never reuses a hook.
+
 ## 2026-11-19
 
 - An Instagram post can now be booked on its own. Until now every Instagram booking on the main account also booked the same Reel on the Facebook Page; `POST /api/publish` with `pairFacebook: false` keeps it Instagram-only. Leaving it out pairs Facebook as before.
