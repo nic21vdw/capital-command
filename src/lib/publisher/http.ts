@@ -85,6 +85,7 @@ export type JsonRequest = {
   body?: string | URLSearchParams | Buffer | FormData | Readable;
   /** Label used in error messages, e.g. "YouTube resumable init". */
   label: string;
+  redirect?: RequestRedirect;
   /** Deadline for a JSON call; 0 disables it for a streamed media transfer. */
   timeoutMs?: number;
 };
@@ -130,6 +131,7 @@ async function doFetch(url: string, request: JsonRequest): Promise<Response> {
       // Node accepts Buffers and Readable streams beyond the DOM BodyInit type.
       body: request.body as BodyInit | undefined,
       ...(request.body instanceof Readable ? { duplex: "half" as const, redirect: "error" as const } : {}),
+      ...(request.redirect ? { redirect: request.redirect } : {}),
       signal: request.timeoutMs ? AbortSignal.timeout(request.timeoutMs) : undefined
     };
     return await fetch(url, init);

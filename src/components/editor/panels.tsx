@@ -37,6 +37,7 @@ import {
 import { CLIP_LAYOUTS, DEFAULT_FACE_SOURCE, DEFAULT_SCREEN_SOURCE, LAYOUT_MODE_PRESETS } from "@/lib/clipping/layouts";
 import { useAppData } from "@/components/providers/app-provider";
 import { Button } from "@/components/ui/button";
+import { ThreadsVideoBooking } from "@/components/editor/threads-video-booking";
 import { ColorField, Field, NumberField, RangeField, SelectField, Toggle } from "@/components/editor/controls";
 import { SfxSection } from "@/components/editor/sfx-section";
 import { VideoLooks } from "@/components/editor/video-looks";
@@ -1030,6 +1031,9 @@ export const ExportPanel = memo(function ExportPanel({ api }: { api: EditorApi }
               )}
               Take clip to folder
             </Button>
+            {state.file?.endsWith(".mp4") && (
+              <ThreadsVideoBooking key={state.exportId} jobId={api.project.jobId} fileName={state.file} />
+            )}
           </div>
         )}
       </div>

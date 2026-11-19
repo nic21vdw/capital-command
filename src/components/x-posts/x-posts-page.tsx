@@ -1,5 +1,6 @@
 "use client";
 
+import { ThreadsVideoBooking, ThreadsVideoReceipt } from "@/components/editor/threads-video-booking";
 import { serviceSetupHref } from "@/lib/setup/services";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -68,6 +69,7 @@ interface AutopilotStatus {
   blockedReason: string | null;
   settings: {
     timezone: string;
+    videoOnly?: boolean;
     postsPerDay: number;
     postingWindow?: { start: number; end: number };
     lateGraceMinutes: number;
@@ -520,7 +522,7 @@ export function XPostsPage() {
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <NextRunPreview {...autopilot} />
-        <AddPostCard {...autopilot} />
+        {autopilot.status?.settings.videoOnly ? <ThreadsVideoBooking /> : <AddPostCard {...autopilot} />}
       </div>
 
       <div className="mt-6">
@@ -592,6 +594,7 @@ type QueueItemView = {
   publishAt: string;
   status: "pending" | "published" | "failed" | "skipped";
   postId?: string;
+  video?: { verifiedAt?: string; permalink?: string };
   error?: string;
   note?: string;
 };
@@ -762,7 +765,8 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
             })}
           </h2>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-            The autopilot sends today&apos;s posts for you, one at each posting time.
+            {settings.videoOnly ? "Video-only mode. Only exact video approvals can send. Text posts are held." :
+              "The autopilot sends today's posts for you, one at each posting time."}
           </p>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             Times in {settings.timezone} ·{" "}
@@ -784,7 +788,7 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
         </div>
       </div>
 
-      {settings.replyPolicy ? (
+      {settings.replyPolicy && !settings.videoOnly ? (
         <section aria-label="Today's follow-up replies" className="mt-4 space-y-2 border-t border-[var(--border)] pt-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-semibold text-[var(--foreground)]">Today&apos;s follow-up replies</p>
@@ -1158,7 +1162,7 @@ function AutopilotTab({
                     `Moved ${json.moved ?? 0} posts ${Math.abs(minutes)} min ${minutes < 0 ? "earlier" : "later"}.`
                 )
               }
-              disabled={busy !== null || pending.length === 0}
+              disabled={busy !== null || pending.length === 0 || status.settings.videoOnly}
             >
               {minutes > 0 ? `+${minutes}m` : `${minutes}m`}
             </Button>
@@ -1181,7 +1185,7 @@ function AutopilotTab({
             >
               {postNumbers.get(item.id) ?? item.slot}
             </span>
-            {item.status === "pending" ? (
+            {item.status === "pending" && !item.video && !status.settings.videoOnly ? (
               <Input
                 type="datetime-local"
                 aria-label={`Post time for post ${postNumbers.get(item.id) ?? item.slot}`}
@@ -1205,7 +1209,8 @@ function AutopilotTab({
                 {accountChipLabel(item.accountId, status.settings.accounts)}
               </Badge>
             ) : null}
-            {item.postId && handle ? (
+            {item.video && <ThreadsVideoReceipt id={item.id} postId={item.postId} verifiedAt={item.video.verifiedAt} permalink={item.video.permalink} />}
+            {!item.video && item.postId && handle ? (
               <a
                 href={`https://www.threads.com/@${handle}`}
                 target="_blank"
@@ -1258,7 +1263,7 @@ function AutopilotTab({
 
           {repliesByItem.has(item.id) ? <FollowUpReply reply={repliesByItem.get(item.id)!} editing={editing === item.id} timeZone={zone} /> : null}
 
-          {(item.status === "failed" || item.status === "skipped") && editing !== item.id ? (
+          {!item.video && !status.settings.videoOnly && (item.status === "failed" || item.status === "skipped") && editing !== item.id ? (
             // The copy was already written and approved; recovering it should
             // never mean typing it again.
             <div className="flex flex-wrap gap-2">
@@ -1300,9 +1305,9 @@ function AutopilotTab({
             </div>
           ) : null}
 
-          {item.status === "pending" && editing !== item.id ? (
+          {item.status === "pending" && editing !== item.id && (item.video || !status.settings.videoOnly) ? (
             <div className="flex flex-wrap gap-2">
-              <Button
+              {!item.video && <Button
                 variant="secondary"
                 onClick={() => {
                   setEditing(item.id);
@@ -1312,7 +1317,7 @@ function AutopilotTab({
               >
                 <MessageSquare className="mr-2 h-4 w-4" />
                 Edit copy
-              </Button>
+              </Button>}
               <Button
                 variant="secondary"
                 onClick={() => send({ action: "skip", id: item.id }, `skip-${item.id}`, () => "Skipped.")}
@@ -1320,7 +1325,7 @@ function AutopilotTab({
               >
                 Skip
               </Button>
-              <Button
+              {!item.video && <Button
                 variant="danger"
                 className={REMOVE_BUTTON_CLASS}
                 onClick={() => removePost(item)}
@@ -1328,7 +1333,7 @@ function AutopilotTab({
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Remove
-              </Button>
+              </Button>}
             </div>
           ) : null}
         </Card>

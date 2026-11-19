@@ -9,6 +9,11 @@ import { googleRedirectUri } from "@/lib/publisher/googleAuth";
 import { linkedinConnected, linkedinRedirectUri } from "@/lib/publisher/linkedinAuth";
 import { tiktokRedirectUri } from "@/lib/publisher/tiktokAuth";
 import { spotifyConnected, spotifyRedirectUri } from "@/lib/spotify/auth";
+import { findAccount, threadsConfig } from "@/lib/threads/config";
+import {
+  savedThreadsConnectionHealth, ThreadsConnectionError, verifyThreadsPublishingConnection,
+  type ThreadsConnectionHealth
+} from "@/lib/threads/reconnect";
 import {
   changesThreadsCredentials,
   readThreadsCredentialRecovery,
@@ -19,9 +24,8 @@ import {
 /**
  * What is connected, and the one place a credential is written.
  *
- * GET answers with presence only - a boolean per credential name. The values
- * never leave the machine, so a screenshot of Settings cannot leak a token and
- * neither can the browser's network tab.
+ * GET answers with credential presence and stored account status. It never
+ * checks a provider or returns a saved credential.
  */
 export async function GET(request: Request) {
   return NextResponse.json(await connectionState(new URL(request.url).origin));
@@ -42,7 +46,7 @@ function redirectUris(origin: string) {
   };
 }
 
-async function connectionState(origin: string) {
+async function connectionState(origin: string, threadsConnection?: ThreadsConnectionHealth) {
   const [present, sources, youtube, tiktok, spotify, linkedin] = await Promise.all([
     credentialsPresent(SETUP_FIELD_NAMES),
     credentialSources(SETUP_FIELD_NAMES),
@@ -53,8 +57,39 @@ async function connectionState(origin: string) {
   ]);
   return {
     present, sources, connected: { youtube, tiktok, spotify, linkedin }, redirectUris: redirectUris(origin),
-    threadsRecovery: await readThreadsCredentialRecovery(sources)
+    threadsRecovery: await readThreadsCredentialRecovery(sources),
+    threadsConnection: threadsConnection ?? await savedThreadsConnectionHealth()
   };
+}
+
+function threadsCheckFailure(error: ThreadsConnectionError) {
+  const threadsConnection: ThreadsConnectionHealth = error.code === "threads_reauth_required"
+    ? { state: "reauth_required" }
+    : { state: "check_failed", code: error.code };
+  return NextResponse.json({ error: error.message, code: error.code, threadsConnection }, {
+    status: error.code === "threads_probe_unavailable" ? 503 : 409
+  });
+}
+
+function verifiedConnection(profile: { username: string; userId: string }): ThreadsConnectionHealth {
+  return { state: "verified", username: profile.username, userId: profile.userId, checkedAt: new Date().toISOString() };
+}
+
+async function checkThreadsConnection(origin: string, username: string | null) {
+  const config = threadsConfig();
+  const account = findAccount(config, "primary");
+  if (!account) return threadsCheckFailure(new ThreadsConnectionError("threads_reauth_required"));
+  try {
+    const verified = await verifyThreadsPublishingConnection(account, config, { userId: account.userId, username });
+    const latest = findAccount(threadsConfig(), account.id);
+    if (!latest || latest.accessToken !== account.accessToken || latest.userId !== account.userId) {
+      throw new ThreadsConnectionError("threads_probe_unavailable");
+    }
+    return NextResponse.json(await connectionState(origin, verifiedConnection(verified)));
+  } catch (error) {
+    if (error instanceof ThreadsConnectionError) return threadsCheckFailure(error);
+    throw error;
+  }
 }
 
 export async function POST(request: Request) {
@@ -65,7 +100,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Expected a JSON body." }, { status: 400 });
   }
 
-  const values = (body as { values?: unknown } | null)?.values;
+  const input = body as { values?: unknown; checkThreads?: unknown; threadsHandle?: unknown } | null;
+  const origin = new URL(request.url).origin;
+  const threadsHandle = typeof input?.threadsHandle === "string" ? input.threadsHandle : null;
+  if (input?.checkThreads === true && input.values === undefined) return checkThreadsConnection(origin, threadsHandle);
+  const values = input?.values;
   if (!values || typeof values !== "object" || Array.isArray(values)) {
     return NextResponse.json({ error: "Expected { values: { NAME: string } }." }, { status: 400 });
   }
@@ -86,6 +125,7 @@ export async function POST(request: Request) {
   }
 
   const threadsChange = changesThreadsCredentials(Object.keys(updates));
+  let threadsConnection: ThreadsConnectionHealth | undefined;
   const save = async () => {
     // Re-read ownership inside the control transaction. Environment-owned
     // fields must never be overridden or rewritten by Settings.
@@ -98,8 +138,45 @@ export async function POST(request: Request) {
         ...(threadsChange ? { code: "env_owned", threadsRecovery: await readThreadsCredentialRecovery(sources) } : {})
       }, { status: 409 });
     }
-    if (threadsChange) await saveCredentials(updates, { strict: true });
-    else await saveCredentials(updates);
+    if (!threadsChange) {
+      await saveCredentials(updates);
+      return null;
+    }
+
+    await saveCredentials(updates, {
+      strict: true,
+      prepare: async (current): Promise<Record<string, string>> => {
+        const userId = sources.THREADS_USER_ID === "env"
+          ? process.env.THREADS_USER_ID?.trim()
+          : current.THREADS_USER_ID?.trim();
+        const requestedId = updates.THREADS_USER_ID?.trim();
+        // A reconnect must not redirect an existing queue to another profile.
+        if (userId && updates.THREADS_USER_ID !== undefined && requestedId !== userId) {
+          throw new ThreadsConnectionError("threads_profile_mismatch");
+        }
+        const config = threadsConfig();
+        const previous = findAccount(config, "primary");
+        const sourceToken = sources.THREADS_ACCESS_TOKEN === "env"
+          ? previous?.accessToken
+          : current.THREADS_ACCESS_TOKEN === process.env.THREADS_ACCESS_TOKEN
+            ? previous?.accessToken
+            : current.THREADS_ACCESS_TOKEN;
+        const accessToken = updates.THREADS_ACCESS_TOKEN?.trim() ?? sourceToken;
+        if (!accessToken) {
+          // A deliberate removal makes no provider request and leaves the
+          // numeric profile binding intact for the next reconnect.
+          if (updates.THREADS_ACCESS_TOKEN === "" && updates.THREADS_USER_ID === undefined) return {};
+          throw new ThreadsConnectionError("threads_reauth_required");
+        }
+        const account = {
+          id: "primary", label: "Threads", posts: "text" as const,
+          offsetMinutes: 0, ...previous, accessToken, userId: userId ?? null
+        };
+        const checked = await verifyThreadsPublishingConnection(account, config, { userId: userId || requestedId, username: threadsHandle });
+        threadsConnection = verifiedConnection(checked);
+        return sources.THREADS_USER_ID === "env" ? {} : { THREADS_USER_ID: checked.userId };
+      }
+    });
     return null;
   };
 
@@ -108,6 +185,7 @@ export async function POST(request: Request) {
     if (refusal) return refusal;
   } catch (error) {
     if (!threadsChange) throw error;
+    if (error instanceof ThreadsConnectionError) return threadsCheckFailure(error);
     // Disk/lock errors can contain paths or values. Only controlled messages
     // leave this endpoint; no secret or raw exception is logged or echoed.
     const recoveryError = error instanceof ThreadsCredentialRecoveryError;
@@ -121,7 +199,7 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({
-    ...(await connectionState(new URL(request.url).origin)),
+    ...(await connectionState(origin, threadsConnection)),
     connections: CONNECTIONS.map((connection) => connection.id)
   });
 }

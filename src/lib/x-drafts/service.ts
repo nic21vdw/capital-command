@@ -48,7 +48,7 @@ async function runWrite(date: string, now: Date, threads: ThreadsConfig, config:
   }
 
   let booked = 0;
-  if (drafts.length && config.threads) {
+  if (drafts.length && config.threads && !threads.videoOnly) {
     const booking = await mutateQueue((items) => {
       const result = bookDraftsOnThreads({ drafts, queue: items, threads, config, now: new Date() });
       return { items: [...items, ...result.items], result };
@@ -60,7 +60,7 @@ async function runWrite(date: string, now: Date, threads: ThreadsConfig, config:
       return hit ? { ...draft, threadsItemId: hit.itemId, threadsAt: hit.at } : note ? { ...draft, threadsNote: note } : draft;
     });
   } else if (drafts.length) {
-    drafts = drafts.map((draft) => ({ ...draft, threadsNote: "Threads booking is switched off (X_DRAFTS_THREADS=off)." }));
+    drafts = drafts.map((draft) => ({ ...draft, threadsNote: threads.videoOnly ? "Threads is in approved video-only mode." : "Threads booking is switched off (X_DRAFTS_THREADS=off)." }));
   }
 
   const today = localCalendarParts(now, threads.timezone).dateKey;

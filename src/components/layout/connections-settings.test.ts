@@ -33,4 +33,18 @@ describe("Threads recovery guidance", () => {
     expect(html).not.toContain("Threads is paused");
     expect(html).toContain("Saving does not run or retry the queue");
   });
+
+  it("shows the read-only verification and reauthorization states", () => {
+    const verified = renderToStaticMarkup(React.createElement(ThreadsRecoveryNotice, {
+      recovery: { control: "paused", tokenSource: "saved", envOwnedFields: [] },
+      connection: { state: "verified", username: "synthetic_profile", userId: "1000000000001", checkedAt: "2026-11-19T00:00:00.000Z" }
+    }));
+    expect(verified).toContain("Meta verified @synthetic_profile and its publishing quota.");
+    expect(verified).toContain("same Threads profile and permissions");
+    expect(verified).toContain("Profile ID 1000000000001.");
+    const expired = renderToStaticMarkup(React.createElement(ThreadsRecoveryNotice, {
+      connection: { state: "reauth_required" }
+    }));
+    expect(expired).toContain("The current Threads token needs reauthorization in Meta.");
+  });
 });

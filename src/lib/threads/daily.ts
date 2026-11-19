@@ -57,6 +57,7 @@ export async function planTodaysBatch(
   const now = options.now ?? new Date();
   const log = options.log ?? ((line: string) => console.log(line));
   const date = options.date ?? localCalendarParts(now, config.timezone).dateKey;
+  if (config.videoOnly) return { date, created: 0, droppedPastSlots: 0, skipped: "Threads is in approved video-only mode." };
   const replace = Boolean(options.force || options.startNow || options.replacePending);
 
   if (await isAutomationPaused("threads")) {
@@ -232,7 +233,7 @@ export async function catchUpToday(
 ): Promise<ThreadsPlanResult | null> {
   const config = options.config ?? threadsConfig();
   const now = options.now ?? new Date();
-  if (!config.catchUp || threadsBlockedReason(config)) return null;
+  if (config.videoOnly || !config.catchUp || threadsBlockedReason(config)) return null;
 
   const date = localCalendarParts(now, config.timezone).dateKey;
   const standing = await slotsStillStanding(date, now);
@@ -376,17 +377,21 @@ async function threadsTickInternal(
   let ahead: ThreadsPlanResult | null = null;
   let catchUp: ThreadsPlanResult | null = null;
   let planningError: string | undefined;
-  try {
-    const planningNow = () => options.now ?? new Date();
-    plan = await planTodaysBatch({ config, now: planningNow(), log: options.log });
-    // Both of these change what is queued, so a dry run stays out of them.
-    catchUp = options.dryRun ? null : await catchUpToday({ config, now: planningNow(), log: options.log });
-    ahead = options.dryRun ? null : await planTomorrow({ config, now: planningNow(), log: options.log });
-    if (!options.dryRun) ensureXDraftsInBackground({ threads: config, now: planningNow(), log: options.log });
-  } catch (error) {
-    planningError = error instanceof Error ? error.message : String(error);
-    plan.skipped ??= "Planning failed; existing due posts were processed first.";
-    options.log?.(`[threads] planning failed: ${planningError}`);
+  if (config.videoOnly) {
+    plan.skipped = "Threads is in approved video-only mode.";
+  } else {
+    try {
+      const planningNow = () => options.now ?? new Date();
+      plan = await planTodaysBatch({ config, now: planningNow(), log: options.log });
+      // Both of these change what is queued, so a dry run stays out of them.
+      catchUp = options.dryRun ? null : await catchUpToday({ config, now: planningNow(), log: options.log });
+      ahead = options.dryRun ? null : await planTomorrow({ config, now: planningNow(), log: options.log });
+      if (!options.dryRun) ensureXDraftsInBackground({ threads: config, now: planningNow(), log: options.log });
+    } catch (error) {
+      planningError = error instanceof Error ? error.message : String(error);
+      plan.skipped ??= "Planning failed; existing due posts were processed first.";
+      options.log?.(`[threads] planning failed: ${planningError}`);
+    }
   }
 
   // Stamped every tick, busy or idle: a queue of pending posts looks the same

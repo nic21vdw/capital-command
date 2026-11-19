@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Reconnect the exact Threads account and review a video before booking it.** Settings can verify the profile and publishing access while paused. The video-only worker carries your approved MP4, caption and time and checks the post receipt while the text backlog stays held.
+
 - **Draft one Short from a recording.** Open it from Stream Pipeline, paste a VOD link or upload a file, and review a single clip in Short Clips. Editing and exporting it keeps it off the automatic schedule.
 
 - **Connect YouTube now asks for read-only YouTube Analytics access.** That is what lets Performance show watch time and average view duration for each Short. Your current connection keeps working as it is; reconnect YouTube once after this release to grant it. The YouTube Analytics API must be enabled on the Google Cloud project behind your YouTube client.

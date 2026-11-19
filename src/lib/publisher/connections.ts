@@ -169,10 +169,10 @@ export const CONNECTIONS: Connection[] = [
     label: "Threads",
     purpose: "Posts daily and stream-generated Threads posts with contextual CoLateral follow-up replies.",
     fields: [
-      { name: "THREADS_USER_ID", label: "User ID", hint: "The access token normally identifies the account.", optional: true },
-      { name: "THREADS_ACCESS_TOKEN", label: "Access token", hint: "A long-lived token with publishing and reply permissions from the Meta console." }
+      { name: "THREADS_USER_ID", label: "User ID", hint: "The existing numeric ID keeps its queue bound to the same profile.", optional: true },
+      { name: "THREADS_ACCESS_TOKEN", label: "Access token", hint: "A long-lived token from your existing Meta app with Threads publishing permission." }
     ],
-    manualNote: "Threads has no in-app sign-in yet: the token comes from Meta's console and is pasted here.",
+    manualNote: "Renew the existing account in the Meta console, then verify the token in Settings while delivery is paused.",
     console: "https://developers.facebook.com/apps",
     more: { href: "/x-posts", label: "Check the Threads connection on the Threads Autopilot page" }
   },
@@ -209,10 +209,9 @@ export function reconnectBlocker(label: string): string {
 
 /**
  * Whether signing in can PROVE a platform works. YouTube, TikTok and Spotify
- * finish with a browser sign-in that mints the token; Instagram, Facebook and
- * Threads are a pasted token that nothing checks until a post goes out. Settings
- * and the sidebar chips both ask this, so a saved-but-untested token never turns
- * green in one place while the other says "not verified".
+ * finish with a browser sign-in that mints the token. Threads has a separate
+ * explicit profile and quota check in Settings. Stored manual credentials do
+ * not count as completed OAuth sign-in.
  */
 export function signInVerifiable(id: string): boolean {
   return Boolean(CONNECTIONS.find((connection) => connection.id === id)?.oauth);
