@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-11-19
+
 - An Instagram post can now be booked on its own. Until now every Instagram booking on the main account also booked the same Reel on the Facebook Page; `POST /api/publish` with `pairFacebook: false` keeps it Instagram-only. Leaving it out pairs Facebook as before.
 
 - **Draft one Short from a recording.** Open it from Stream Pipeline, paste a VOD link or upload a file, and review a single clip in Short Clips. Editing and exporting it keeps it off the automatic schedule.
