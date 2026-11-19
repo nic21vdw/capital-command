@@ -12,6 +12,7 @@ import { LinkedinAuthorPicker } from "@/components/layout/linkedin-author-picker
 import { PlatformIcon, type PlatformIconKey } from "@/components/ui/platform-icon";
 import { CONNECTIONS, type Connection, type ConnectionField } from "@/lib/publisher/connections";
 import type { ThreadsCredentialRecovery } from "@/lib/threads/credentialRecovery";
+import type { ThreadsConnectionHealth } from "@/lib/threads/reconnect";
 import {
   clearConnectFailure,
   explainConnectError,
@@ -43,6 +44,7 @@ export type ConnectionState = {
   /** The redirect URI to register in each provider's console. */
   redirectUris?: Record<string, string>;
   threadsRecovery?: ThreadsCredentialRecovery;
+  threadsConnection?: ThreadsConnectionHealth;
 };
 
 const PLATFORM_COLORS: Record<string, string> = {
@@ -279,10 +281,15 @@ function FailureNote({ connection, raw, onDismiss }: { connection: Connection; r
   );
 }
 
-export function ThreadsRecoveryNotice({ recovery }: { recovery?: ThreadsCredentialRecovery }) {
+export function ThreadsRecoveryNotice({ recovery, connection }: {
+  recovery?: ThreadsCredentialRecovery;
+  connection?: ThreadsConnectionHealth;
+}) {
   return (
     <div className="mb-4 space-y-2 rounded-lg border border-amber-300/20 bg-amber-300/10 p-3 text-xs text-amber-100" role="status">
-      <p className="font-semibold">Recover the Threads connection</p>
+      <p className="font-semibold">Threads account recovery</p>
+      {connection?.state === "verified" ? <p>Meta verified @{connection.username} and its publishing quota. Profile ID {connection.userId}.</p> : null}
+      {connection?.state === "reauth_required" ? <p>The current Threads token needs reauthorization in Meta.</p> : null}
       <p>{recovery?.control === "paused"
         ? "Last checked: Threads is paused. The server checks the saved pause again when saving."
         : recovery?.control === "unreadable"
@@ -290,7 +297,7 @@ export function ThreadsRecoveryNotice({ recovery }: { recovery?: ThreadsCredenti
           : "Pause Threads in Automations before changing credentials, then refresh the pause state here."}</p>
       {recovery?.envOwnedFields.length ? (
         <p>{recovery.envOwnedFields.join(", ")} {recovery.envOwnedFields.length === 1 ? "is" : "are"} set in .env. Settings cannot replace {recovery.envOwnedFields.length === 1 ? "it" : "them"}. The owner must replace credentials at their source and restart the app while Threads stays paused.</p>
-      ) : <p>Paste a replacement token here only after pausing. Saving credentials does not verify them.</p>}
+      ) : <p>While paused, verify and save a new long-lived token from your existing Meta Threads app. Use the same Threads profile and permissions.</p>}
       <p>Pausing cannot recall a provider request already in flight. Review pending, failed and uncertain sends on Threads Autopilot before separately resuming. Saving does not run or retry the queue.</p>
       <Link href="/automations" className="inline-flex py-1 text-[var(--accent)] hover:underline">Open Automations</Link>
     </div>
@@ -346,6 +353,8 @@ export function FieldInput({
 export function ConnectionsSettings() {
   const [state, setState] = useState<ConnectionState>({ present: {}, connected: {} });
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [threadsHandle, setThreadsHandle] = useState("");
+  const [checkingThreads, setCheckingThreads] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -446,6 +455,28 @@ export function ConnectionsSettings() {
     }, 0);
   };
 
+  const checkThreads = async () => {
+    setCheckingThreads(true);
+    try {
+      const response = await fetch("/api/connections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ checkThreads: true, threadsHandle })
+      });
+      const body = (await response.json()) as ConnectionState & { error?: string };
+      if (!response.ok) {
+        setState((current) => ({ ...current, threadsConnection: body.threadsConnection }));
+        throw new Error(body.error ?? "Could not check Threads.");
+      }
+      setState(body);
+      toast.success("Threads profile and publishing quota verified.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not check Threads.");
+    } finally {
+      setCheckingThreads(false);
+    }
+  };
+
   const save = async (connection: Connection) => {
     const values: Record<string, string> = {};
     for (const field of connection.fields) {
@@ -458,12 +489,13 @@ export function ConnectionsSettings() {
       const response = await fetch("/api/connections", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ values })
+        body: JSON.stringify(connection.id === "threads" ? { values, threadsHandle } : { values })
       });
       const body = (await response.json()) as ConnectionState & { error?: string };
       if (body.threadsRecovery) setState((current) => ({ ...current, threadsRecovery: body.threadsRecovery }));
+      if (body.threadsConnection) setState((current) => ({ ...current, threadsConnection: body.threadsConnection }));
       if (!response.ok) throw new Error(body.error ?? String(response.status));
-      setState({ present: body.present, sources: body.sources, connected: body.connected, redirectUris: body.redirectUris, threadsRecovery: body.threadsRecovery });
+      setState(body);
       setDrafts((current) => {
         const next = { ...current };
         for (const field of connection.fields) delete next[field.name];
@@ -472,7 +504,9 @@ export function ConnectionsSettings() {
       setFailures(clearConnectFailure(connection.id));
       toast.success(
         connection.id === "threads"
-          ? "Threads credentials saved without verification. Saving did not resume delivery."
+          ? body.threadsConnection?.state === "verified"
+            ? "Threads credentials verified and saved. Delivery stays paused."
+            : "Threads credential removed. Delivery stays paused."
           : connection.oauth
           ? state.connected[connection.id] ? "Credentials saved." : "Credentials saved. Sign in to finish connecting."
           : "Saved, but not verified: nothing here checks it until a post goes out."
@@ -521,15 +555,19 @@ export function ConnectionsSettings() {
           const open = expanded === connection.id;
           const dirty = connection.fields.some((field) => field.name in drafts);
           const threadsSaveBlocked = connection.id === "threads" && (loadFailed || state.threadsRecovery?.control !== "paused");
-          // A pasted token is only a token: nothing here proves it works, so a
-          // platform with no sign-in never turns green on save.
-          const status = connectionStatus(connection, state, { loaded, loadFailed });
+          const threadsVerified = connection.id === "threads" && !loadFailed && state.threadsConnection?.state === "verified";
+          const status = connection.id === "threads" && !loadFailed
+            ? state.threadsConnection?.state === "verified" ? "Profile verified"
+              : state.threadsConnection?.state === "reauth_required" ? "Reconnect needed"
+                : state.threadsConnection?.state === "check_failed" ? "Verification failed"
+                  : connectionStatus(connection, state, { loaded, loadFailed })
+            : connectionStatus(connection, state, { loaded, loadFailed });
           // The YouTube walkthrough above already shows its address while step 1
           // is current; the card repeats it only once that walkthrough has moved on.
           const redirectUri =
             connection.oauth && !(connection.id === "youtube" && walkthroughOpen) ? state.redirectUris?.[connection.id] : undefined;
           // One pill on every width: a phone used to get blue text that read as a link.
-          const statusPill = connected ? "bg-emerald-400/10 text-emerald-200" : "bg-white/5 text-[var(--muted-foreground)]";
+          const statusPill = connected || threadsVerified ? "bg-emerald-400/10 text-emerald-200" : "bg-white/5 text-[var(--muted-foreground)]";
 
           return (
             <div key={connection.id} id={`connection-row-${connection.id}`} className="scroll-mt-6 border-b border-[var(--border)] last:border-b-0">
@@ -559,7 +597,8 @@ export function ConnectionsSettings() {
               {open ? (
                 <div id={`connection-${connection.id}`} className="border-t border-[var(--border)] bg-[var(--surface-2)] px-4 py-5 sm:pl-[4.5rem]">
                   <p className="mb-4 text-sm text-[var(--muted-foreground)]">
-                    {connected ? "Account signed in. Update credentials here only if they change." :
+                    {connection.id === "threads" ? "Check your existing Threads profile or replace its expired token." :
+                      connected ? "Account signed in. Update credentials here only if they change." :
                       ready && connection.oauth ? "Credentials are saved. Sign in to finish connecting this account." :
                         connection.oauth ? "Add your app credentials, save them, then sign in." :
                           ready ? "Credentials are saved but not verified: this app cannot test them until a post goes out." :
@@ -568,8 +607,28 @@ export function ConnectionsSettings() {
                   {redirectUri ? <RedirectUri connection={connection} uri={redirectUri} /> : null}
                   {connection.id === "threads" ? (
                     <>
-                      <ThreadsRecoveryNotice recovery={loadFailed ? undefined : state.threadsRecovery} />
-                      <Button variant="secondary" className="mb-4" onClick={() => void load()}>Refresh pause state</Button>
+                      <ThreadsRecoveryNotice recovery={loadFailed ? undefined : state.threadsRecovery} connection={loadFailed ? undefined : state.threadsConnection} />
+                      <label className="mb-3 block text-xs text-[var(--muted-foreground)]">
+                        <span className="mb-1 block font-medium text-white/90">Exact Threads handle</span>
+                        <Input value={threadsHandle} autoComplete="off" spellCheck={false}
+                          maxLength={31} onChange={(event) => setThreadsHandle(event.target.value)} placeholder="@your_handle" />
+                        <span className="mt-1 block">Required if the existing account has no saved numeric ID.</span>
+                      </label>
+                      <div className="mb-4 flex flex-wrap gap-2">
+                        <Button variant="secondary" onClick={() => void load()}>Refresh pause state</Button>
+                        <Button variant="secondary" onClick={() => void checkThreads()}
+                          disabled={!state.present.THREADS_ACCESS_TOKEN || checkingThreads || saving === "threads"}>
+                          {checkingThreads ? "Checking..." : "Verify saved connection"}
+                        </Button>
+                        {state.threadsConnection?.state === "verified" && !state.present.THREADS_USER_ID && !threadsSaveBlocked ? (
+                          <Button variant="secondary" onClick={() => {
+                            const verified = state.threadsConnection;
+                            if (verified?.state === "verified") {
+                              setDrafts((current) => ({ ...current, THREADS_USER_ID: verified.userId }));
+                            }
+                          }}>Use verified profile ID</Button>
+                        ) : null}
+                      </div>
                     </>
                   ) : null}
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -601,8 +660,8 @@ export function ConnectionsSettings() {
                   ))}
                   {connection.id === "linkedin" && connected ? <LinkedinAuthorPicker /> : null}
                   <div className="mt-5 flex flex-wrap items-center gap-2">
-                    <Button onClick={() => void save(connection)} disabled={!dirty || saving === connection.id || threadsSaveBlocked}>
-                      {saving === connection.id ? "Saving..." : "Save credentials"}
+                    <Button onClick={() => void save(connection)} disabled={!dirty || saving === connection.id || threadsSaveBlocked || (connection.id === "threads" && checkingThreads)}>
+                      {saving === connection.id ? "Saving..." : connection.id === "threads" && drafts.THREADS_ACCESS_TOKEN !== "" ? "Verify and save" : "Save credentials"}
                     </Button>
                     {connection.oauth && ready ? (
                       <a href={connection.oauth.href} className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] bg-white/5 px-4 py-2 text-sm font-medium text-white hover:bg-white/10">

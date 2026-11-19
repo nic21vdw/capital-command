@@ -59,6 +59,7 @@ export async function GET() {
     blockedReason: threadsBlockedReason(config),
     settings: {
       timezone: config.timezone,
+      videoOnly: config.videoOnly === true,
       postsPerDay: config.postsPerDay,
       /** The window the day's slots are spread across, in minutes past midnight. */
       postingWindow: postingWindow(),
@@ -152,6 +153,9 @@ export async function POST(request: NextRequest) {
   const config = threadsConfig();
 
   try {
+    if (config.videoOnly && ["add", "edit", "reschedule", "retry", "shift"].includes(action)) {
+      return NextResponse.json({ error: "Threads is in video-only mode. Text queue changes are held." }, { status: 409 });
+    }
     if (action === "check") {
       const blocked = threadsBlockedReason(config);
       if (blocked) return NextResponse.json({ ok: false, error: blocked }, { status: 400 });
@@ -256,8 +260,8 @@ export async function POST(request: NextRequest) {
 
     const removed = await mutateQueue<boolean | "protected">((items) => {
       const item = items.find((entry) => entry.id === id);
-      if (item && ((!item.postId && (item.publishAttemptedAt || item.containerId || item.claimedAt))
-        || (!item.plugPostId && (item.plugPublishAttemptedAt || item.plugContainerId || item.plugClaimedAt)))) {
+      if (item?.video || (item && ((!item.postId && (item.publishAttemptedAt || item.containerId || item.claimedAt))
+        || (!item.plugPostId && (item.plugPublishAttemptedAt || item.plugContainerId || item.plugClaimedAt))))) {
         return { items, result: "protected" as const };
       }
       const next = items.filter((entry) => entry.id !== id);

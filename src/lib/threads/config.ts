@@ -42,6 +42,8 @@ export type ThreadsAccount = {
 export type ThreadsConfig = {
   /** Master switch. Inert without credentials, so it defaults to on. */
   enabled: boolean;
+  /** Deliver only individually approved video rows, with text automation held. */
+  videoOnly?: boolean;
   /** Every account with both credentials present, in slot order. */
   accounts: ThreadsAccount[];
   apiBase: string;
@@ -169,8 +171,10 @@ function readAccounts(): ThreadsAccount[] {
 }
 
 export function threadsConfig(): ThreadsConfig {
+  const mode = str("THREADS_DELIVERY_MODE");
   return {
-    enabled: flag("THREADS_ENABLED", true),
+    enabled: flag("THREADS_ENABLED", true) && (!mode || mode === "text" || mode === "video-only"),
+    videoOnly: mode === "video-only",
     accounts: readAccounts(),
     // VERIFY: Threads keeps its own Graph host and version line, separate from
     // the Facebook/Instagram one — https://developers.facebook.com/docs/threads

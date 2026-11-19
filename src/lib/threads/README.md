@@ -316,3 +316,67 @@ label, assigned version and offset, and nothing else.
    would post, without posting.
 7. `npm run threads:register` — registers the Task Scheduler entry that ticks
    every five minutes.
+
+## Owner-approved video delivery
+
+Threads keeps video slots in the same file as the existing Threads queue.
+Meta starts delivering when the local worker calls publish; the booking
+receipt is the local worker's acknowledgment. The provider readback is
+recorded separately after Meta returns a post ID.
+
+1. Use the owning local Windows install. Verify the running build and the
+   explicit Threads pause before reconnecting. Ask the owner to authorize
+   the existing Threads app in Meta with the existing `threads_basic` and
+   `threads_content_publish` permissions and get a new long-lived token.
+   An expired token cannot be refreshed. The app's tester role or approved
+   publishing access must cover the intended account. Keep the token on the
+   owner host. For an app-owned token, use Settings > Accounts > Threads while
+   paused. The read-only check matches the exact profile and queries Meta's
+   publishing quota. Environment-owned settings remain with the local
+   operator. Pin the verified numeric profile in the same account slot.
+2. Verify the app's existing R2 endpoint and bucket using the owner account.
+   The bucket must have private access, including the R2.dev and custom
+   domain settings. Confirm the existing local credential can put, sign,
+   and delete objects and that the private `threads/video/` prefix has a
+   short retention policy to clean up interrupted transfers. Delivery uses
+   the configured `S3_*` account. `S3_PUBLIC_BASE_URL` must be unset, and
+   `THREADS_PRIVATE_VIDEO_BUCKET` must match the verified private bucket.
+   If these checks cannot be made, keep video delivery off. Do not change
+   the Instagram or Facebook media configuration to enable this route.
+3. For a video pilot, set `THREADS_DELIVERY_MODE=video-only` on the existing
+   worker. Verify the mode in the runtime before authorizing any resume.
+   It filters out the legacy text queue and skips planning, catch-up and
+   Threads crossposting from the X draft workflow. The normal Threads
+   pause still stops this mode. Leave the legacy queue untouched.
+4. In Clip Editor after MP4 export, choose **Review for Threads**. For an
+   existing final MP4, use **Review a final MP4 for Threads** on the Threads
+   queue. That path saves an exact private local copy with the existing
+   publisher upload storage. Watch the full preview and check the caption,
+   verified handle and Toronto slot. Approval includes the displayed
+   delivery window of up to ten minutes. The app keeps the same bytes
+   through staging. The local worker must be awake and within the window.
+5. Use **Check Threads receipt** on Scheduled & sent. A confirmed link
+   requires an authenticated read of the exact provider post ID, account,
+   caption, video type and posting time. An accepted ID stays saved if
+   readback is temporarily unavailable. An uncertain send with no post
+   ID remains held even if the container says Published. Verify the post
+   with the provider before any manual reconciliation. The worker will
+   not send it again. A missed slot is skipped. A new slot requires a new
+   exact approval and a safe pre-send state.
+
+Meta fetches only the approved final MP4 through a signed GET with a
+15-minute lifetime. The worker keeps the bucket and local source files
+private, never stores the signed URL in the ledger, and attempts to clean
+up the staged object after terminal processing. A signed URL is a bearer
+credential for one object. Validate the configured route with the owner
+before enabling live delivery. If Meta will not fetch the signed object,
+keep video held until a supported private transfer exists.
+
+Rollback is to pause Threads and leave the video-only mode and receipts
+intact for review. Do not switch to legacy text delivery while paused
+items remain unreviewed. No Meta browser login, upload, permission change
+or scheduled post is required to run the tests.
+
+- [Meta Threads API and authorization](https://www.postman.com/meta/threads/collection/dht3nzz/threads-api)
+- [Meta Threads container processing](https://developers.facebook.com/docs/threads/troubleshooting/)
+- [Cloudflare signed URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/)

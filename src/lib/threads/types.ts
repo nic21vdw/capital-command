@@ -1,3 +1,4 @@
+import type { ThreadsVideoBooking } from "@/lib/threads/video";
 import type { ThreadsVersion } from "@/lib/threads/config";
 
 /**
@@ -42,6 +43,8 @@ export type ThreadsQueueItem = {
   status: ThreadsPostStatus;
   /** Threads media id of the published post. */
   postId?: string;
+  /** Present only on exact, individually approved video bookings. */
+  video?: ThreadsVideoBooking;
   /** Mid-flight handle: the Threads container created but not yet published. */
   containerId?: string;
   /** Durable guard: publish may have reached Threads without a receipt. */
@@ -83,6 +86,7 @@ export type ThreadsQueueItem = {
   nextAttemptAt?: string;
   /** Soft lease so two overlapping ticks don't both post one item. */
   claimedAt?: string;
+  videoLeaseId?: string;
   publishedAt?: string;
   /**
    * When someone released this post from the review hold. A post typed by hand

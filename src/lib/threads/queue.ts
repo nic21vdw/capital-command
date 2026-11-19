@@ -56,11 +56,11 @@ export async function writeQueue(items: ThreadsQueueItem[]): Promise<void> {
 
 /** Read-modify-write in one go, so callers never hold a stale copy. */
 export async function mutateQueue<T>(
-  change: (items: ThreadsQueueItem[]) => { items: ThreadsQueueItem[]; result: T }
+  change: (items: ThreadsQueueItem[]) => { items: ThreadsQueueItem[]; result: T; unchanged?: boolean }
 ): Promise<T> {
   return withQueueWrite(async () => {
-    const { items, result } = change(await readQueue());
-    await saveQueue(items);
+    const { items, result, unchanged } = change(await readQueue());
+    if (!unchanged) await saveQueue(items);
     return result;
   });
 }
@@ -112,7 +112,7 @@ export function pruneOld(
   config: ThreadsConfig = threadsConfig()
 ): ThreadsQueueItem[] {
   const cutoff = now.getTime() - config.retentionDays * 86_400_000;
-  return items.filter((item) => new Date(item.publishAt).getTime() >= cutoff
+  return items.filter((item) => item.video || new Date(item.publishAt).getTime() >= cutoff
     || (!item.postId && Boolean(item.publishAttemptedAt || item.containerId))
     || (!item.plugPostId && Boolean(item.plugPublishAttemptedAt || item.plugContainerId)));
 }
@@ -199,6 +199,7 @@ function recoverable(item: ThreadsQueueItem): boolean {
 export function rescheduleItem(items: ThreadsQueueItem[], id: string, publishAt: string): QueueEditResult {
   const target = items.find((item) => item.id === id);
   if (!target) return { items, changed: 0, error: "No such queued post." };
+  if (target.video) return { items, changed: 0, error: "A new exact approval is required to change a video slot." };
   if (!editable(target)) return { items, changed: 0, error: `That post is already ${target.status}.` };
   if (hasStarted(target)) return { items, changed: 0, error: "This post has already started sending. Its scheduled time cannot be changed during delivery." };
   if (Number.isNaN(new Date(publishAt).getTime())) return { items, changed: 0, error: "That isn't a valid time." };
@@ -216,7 +217,7 @@ export function shiftBatch(items: ThreadsQueueItem[], date: string, minutes: num
     return { items, changed: 0, error: "Give a non-zero number of minutes." };
   }
   const waiting = items.filter((item) => item.batchDate === date && editable(item));
-  const pending = waiting.filter((item) => !hasStarted(item));
+  const pending = waiting.filter((item) => !item.video && !hasStarted(item));
   if (pending.length === 0) return { items, changed: 0, error: waiting.length
     ? "The pending posts on that day have already started sending and cannot be moved."
     : "Nothing pending on that day to move." };
@@ -238,6 +239,7 @@ export function shiftBatch(items: ThreadsQueueItem[], date: string, minutes: num
 export function retryItem(items: ThreadsQueueItem[], id: string, now: Date): QueueEditResult {
   const target = items.find((item) => item.id === id);
   if (!target) return { items, changed: 0, error: "No such queued post." };
+  if (target.video) return { items, changed: 0, error: "Video bookings require a new exact slot and approval. Check the receipt first." };
   if (!recoverable(target)) {
     return { items, changed: 0, error: `That post is ${target.status} — there is nothing to retry.` };
   }
@@ -267,6 +269,7 @@ export function editItemText(items: ThreadsQueueItem[], id: string, text: string
   if (!trimmed) return { items, changed: 0, error: "A post can't be empty." };
   const target = items.find((item) => item.id === id);
   if (!target) return { items, changed: 0, error: "No such queued post." };
+  if (target.video) return { items, changed: 0, error: "The approved video caption cannot be changed. Review a new booking." };
   // A failed post is edited on the way to being retried, so its copy stays
   // open even though it is out of the running until then.
   if (!editable(target) && !recoverable(target)) {

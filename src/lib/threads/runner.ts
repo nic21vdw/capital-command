@@ -5,9 +5,10 @@ import { accountAuthBlocked, clearAuthState, readAuthStates, recordAuthFailure }
 import { authStateKey } from "@/lib/platform-health/types";
 import { threadsAwaitingApproval } from "@/lib/publisher/approval";
 import { readReviewPolicy } from "@/lib/publisher/approvalStore";
-import { isTransient } from "@/lib/publisher/http";
+import { PermanentError, isTransient } from "@/lib/publisher/http";
 import { formatInTimezone } from "@/lib/publisher/time";
-import { ContainerPendingError, ContainerRejectedError, ThreadsPublishPausedError, postToThreads, type ThreadsPublishInput } from "@/lib/threads/api";
+import { ContainerPendingError, ContainerRejectedError, ThreadsPublishPausedError, ThreadsVideoProcessingError, postToThreads, readThreadsVideoPost, type ThreadsPublishInput } from "@/lib/threads/api";
+import { cleanupThreadsVideo, stageThreadsVideo, videoBookingMatches, videoDeliveryProfile } from "@/lib/threads/video";
 import { plugReplyFor } from "@/lib/threads/plug";
 import { findAccount, threadsBlockedReason, threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 import { mergeQueueChanges, mutateQueue, pruneOld, readQueue } from "@/lib/threads/queue";
@@ -34,6 +35,8 @@ export type ThreadsRunDeps = {
     containerId: string;
     postId: string;
   }>;
+  readVideo?: typeof readThreadsVideoPost;
+  cleanupVideo?: typeof cleanupThreadsVideo;
   /** Read the latest row and atomically save a claim prepared by this runner. */
   claim?: (id: string, prepare: (latest: ThreadsQueueItem) => boolean) => Promise<ThreadsQueueItem | undefined>;
 };
@@ -63,7 +66,9 @@ function defaultDeps(config: ThreadsConfig): ThreadsRunDeps {
       if (latest) previous = previous.map((item) => item.id === id ? structuredClone(latest) : item);
       return latest;
     },
-    post: (input) => postToThreads(input, config)
+    post: (input) => postToThreads(input, config),
+    readVideo: readThreadsVideoPost,
+    cleanupVideo: cleanupThreadsVideo
   };
 }
 
@@ -110,6 +115,8 @@ type KnownDelivery = { containerId: string; preparedAt?: string; postId?: string
 const defaultRecovery = new Map<string, KnownDelivery>();
 const injectedRecovery = new WeakMap<ThreadsRunDeps, Map<string, KnownDelivery>>();
 const MAX_REPLY_SENDS_PER_TICK = 3;
+
+class VideoLeaseLostError extends Error {}
 
 class QueuePersistenceError extends Error {
   constructor(error: unknown) {
@@ -190,7 +197,9 @@ async function runDueInternal(
   if (options.deps) injectedRecovery.set(deps, recovery);
   const loaded = await deps.read();
   // Dry runs and failed saves must never modify the read snapshot in-place.
-  const items = runOrder(structuredClone(pruneOld(loaded, now, config)));
+  // In video-only mode the old text backlog stays out of pruning, replies and delivery.
+  const items = runOrder(structuredClone(config.videoOnly ? loaded : pruneOld(loaded, now, config)));
+  const selected = items.filter((item) => Boolean(item.video) === Boolean(config.videoOnly));
   const deliveryKey = (item: ThreadsQueueItem, reply: boolean) => `${item.accountId}:${item.id}:${reply ? "reply" : "post"}`;
   const persist = async () => {
     if (dryRun) return;
@@ -202,11 +211,20 @@ async function runDueInternal(
     }
   };
 
-  const awaitingApproval = (item: ThreadsQueueItem, ownClaim = false) => threadsAwaitingApproval(
-    ownClaim ? { ...item, claimedAt: undefined } : item, readReviewPolicy()
-  );
+  const awaitingApproval = (item: ThreadsQueueItem, ownClaim = false) => item.video
+    ? !videoBookingMatches(item)
+    : threadsAwaitingApproval(ownClaim ? { ...item, claimedAt: undefined } : item, readReviewPolicy());
+  const deliveryWindow = (item: ThreadsQueueItem) => item.video
+    ? new Date(item.video.target.latestAt).getTime() - new Date(item.publishAt).getTime()
+    : config.lateGraceMinutes * 60_000;
   const allowed = async (item: ThreadsQueueItem, reply: boolean, expectedToken?: string): Promise<boolean> => {
-    const live = currentConfig();
+    const live = item.video && !options.deps ? threadsConfig() : currentConfig();
+    if (item.video) {
+      const at = options.deps ? now.getTime() : Date.now();
+      if (!live.videoOnly || !videoBookingMatches(item) || at < new Date(item.publishAt).getTime()
+        || at > new Date(item.video.target.latestAt).getTime()
+        || (!options.deps && !videoDeliveryProfile())) return false;
+    }
     if (threadsBlockedReason(live) || (reply && (!live.plugReplies || !live.plugUrl))) return false;
     const original = findAccount(config, item.accountId);
     const account = findAccount(live, item.accountId);
@@ -262,11 +280,39 @@ async function runDueInternal(
   };
 
   let replySends = 0;
+  const cleanupVideo = async (item: ThreadsQueueItem) => {
+    try { await deps.cleanupVideo?.(item); }
+    catch { log("[threads] Private video cleanup could not be confirmed. Check the bucket lifecycle."); }
+  };
+  const verifyVideo = async (item: ThreadsQueueItem) => {
+    if (!item.video || !item.postId || !videoBookingMatches(item) || !deps.readVideo) return;
+    const live = options.deps ? currentConfig() : threadsConfig();
+    const account = findAccount(live, item.accountId);
+    if (!account || account.userId !== item.video.target.userId) return;
+    let proof;
+    try {
+      proof = await deps.readVideo(account, item.video.target, item.postId, live);
+    } catch {
+      item.error = "Threads accepted this video. Check the saved post ID before making a new booking.";
+      item.nextAttemptAt = new Date(now.getTime() + 5 * 60_000).toISOString();
+      await persist();
+      return;
+    }
+    Object.assign(item.video, { ...proof, verifiedAt: new Date().toISOString() });
+    item.status = "published";
+    item.publishedAt = proof.providerTimestamp;
+    delete item.error;
+    delete item.nextAttemptAt;
+    await saveAccepted(item, `${account.label} posted video ${item.postId}; verified on Threads.`);
+    await cleanupVideo(item);
+    await clearAuthState("threads", account.id);
+  };
+
   const unknownSend = (item: ThreadsQueueItem, reply = false) => reply
     ? Boolean(!item.plugPostId && (item.plugPublishAttemptedAt || (item.plugContainerId && !item.plugContainerPreparedAt)))
     : Boolean(!item.postId && (item.publishAttemptedAt || (item.containerId && !item.containerPreparedAt)));
   const prepareReply = (item: ThreadsQueueItem): boolean => {
-    if (awaitingApproval(item) || unknownSend(item)) return false;
+    if (item.video || awaitingApproval(item) || unknownSend(item)) return false;
     const age = item.publishedAt ? (now.getTime() - new Date(item.publishedAt).getTime()) / 60_000 : NaN;
     const canPrepare = item.status === "pending" || (item.status === "published" && Number.isFinite(age) && age >= 0 && age <= config.plugWindowMinutes);
     if (!currentConfig().plugReplies || !currentConfig().plugUrl || !canPrepare || item.plugPostId || item.plugDropped || item.plugContainerId || item.plugClaimedAt || item.plugPublishAttemptedAt || (item.plugAttempts ?? 0)) return false;
@@ -277,6 +323,12 @@ async function runDueInternal(
   };
   const hasLiveClaim = (at?: string) => Boolean(at && now.getTime() - new Date(at).getTime() < config.claimTimeoutMinutes * 60_000);
   const retryWaiting = (at?: string) => Boolean(at && new Date(at).getTime() > now.getTime());
+  const adoptLatest = (item: ThreadsQueueItem, latest: ThreadsQueueItem) => {
+    for (const key of Object.keys(item) as Array<keyof ThreadsQueueItem>) {
+      if (!(key in latest)) Reflect.deleteProperty(item, key);
+    }
+    Object.assign(item, latest);
+  };
   const claimLatest = async (item: ThreadsQueueItem): Promise<"post" | "reply" | "held" | "unclaimed" | "missing"> => {
     if (!deps.claim || dryRun) return "unclaimed";
     let claimed: "post" | "reply" | "held" | "unclaimed" = "unclaimed";
@@ -286,15 +338,16 @@ async function runDueInternal(
       const account = findAccount(currentConfig(), fresh.accountId);
       if (!account) return false;
       const dueAt = new Date(fresh.publishAt).getTime();
-      if (awaitingApproval(fresh) && now.getTime() - dueAt <= config.lateGraceMinutes * 60_000) {
+      if (awaitingApproval(fresh) && now.getTime() - dueAt <= deliveryWindow(fresh)) {
         claimed = "held";
         return false;
       }
       const prepared = prepareReply(fresh);
       if (fresh.status === "pending" && !fresh.postId && !unknownSend(fresh) && Number.isFinite(dueAt) && dueAt <= now.getTime()
-        && now.getTime() - dueAt <= config.lateGraceMinutes * 60_000
+        && now.getTime() - dueAt <= deliveryWindow(fresh)
         && !retryWaiting(fresh.nextAttemptAt) && !hasLiveClaim(fresh.claimedAt)) {
         fresh.claimedAt = now.toISOString();
+        if (fresh.video) fresh.videoLeaseId = crypto.randomUUID();
         claimed = "post";
         return true;
       }
@@ -312,11 +365,35 @@ async function runDueInternal(
     if (!latest) return "missing";
     // Adopt the whole row, including deletions of optional fields, before any
     // due/status/copy decision. A later row may have changed during an upload.
-    for (const key of Object.keys(item) as Array<keyof ThreadsQueueItem>) {
-      if (!(key in latest)) Reflect.deleteProperty(item, key);
-    }
-    Object.assign(item, latest);
+    adoptLatest(item, latest);
     return claimed;
+  };
+  // Compare-and-set the existing locked row, so an old worker cannot send
+  // after another worker took its lease during a slow storage/API request.
+  const updateVideoLease = async (
+    item: ThreadsQueueItem, change: (latest: ThreadsQueueItem) => boolean
+  ) => {
+    if (!deps.claim) {
+      if (!change(item)) throw new VideoLeaseLostError();
+      await persist();
+      return;
+    }
+    const booking = item.video?.digest;
+    let updated = false;
+    let latest;
+    try {
+      latest = await deps.claim(item.id, (fresh) => {
+        if (!item.videoLeaseId || fresh.videoLeaseId !== item.videoLeaseId || fresh.claimedAt !== item.claimedAt
+          || fresh.status !== "pending" || fresh.postId || fresh.publishAttemptedAt
+          || fresh.video?.digest !== booking || !videoBookingMatches(fresh)) return false;
+        updated = change(fresh);
+        return updated;
+      });
+    } catch (error) {
+      throw new QueuePersistenceError(error);
+    }
+    if (latest) adoptLatest(item, latest);
+    if (!latest || !updated) throw new VideoLeaseLostError();
   };
   const sendPlug = async (item: ThreadsQueueItem, alreadyClaimed = false) => {
     if (alreadyClaimed && !await allowed(item, true)) {
@@ -432,7 +509,7 @@ async function runDueInternal(
   try {
     let changed = items.length !== loaded.length;
     const recoveredReplies: Array<{ item: ThreadsQueueItem; detail: string }> = [];
-    for (const item of items) {
+    for (const item of selected) {
       for (const reply of [false, true]) {
         const receipt = recovery.get(deliveryKey(item, reply));
         const text = reply ? item.plugText : item.text;
@@ -472,7 +549,7 @@ async function runDueInternal(
     }
     for (const receipt of recoveredReplies) await record(receipt.item, "published", receipt.detail, true);
 
-    for (const item of items) {
+    for (const item of selected) {
       if (heldAccounts.has(item.accountId)) continue;
       const liveBlocked = threadsBlockedReason(currentConfig());
       if (liveBlocked || (!dryRun && await isAutomationPaused("threads"))) {
@@ -482,6 +559,7 @@ async function runDueInternal(
       // The retained queue includes days of terminal history. Only rows this
       // tick could act on need a fresh atomic claim and its disk write.
       if (item.status !== "pending" && item.status !== "published") continue;
+      if (item.video && item.status === "published") continue;
       if (item.status === "published" && unknownSend(item, true)) {
         uncertainSends += 1;
         note = "A Threads reply outcome is unknown. Check Threads and reconcile its receipt before resending.";
@@ -499,7 +577,7 @@ async function runDueInternal(
         item.status === "pending" &&
         !item.postId &&
         awaitingApproval(item) &&
-        now.getTime() - new Date(item.publishAt).getTime() <= config.lateGraceMinutes * 60_000
+        now.getTime() - new Date(item.publishAt).getTime() <= deliveryWindow(item)
       ) {
         heldForApproval += 1;
         continue;
@@ -518,6 +596,10 @@ async function runDueInternal(
 
       if (unknownSend(item)) continue;
       if (item.postId) {
+        if (item.video) {
+          if (!dryRun && !retryWaiting(item.nextAttemptAt)) await verifyVideo(item);
+          continue;
+        }
         delete item.publishAttemptedAt;
         item.status = "published";
         item.publishedAt ??= now.toISOString();
@@ -531,7 +613,7 @@ async function runDueInternal(
       const dueAt = new Date(item.publishAt).getTime();
       if (dueAt > now.getTime()) continue;
       const lateMinutes = (now.getTime() - dueAt) / 60_000;
-      if (lateMinutes > config.lateGraceMinutes) {
+      if (lateMinutes * 60_000 > deliveryWindow(item)) {
         const slotAt = formatInTimezone(new Date(item.publishAt), config.timezone);
         const lead = awaitingApproval(item)
           ? `Not approved before its slot at ${slotAt}`
@@ -541,6 +623,7 @@ async function runDueInternal(
         delete item.claimedAt;
         await persist();
         await record(item, "skipped", item.note);
+        if (!dryRun && item.video && item.containerId) await cleanupVideo(item);
         continue;
       }
       if (item.nextAttemptAt && new Date(item.nextAttemptAt).getTime() > now.getTime()) continue;
@@ -555,6 +638,7 @@ async function runDueInternal(
         await record(item, "skipped", item.note);
         continue;
       }
+      if (item.video && !videoBookingMatches(item)) continue;
       if (dryRun) {
         await record(item, "published", `Would post as ${account.label}: "${item.text.slice(0, 60)}…"`);
         continue;
@@ -562,6 +646,7 @@ async function runDueInternal(
 
       if (claimed !== "post") {
         item.claimedAt = now.toISOString();
+        if (item.video) item.videoLeaseId = crypto.randomUUID();
         await persist();
       }
       if (!await allowed(item, false, account.accessToken)) {
@@ -576,14 +661,37 @@ async function runDueInternal(
       let result;
       try {
         result = await deps.post({
-          account, text: item.text, containerId: item.containerId, attributionCode: postCode(item.id),
+          account, text: item.text, containerId: item.containerId,
+          ...(item.video ? {
+            video: { target: item.video.target, stage: async () => {
+              try { return await stageThreadsVideo(item); }
+              catch { throw new PermanentError("The approved local MP4 or private Threads hosting could not be verified."); }
+            } }
+          } : { attributionCode: postCode(item.id) }),
           shouldPublish: () => allowed(item, false, account.accessToken),
           onBeforePublish: async (containerId) => {
+            if (item.video) {
+              await updateVideoLease(item, (latest) => {
+                if (latest.containerId !== containerId || !latest.containerPreparedAt) return false;
+                latest.publishAttemptedAt = new Date().toISOString();
+                return true;
+              });
+              return;
+            }
             item.containerId = containerId;
             item.publishAttemptedAt = new Date().toISOString();
             await persist();
           },
           onContainerCreated: async (containerId) => {
+            if (item.video) {
+              await updateVideoLease(item, (latest) => {
+                if (latest.containerId) return false;
+                latest.containerId = containerId;
+                latest.containerPreparedAt = new Date().toISOString();
+                return true;
+              });
+              return;
+            }
             item.containerId = containerId;
             item.containerPreparedAt = new Date().toISOString();
             recovery.set(key, { containerId, preparedAt: item.containerPreparedAt, text: item.text });
@@ -592,6 +700,7 @@ async function runDueInternal(
         });
       } catch (error) {
         if (error instanceof QueuePersistenceError) throw error;
+        if (error instanceof VideoLeaseLostError) continue;
         if (error instanceof ContainerPendingError || error instanceof ContainerRejectedError || error instanceof ThreadsPublishPausedError) {
           item.containerId = error.containerId ?? item.containerId;
         }
@@ -620,6 +729,13 @@ async function runDueInternal(
           await record(item, "failed", item.error);
           continue;
         }
+        if (error instanceof ThreadsVideoProcessingError) {
+          item.nextAttemptAt = new Date(now.getTime() + 60_000).toISOString();
+          item.error = error.message;
+          await persist();
+          await record(item, "retrying", item.error);
+          continue;
+        }
         item.attempts += 1;
         item.lastFailedAt = now.toISOString();
         item.error = error instanceof Error ? error.message : String(error);
@@ -628,12 +744,26 @@ async function runDueInternal(
           delete item.nextAttemptAt;
           await persist();
           await record(item, "failed", item.error);
+          if (item.video && item.containerId) await cleanupVideo(item);
         } else {
           const wait = backoffMinutes(item.attempts, config);
           item.nextAttemptAt = new Date(now.getTime() + wait * 60_000).toISOString();
           await persist();
           await record(item, "retrying", `${item.error} (retrying in ${wait} min)`);
         }
+        continue;
+      }
+      if (item.video) {
+        item.postId = result.postId;
+        item.containerId = result.containerId;
+        delete item.publishAttemptedAt;
+        delete item.claimedAt;
+        delete item.nextAttemptAt;
+        // Save acceptance before GET readback. Restarts may check this ID and
+        // cannot replay the publish call even if the readback is unavailable.
+        recovery.set(key, { ...result, text: item.text });
+        await persist();
+        await verifyVideo(item);
         continue;
       }
       item.status = "published";

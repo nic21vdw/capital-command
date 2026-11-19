@@ -209,7 +209,7 @@ describe("Threads credential recovery", () => {
     await writeFile(dataPath("threads-queue.json"), queue);
     const response = await POST(saveRequest({ THREADS_ACCESS_TOKEN: fixtureToken }));
     expect(response.status).toBe(200);
-    expect(saveCredentials).toHaveBeenCalledExactlyOnceWith({ THREADS_ACCESS_TOKEN: fixtureToken }, { strict: true });
+    expect(saveCredentials).toHaveBeenCalledExactlyOnceWith({ THREADS_ACCESS_TOKEN: fixtureToken }, { strict: true, prepare: expect.any(Function) });
     const body = await response.json();
     expect(body.threadsRecovery.control).toBe("paused");
     expect(JSON.stringify(body)).not.toContain(fixtureToken);

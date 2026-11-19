@@ -155,16 +155,21 @@ export async function credentialsPresent(names: readonly string[]): Promise<Reco
  * Threads recovery opts into strict mode: an absent file may be initialized,
  * but an unreadable or invalid store must never be overwritten as empty.
  */
-export async function saveCredentials(updates: Record<string, string>, options: { strict?: boolean } = {}) {
+type CredentialSaveOptions =
+  | { strict?: false }
+  | { strict: true; prepare?: (current: Readonly<Record<string, string>>) => Promise<Record<string, string>> };
+
+export async function saveCredentials(updates: Record<string, string>, options: CredentialSaveOptions = {}) {
   const requested = { ...updates };
-  const strict = options.strict === true;
   const save = async () => {
     // Queue the read together with the write: two connection forms can save
     // at once, and neither may replace the other's newly entered credentials.
     // Strict reads must happen here, after earlier queued saves finish. A
     // cached or pre-queued snapshot can drop another connection's new values.
-    const current = { ...(strict ? await loadStrict() : await load()) };
-    for (const [key, value] of Object.entries(requested)) {
+    const current = { ...(options.strict ? await loadStrict() : await load()) };
+    const prepared = options.strict && options.prepare ? await options.prepare(current) : {};
+    const accepted = { ...requested, ...prepared };
+    for (const [key, value] of Object.entries(accepted)) {
       const trimmed = (value ?? "").trim();
       if (trimmed) current[key] = trimmed;
       else delete current[key];
@@ -173,7 +178,7 @@ export async function saveCredentials(updates: Record<string, string>, options: 
     await atomicWriteJson(dataPath(FILE), current);
 
     cache = current;
-    for (const [key, value] of Object.entries(requested)) {
+    for (const [key, value] of Object.entries(accepted)) {
       if (value.trim()) process.env[key] = value.trim();
       else delete process.env[key];
     }

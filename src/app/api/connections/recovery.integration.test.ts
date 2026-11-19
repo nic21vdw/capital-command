@@ -6,24 +6,36 @@ import { dataPath } from "@/lib/paths";
 import { credentialSources, forgetCredentials, saveCredentials } from "@/lib/publisher/credentials";
 import { readAutomationControls, setAutomationPaused, withAutomationControlsLock } from "@/lib/automations/store";
 
-// Real route, credentials store, controls and atomic writes. Only fetch is
-// blocked: a recovery save must never contact a provider.
+// Real route, credentials store, controls and atomic writes. Stub all provider
+// I/O and admit only the official profile and quota reads.
 const replacement = "synthetic-route-replacement";
+const userId = "1000000000001";
+const handle = "synthetic_profile";
 const original = { THREADS_ACCESS_TOKEN: "synthetic-route-current", YOUTUBE_CLIENT_SECRET: "synthetic-unrelated-secret" };
 let fetchMock: ReturnType<typeof vi.fn>;
+let fixtureResponses: Response[];
 
 beforeEach(async () => {
   await rm(dataPath("credentials.json"), { recursive: true, force: true });
   await rm(dataPath("automations"), { recursive: true, force: true });
   forgetCredentials();
-  for (const name of ["THREADS_ACCESS_TOKEN", "THREADS_USER_ID", "YOUTUBE_CLIENT_SECRET", "TIKTOK_CLIENT_KEY"]) vi.stubEnv(name, "");
-  fetchMock = vi.fn(() => { throw new Error("No provider request is permitted"); });
+  for (const name of ["THREADS_ACCESS_TOKEN", "THREADS_USER_ID", "THREADS_API_BASE", "THREADS_GRAPH_API_VERSION", "YOUTUBE_CLIENT_SECRET", "TIKTOK_CLIENT_KEY"]) vi.stubEnv(name, "");
+  fixtureResponses = [];
+  fetchMock = vi.fn((url: string, options: RequestInit) => {
+    expect(url).toMatch(/^https:\/\/graph\.threads\.com\/v1\.0\/me(?:\?|\/threads_publishing_limit\?)/);
+    expect(options.method).toBe("GET");
+    expect(options.redirect).toBe("error");
+    expect(url).not.toContain(replacement);
+    const response = fixtureResponses.shift();
+    if (!response) throw new Error("No provider request is permitted");
+    return Promise.resolve(response);
+  });
   vi.stubGlobal("fetch", fetchMock);
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 afterEach(() => {
-  expect(fetchMock).not.toHaveBeenCalled();
+  expect(fixtureResponses).toHaveLength(0);
   expect(console.error).not.toHaveBeenCalled();
   expect(console.warn).not.toHaveBeenCalled();
   vi.restoreAllMocks();
@@ -31,10 +43,16 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-function request() {
-  return new Request("http://localhost:3100/api/connections", {
-    method: "POST", body: JSON.stringify({ values: { THREADS_ACCESS_TOKEN: replacement } })
-  });
+function post(body: Record<string, unknown>) {
+  return new Request("http://localhost:3100/api/connections", { method: "POST", body: JSON.stringify(body) });
+}
+
+function request(username = handle) {
+  return post({ values: { THREADS_ACCESS_TOKEN: replacement }, threadsHandle: username });
+}
+
+function validConnection() {
+  fixtureResponses.push(Response.json({ id: userId, username: handle }), Response.json({ data: [{ quota_usage: 1 }] }));
 }
 
 function deferred() {
@@ -56,6 +74,7 @@ describe("real Threads credential recovery storage", () => {
     forgetCredentials();
     const response = await POST(request());
     expect(response.status).toBe(409);
+    expect(fetchMock).not.toHaveBeenCalled();
     expect((await response.json()).code).toBe("credential_store_unavailable");
     expect(await readFile(dataPath("credentials.json"), "utf8")).toBe(raw);
     expect(process.env.THREADS_ACCESS_TOKEN).toBe("");
@@ -71,6 +90,7 @@ describe("real Threads credential recovery storage", () => {
     const controls = await readFile(dataPath("automations", "control.json"), "utf8");
     const response = await POST(request());
     expect(response.status).toBe(409);
+    expect(fetchMock).not.toHaveBeenCalled();
     const body = await response.json();
     expect(body.code).toBe("credential_store_unavailable");
     expect(body.error).toContain("repair the credential store");
@@ -91,6 +111,7 @@ describe("real Threads credential recovery storage", () => {
     await writeFile(dataPath("credentials.json", "synthetic-marker"), "preserve this target");
     const response = await POST(request());
     expect(response.status).toBe(409);
+    expect(fetchMock).not.toHaveBeenCalled();
     expect((await response.json()).code).toBe("credential_store_unavailable");
     expect((await stat(dataPath("credentials.json"))).isDirectory()).toBe(true);
     expect(await readFile(dataPath("credentials.json", "synthetic-marker"), "utf8")).toBe("preserve this target");
@@ -102,10 +123,16 @@ describe("real Threads credential recovery storage", () => {
     expect((await POST(request())).status).toBe(409);
     expect(await stat(dataPath("credentials.json")).catch(() => null)).toBeNull();
     await setAutomationPaused("threads", true);
+    expect(fetchMock).not.toHaveBeenCalled();
+    validConnection();
     const response = await POST(request());
     expect(response.status).toBe(200);
-    expect(await response.text()).not.toContain(replacement);
-    expect(JSON.parse(await readFile(dataPath("credentials.json"), "utf8"))).toEqual({ THREADS_ACCESS_TOKEN: replacement });
+    const body = await response.json();
+    expect(body.threadsConnection).toMatchObject({ state: "verified", username: handle });
+    expect(JSON.stringify(body)).not.toContain(replacement);
+    expect(JSON.parse(await readFile(dataPath("credentials.json"), "utf8"))).toEqual({
+      THREADS_ACCESS_TOKEN: replacement, THREADS_USER_ID: userId
+    });
     expect(process.env.THREADS_ACCESS_TOKEN).toBe(replacement);
     expect((await readAutomationControls()).threads?.paused).toBe(true);
   });
@@ -114,9 +141,10 @@ describe("real Threads credential recovery storage", () => {
     await seedPaused();
     const fresh = { ...original, YOUTUBE_CLIENT_SECRET: "synthetic-fresh-unrelated", FUTURE_PROVIDER_KEY: " synthetic-future " };
     await writeFile(dataPath("credentials.json"), JSON.stringify(fresh));
+    validConnection();
     const response = await POST(request());
     expect(response.status).toBe(200);
-    expect(JSON.parse(await readFile(dataPath("credentials.json"), "utf8"))).toEqual({ ...fresh, THREADS_ACCESS_TOKEN: replacement });
+    expect(JSON.parse(await readFile(dataPath("credentials.json"), "utf8"))).toEqual({ ...fresh, THREADS_ACCESS_TOKEN: replacement, THREADS_USER_ID: userId });
     expect(process.env.THREADS_ACCESS_TOKEN).toBe(replacement);
     expect((await readAutomationControls()).threads?.paused).toBe(true);
   });
@@ -128,6 +156,7 @@ describe("real Threads credential recovery storage", () => {
     vi.stubEnv("THREADS_ACCESS_TOKEN", "synthetic-env-owned");
     const response = await POST(request());
     expect(response.status).toBe(409);
+    expect(fetchMock).not.toHaveBeenCalled();
     const body = await response.json();
     expect(body.code).toBe("env_owned");
     expect(body.error).toContain("owner replaces credentials at their source");
@@ -139,6 +168,7 @@ describe("real Threads credential recovery storage", () => {
 
   it.each([false, true])("orders the actual save and resume at the same lock, save first=%s", async (saveFirst) => {
     await seedPaused();
+    if (saveFirst) validConnection();
     const held = deferred();
     const release = deferred();
     const holding = withAutomationControlsLock(async () => { held.resolve(); await release.promise; });
@@ -162,9 +192,66 @@ describe("real Threads credential recovery storage", () => {
     const [response] = await Promise.all([saving!, resuming!]);
     expect(response.status).toBe(saveFirst ? 200 : 409);
     expect(JSON.parse(await readFile(dataPath("credentials.json"), "utf8"))).toEqual({
-      ...original, THREADS_ACCESS_TOKEN: saveFirst ? replacement : original.THREADS_ACCESS_TOKEN
+      ...original, ...(saveFirst ? { THREADS_ACCESS_TOKEN: replacement, THREADS_USER_ID: userId } : {})
     });
     expect((await readAutomationControls()).threads?.paused).toBe(false);
+  });
+
+
+  it("rejects the wrong profile or a missing publishing permission and leaves the real stores unchanged", async () => {
+    await seedPaused();
+    const creds = await readFile(dataPath("credentials.json"), "utf8");
+    const controls = await readFile(dataPath("automations", "control.json"), "utf8");
+    const queued = JSON.stringify([{ id: "synthetic-untouched", status: "pending" }]);
+    await writeFile(dataPath("threads-queue.json"), queued);
+    fixtureResponses.push(Response.json({ id: userId, username: "wrong_profile" }));
+    const wrong = await POST(request());
+    expect(wrong.status).toBe(409);
+    expect((await wrong.json()).code).toBe("threads_profile_mismatch");
+    fixtureResponses.push(
+      Response.json({ id: userId, username: handle }),
+      Response.json({ error: { code: 200, message: replacement } }, { status: 403 })
+    );
+    const refused = await POST(request());
+    expect(refused.status).toBe(409);
+    const body = await refused.json();
+    expect(body.code).toBe("threads_publish_permission");
+    expect(JSON.stringify(body)).not.toContain(replacement);
+    expect(await readFile(dataPath("credentials.json"), "utf8")).toBe(creds);
+    expect(await readFile(dataPath("automations", "control.json"), "utf8")).toBe(controls);
+    expect(await readFile(dataPath("threads-queue.json"), "utf8")).toBe(queued);
+  });
+
+  it("checks existing env-owned authorization read-only and distinguishes expiry", async () => {
+    await setAutomationPaused("threads", true);
+    vi.stubEnv("THREADS_ACCESS_TOKEN", "synthetic-env-existing-token");
+    vi.stubEnv("THREADS_USER_ID", userId);
+    const before = await readFile(dataPath("automations", "control.json"), "utf8");
+    fixtureResponses.push(Response.json({ error: { code: 190, message: "synthetic-env-existing-token" } }, { status: 400 }));
+    const expired = await POST(post({ checkThreads: true }));
+    expect(expired.status).toBe(409);
+    const body = await expired.json();
+    expect(body.threadsConnection).toEqual({ state: "reauth_required" });
+    expect(JSON.stringify(body)).not.toContain("synthetic-env-existing-token");
+    validConnection();
+    const verified = await POST(post({ checkThreads: true }));
+    expect((await verified.json()).threadsConnection).toMatchObject({ state: "verified", username: handle });
+    expect(await stat(dataPath("credentials.json")).catch(() => null)).toBeNull();
+    expect(await readFile(dataPath("automations", "control.json"), "utf8")).toBe(before);
+  });
+
+  it("retains a configured Threads ID when removing its credential and refuses profile switching", async () => {
+    await seedPaused();
+    await saveCredentials({ THREADS_USER_ID: userId });
+    const refused = await POST(post({ values: { THREADS_USER_ID: "1000000000002" }, threadsHandle: handle }));
+    expect(refused.status).toBe(409);
+    expect((await refused.json()).code).toBe("threads_profile_mismatch");
+    const removed = await POST(post({ values: { THREADS_ACCESS_TOKEN: "" } }));
+    expect(removed.status).toBe(200);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(JSON.parse(await readFile(dataPath("credentials.json"), "utf8"))).toEqual({
+      YOUTUBE_CLIENT_SECRET: original.YOUTUBE_CLIENT_SECRET, THREADS_USER_ID: userId
+    });
   });
 
   it.each(["", "synthetic malformed lock"])("times out on an abandoned unreadable lock without deleting it: %j", async (rawLock) => {
