@@ -91,6 +91,8 @@ const enqueueSchema = z.object({
   visibility: z.enum(["public", "private", "unlisted"]).optional(),
   accountId: z.string().min(1).optional(),
   format: z.enum(["short", "long"]).optional(),
+  /** false books Instagram alone, without the Facebook Page riding along. */
+  pairFacebook: z.boolean().optional(),
   /**
    * The creator's TikTok consent (tiktokPost.ts). Shape-checked here and
    * rule-checked below: TikTok's posting rules are not the browser's to
@@ -193,6 +195,7 @@ export async function POST(request: NextRequest) {
       jobId: body.jobId,
       accountId: body.accountId,
       format: body.format,
+      pairFacebook: body.pairFacebook,
       tiktok: tiktokConsent
     });
   } catch (error) {

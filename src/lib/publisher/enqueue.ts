@@ -129,6 +129,11 @@ export type EnqueueOptions = {
   /** Queues a post the queue already carries. Only a person asking for it. */
   allowDuplicate?: boolean;
   /**
+   * false books Instagram without the Facebook Page riding along
+   * (metaPairing.ts). Only a person asking for it; omitted pairs as before.
+   */
+  pairFacebook?: boolean;
+  /**
    * Which entry point asked for this post, recorded in the queue's audit log
    * (`audit.ts`). `enqueue` is the one door into the queue, so without this
    * every booking would read the same and the log could not tell the pipeline's
@@ -249,7 +254,8 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
 
   const platforms = withFacebookAlongsideInstagram(
     (options.platforms?.length ? options.platforms : config.platforms).filter((p, i, list) => list.indexOf(p) === i),
-    options.accountId
+    options.accountId,
+    options.pairFacebook
   );
   if (platforms.length === 0) throw new Error("No platforms selected (check PUBLISH_PLATFORMS).");
 
@@ -388,6 +394,8 @@ export type EnqueueImageOptions = {
   allowSameDay?: boolean;
   allowDuplicate?: boolean;
   /** See EnqueueOptions. */
+  pairFacebook?: boolean;
+  /** See EnqueueOptions. */
   by?: QueueWriter;
 };
 
@@ -426,7 +434,8 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
 
   const asked = withFacebookAlongsideInstagram(
     (options.platforms?.length ? options.platforms : config.platforms).filter((p, i, list) => list.indexOf(p) === i),
-    options.accountId
+    options.accountId,
+    options.pairFacebook
   );
   if (asked.length === 0) throw new Error("No platforms selected (check PUBLISH_PLATFORMS).");
 

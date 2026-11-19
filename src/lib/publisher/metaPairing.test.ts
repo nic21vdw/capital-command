@@ -50,6 +50,11 @@ describe("Instagram brings Facebook with it", () => {
   it("leaves an extra Instagram account on its own — no Page is paired with it", () => {
     expect(withFacebookAlongsideInstagram(["instagram"], "instagram-2")).toEqual(["instagram"]);
   });
+
+  it("leaves Instagram alone when a person asks for it alone", () => {
+    expect(withFacebookAlongsideInstagram(["instagram"], undefined, false)).toEqual(["instagram"]);
+    expect(withFacebookAlongsideInstagram(["instagram"], "instagram-primary", false)).toEqual(["instagram"]);
+  });
 });
 
 describe("a scheduled Instagram post is scheduled to Facebook", () => {
@@ -96,5 +101,18 @@ describe("a scheduled Instagram post is scheduled to Facebook", () => {
       platforms: ["instagram"]
     });
     expect(Object.keys(item.platforms).sort()).toEqual(["facebook", "instagram"]);
+  });
+
+  it("books Instagram alone when pairFacebook is false", async () => {
+    const { enqueueImagePost } = await import("@/lib/publisher/enqueue");
+    const item = await enqueueImagePost({
+      title: "A deck for Instagram only",
+      caption: "copy",
+      imagePaths: [picture],
+      publishAt: `${dateKeyIn(2)}T12:30`,
+      platforms: ["instagram"],
+      pairFacebook: false
+    });
+    expect(Object.keys(item.platforms)).toEqual(["instagram"]);
   });
 });
