@@ -3,7 +3,8 @@ import { threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
 import { mutateQueue } from "@/lib/threads/queue";
 import { hasStarted } from "@/lib/threads/rewrite";
 import { xDraftsConfig, type XDraftsConfig } from "@/lib/x-drafts/config";
-import { readFacts } from "@/lib/x-drafts/facts";
+import { mergeFacts, readFacts, type DatedFact } from "@/lib/x-drafts/facts";
+import { collectLiveFacts } from "@/lib/x-drafts/liveFactSources";
 import { writeDraftBatch } from "@/lib/x-drafts/generator";
 import { newPhoneKey, renderPhonePage, uploadPhonePage } from "@/lib/x-drafts/phone";
 import { addDays, bookDraftsOnThreads, datesDue, nextUnwrittenDate, slotTimes } from "@/lib/x-drafts/schedule";
@@ -35,6 +36,17 @@ function prune(drafts: XDraft[], today: string): XDraft[] {
   return drafts.filter((draft) => draft.batchDate >= cutoff);
 }
 
+export async function factsFor(date: string, now: Date, timeZone: string, config: XDraftsConfig): Promise<DatedFact[]> {
+  const manual = await readFacts(date);
+  if (!config.liveFacts) return manual;
+  try {
+    const { facts } = await collectLiveFacts({ now, today: localCalendarParts(now, timeZone).dateKey, timeZone });
+    return mergeFacts(manual, facts);
+  } catch {
+    return manual;
+  }
+}
+
 async function runWrite(date: string, now: Date, threads: ThreadsConfig, config: XDraftsConfig): Promise<WriteOutcome> {
   const state = await xDraftsStore.read();
   if (state.drafts.some((draft) => draft.batchDate === date)) return { date, created: 0, booked: 0, dropped: [] };
@@ -42,7 +54,7 @@ async function runWrite(date: string, now: Date, threads: ThreadsConfig, config:
   let dropped: string[] = [];
   let error: string | undefined;
   try {
-    ({ drafts, dropped } = await writeDraftBatch({ date, times: slotTimes(config), recentOpenings: recentOpenings(state), now, facts: await readFacts(date) }));
+    ({ drafts, dropped } = await writeDraftBatch({ date, times: slotTimes(config), recentOpenings: recentOpenings(state), now, facts: await factsFor(date, now, threads.timezone, config) }));
     if (drafts.length === 0) error = `No usable drafts came back${dropped.length ? ` (${dropped.slice(0, 3).join("; ")})` : ""}.`;
   } catch (cause) {
     error = cause instanceof Error ? cause.message : String(cause);

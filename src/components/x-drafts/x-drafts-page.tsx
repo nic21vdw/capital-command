@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState, LoadingState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
-import { draftThreadsLabel, dayHeading, slotLabel, summarizeDrafts } from "@/lib/x-drafts/display";
+import { draftThreadsLabel, dayHeading, liveSourceRows, slotLabel, summarizeDrafts } from "@/lib/x-drafts/display";
+import type { LiveFactsSnapshot } from "@/lib/x-drafts/liveFacts";
 import type { XDraft } from "@/lib/x-drafts/types";
 
 type Status = {
@@ -21,6 +22,7 @@ type Status = {
   nextDate: string | null;
   lastWrite: { at: string; date: string; created: number; error?: string } | null;
   phonePage: { url?: string; at: string; error?: string } | null;
+  liveFacts: LiveFactsSnapshot | null;
   drafts: XDraft[];
 };
 
@@ -179,6 +181,26 @@ export function XDraftsPage() {
           </Button>
         </div>
       </Card>
+
+      {status?.liveFacts ? (
+        <Card className="mb-6">
+          <h2 className="mb-1 text-sm font-semibold text-white">What the drafts know about</h2>
+          <p className="mb-3 text-xs text-[var(--muted-foreground)]">
+            Read fresh before every batch, so each day mixes in what you are working on. Hand-written facts in data/x-drafts-facts.json still come first.
+          </p>
+          <ul className="grid gap-2 text-sm md:grid-cols-2">
+            {liveSourceRows(status.liveFacts).map((row) => (
+              <li key={row.source} className="rounded-lg border border-[var(--border)] p-2">
+                <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+                  <span className="font-semibold text-white">{row.label}</span>
+                  {row.problem ? <Badge tone="warning">{row.problem}</Badge> : <Badge tone="neutral">{row.count} facts</Badge>}
+                </div>
+                <p className="text-xs text-[var(--muted-foreground)]">{row.sample ?? "Nothing new in the last two weeks."}</p>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       {!status ? (
         <LoadingState />

@@ -4,6 +4,7 @@ import { localCalendarParts } from "@/lib/publisher/time";
 import { threadsBlockedReason, threadsConfig } from "@/lib/threads/config";
 import { xDraftsConfig } from "@/lib/x-drafts/config";
 import { nextDateToWrite, refreshPhonePage, setDraftStatus, writeDraftsFor, writingNow } from "@/lib/x-drafts/service";
+import { readLiveFactsSnapshot } from "@/lib/x-drafts/liveFactSources";
 import { slotTimes } from "@/lib/x-drafts/schedule";
 import { xDraftsStore } from "@/lib/x-drafts/store";
 
@@ -33,6 +34,7 @@ export async function GET() {
     nextDate: await nextDateToWrite(now, threads.timezone),
     lastWrite: state.lastWrite ?? null,
     phonePage: state.phonePage ?? null,
+    liveFacts: config.liveFacts ? await readLiveFactsSnapshot() : null,
     drafts: state.drafts.filter((draft) => draft.batchDate >= today).sort((a, b) => a.batchDate.localeCompare(b.batchDate) || a.slot - b.slot),
     earlier: state.drafts.filter((draft) => draft.batchDate < today).sort((a, b) => b.batchDate.localeCompare(a.batchDate) || a.slot - b.slot)
   });

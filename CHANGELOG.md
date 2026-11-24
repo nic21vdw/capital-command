@@ -15,6 +15,7 @@ already shipped.
 ## Unreleased
 
 - Threads can now run on X Drafts alone, at up to 10 posts a day in your X voice. `THREADS_DAILY_PACK=off` stops the generic daily pack, `THREADS_PLUG_SCOPE=colateral` keeps the CoLateral link reply to posts that name CoLateral instead of every post, and the writer now takes a dated facts list (`data/x-drafts-facts.json`, kept 14 days), orders the day by post type, and may revisit an idea from a new angle but never reuses a hook.
+- X Drafts (and so Threads) now keep up with everything you are working on, without anyone updating a facts file. Before each batch the writer reads the newest stream Day, your subscriber count against the 3,000 goal, the YouTube uploads from the last week and their views, CoLateral desktop releases, and what landed in CoLateral and the Arcade, then spreads the day across those topics, a different pair leading each day. The X Drafts page shows what each source last gave it. Anything that mentions engineering, VB&S, revenue or a secret is left out.
 
 ## 2026-11-19
 

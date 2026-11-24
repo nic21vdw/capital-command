@@ -19,7 +19,8 @@ const config: XDraftsConfig = {
   writeAheadHour: 17,
   maxDaysAhead: 7,
   minLeadMinutes: 60,
-  retryAfterMinutes: 120
+  retryAfterMinutes: 120,
+  liveFacts: false
 };
 
 const threads = {

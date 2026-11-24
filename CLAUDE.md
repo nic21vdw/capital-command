@@ -152,6 +152,16 @@ every draft also going out on Threads without him.
   (30) after its X slot, never sooner than `X_DRAFTS_MIN_LEAD_MINUTES` (60) from
   the write. It is not approved on booking: a review hold still holds it.
   "Don't post" skips its Threads item unless sending has started.
+- FACTS ARE READ, NOT REMEMBERED (`liveFacts.ts`, `liveFactSources.ts`). Before
+  each batch the writer reads the stream ledger, the subscriber count, the
+  analytics store's YouTube rows, the desktop releases on GitHub and merged
+  pull requests on `main` of the CoLateral and Arcade checkouts. Builders are
+  pure and tested; a source that fails keeps its last good read in
+  `data/x-drafts-live-facts.json`. `publicSafe` drops anything that names
+  engineering, VB&S, revenue or a secret before a fact reaches the prompt.
+  Hand-written `data/x-drafts-facts.json` entries still come first. `mixFor`
+  alternates model takes with one topic slot per fact topic, rotated by date,
+  so the feed covers several things he is doing and never one.
 - The phone page is static HTML uploaded to the media bucket at
   `x-drafts/<random key>/index.html` (`noindex`), rebuilt after every write and
   status change. It needs `S3_PUBLIC_BASE_URL`; without it the screen says so.
