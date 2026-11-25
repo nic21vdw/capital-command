@@ -7,11 +7,12 @@ import { threadsAwaitingApproval } from "@/lib/publisher/approval";
 import { readReviewPolicy } from "@/lib/publisher/approvalStore";
 import { isTransient } from "@/lib/publisher/http";
 import { formatInTimezone } from "@/lib/publisher/time";
+import { resolveThreadsMedia } from "@/lib/threads/media";
 import { ContainerPendingError, ContainerRejectedError, ThreadsPublishPausedError, postToThreads, type ThreadsPublishInput } from "@/lib/threads/api";
 import { plugReplyFor } from "@/lib/threads/plug";
 import { findAccount, threadsBlockedReason, threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 import { mergeQueueChanges, mutateQueue, pruneOld, readQueue } from "@/lib/threads/queue";
-import type { ThreadsOutcome, ThreadsQueueItem, ThreadsRunReport } from "@/lib/threads/types";
+import type { ThreadsMedia, ThreadsOutcome, ThreadsQueueItem, ThreadsRunReport } from "@/lib/threads/types";
 import { isAutomationPaused } from "@/lib/automations/store";
 import { recordAutomationEventSafely } from "@/lib/automations/history";
 
@@ -34,6 +35,8 @@ export type ThreadsRunDeps = {
     containerId: string;
     postId: string;
   }>;
+  /** Mints a fetchable link per hosted media key (default: the publisher's media host). */
+  resolveMedia?: (media: ThreadsMedia) => Promise<string[]>;
   /** Read the latest row and atomically save a claim prepared by this runner. */
   claim?: (id: string, prepare: (latest: ThreadsQueueItem) => boolean) => Promise<ThreadsQueueItem | undefined>;
 };
@@ -575,8 +578,11 @@ async function runDueInternal(
       const key = deliveryKey(item, false);
       let result;
       try {
+        const media = item.media
+          ? { kind: item.media.kind, urls: item.containerId ? [] : await (deps.resolveMedia ?? resolveThreadsMedia)(item.media) }
+          : undefined;
         result = await deps.post({
-          account, text: item.text, containerId: item.containerId, attributionCode: postCode(item.id),
+          account, text: item.text, containerId: item.containerId, attributionCode: postCode(item.id), ...(media ? { media } : {}),
           shouldPublish: () => allowed(item, false, account.accessToken),
           onBeforePublish: async (containerId) => {
             item.containerId = containerId;

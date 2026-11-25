@@ -16,6 +16,10 @@ already shipped.
 
 - Threads can now run on X Drafts alone, at up to 10 posts a day in your X voice. `THREADS_DAILY_PACK=off` stops the generic daily pack, `THREADS_PLUG_SCOPE=colateral` keeps the CoLateral link reply to posts that name CoLateral instead of every post, and the writer now takes a dated facts list (`data/x-drafts-facts.json`, kept 14 days), orders the day by post type, and may revisit an idea from a new angle but never reuses a hook.
 - X Drafts (and so Threads) now keep up with everything you are working on, without anyone updating a facts file. Before each batch the writer reads the newest stream Day, your subscriber count against the 3,000 goal, the YouTube uploads from the last week and their views, CoLateral desktop releases, and what landed in CoLateral and the Arcade, then spreads the day across those topics, a different pair leading each day. The X Drafts page shows what each source last gave it. Anything that mentions engineering, VB&S, revenue or a secret is left out.
+- Every X draft now follows the three Cs that work on X: a take that is controversial but not stupid, a comparison between models or tools, and a call to action at the end. A draft that does not end on a question or an ask is rewritten, and each post teaches one thing.
+- Drafts now also draw on what you actually said on your last two streams (the stream's own written posts, money amounts removed).
+- Pausing Threads in Automations no longer stops X Drafts from writing. It did, which is why no drafts were written after 2026-11-20.
+- Instagram Reels and carousels now go to Threads by themselves. About 20 minutes after a post goes live on Instagram, it is booked on the Threads queue with the same video or pictures and its caption without hashtags, at least 30 minutes from any other Threads post. Private posts and anything about engineering are left out. `THREADS_MIRROR=off` stops it, `THREADS_MIRROR_CAROUSELS=off` keeps carousels off Threads. It needs the media hosting that Instagram already uses.
 
 ## 2026-11-19
 

@@ -30,6 +30,7 @@ export function summarizeDrafts(drafts: XDraft[]): { waiting: number; postedOnX:
 
 const SOURCE_LABELS: Record<LiveSource, string> = {
   stream: "Stream day",
+  streamNotes: "What you said on stream",
   channel: "Subscribers",
   videos: "New videos",
   releases: "Desktop releases",

@@ -7,6 +7,7 @@ import { hasStarted } from "@/lib/threads/rewrite";
 import { runDue } from "@/lib/threads/runner";
 import { readThreadsState, recordThreadsState } from "@/lib/threads/state";
 import { refreshThreadsTokens, type TokenRefreshOutcome } from "@/lib/threads/tokens";
+import { mirrorInstagramToThreads, type MirrorOutcome } from "@/lib/threads/mirrorService";
 import type { ThreadsPlanResult, ThreadsRunReport } from "@/lib/threads/types";
 import { ensureDailyPack } from "@/lib/x-posts/daily";
 import { isAutomationPaused, recordAutomationOutcome } from "@/lib/automations/store";
@@ -304,6 +305,8 @@ export type ThreadsTickResult = {
   tokens?: TokenRefreshOutcome[];
   /** Delivery still runs when generation or planning fails. */
   planningError?: string;
+  /** Instagram posts this tick booked on Threads (mirror.ts). */
+  mirrored?: MirrorOutcome;
 };
 
 /**
@@ -354,7 +357,8 @@ async function threadsTickInternal(
   let config = options.config ?? threadsConfig();
   const now = options.now ?? new Date();
   if (await isAutomationPaused("threads")) {
-    const note = "Threads automation is paused in Automations.";
+    if (!options.dryRun) ensureXDraftsInBackground({ threads: config, now, log: options.log });
+    const note = "Threads automation is paused in Automations. X Drafts still writes the day's drafts.";
     return {
       plan: { date: localCalendarParts(now, config.timezone).dateKey, created: 0, droppedPastSlots: 0, skipped: note },
       run: { ran: now.toISOString(), published: 0, failed: 0, skipped: 0, outcomes: [], dryRun: options.dryRun ?? false, note }
@@ -376,6 +380,7 @@ async function threadsTickInternal(
   let ahead: ThreadsPlanResult | null = null;
   let catchUp: ThreadsPlanResult | null = null;
   let planningError: string | undefined;
+  let mirrored: MirrorOutcome | undefined;
   try {
     const planningNow = () => options.now ?? new Date();
     if (config.dailyPack === false) {
@@ -387,6 +392,10 @@ async function threadsTickInternal(
       ahead = options.dryRun ? null : await planTomorrow({ config, now: planningNow(), log: options.log });
     }
     if (!options.dryRun) ensureXDraftsInBackground({ threads: config, now: planningNow(), log: options.log });
+    if (!options.dryRun) {
+      mirrored = await mirrorInstagramToThreads({ threads: config, now: planningNow() });
+      if (mirrored.booked) options.log?.(`[threads] ${mirrored.booked} Instagram posts booked on Threads`);
+    }
   } catch (error) {
     planningError = error instanceof Error ? error.message : String(error);
     plan.skipped ??= "Planning failed; existing due posts were processed first.";
@@ -406,5 +415,5 @@ async function threadsTickInternal(
     });
   }
 
-  return { plan, run, ...(ahead ? { ahead } : {}), ...(catchUp ? { catchUp } : {}), ...(tokens.length ? { tokens } : {}), ...(planningError ? { planningError } : {}) };
+  return { plan, run, ...(ahead ? { ahead } : {}), ...(catchUp ? { catchUp } : {}), ...(tokens.length ? { tokens } : {}), ...(planningError ? { planningError } : {}), ...(mirrored?.booked ? { mirrored } : {}) };
 }

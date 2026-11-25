@@ -2,7 +2,7 @@ import { breaksPersona } from "@/lib/x-drafts/voice";
 import { addDays } from "@/lib/x-drafts/schedule";
 import type { DatedFact, FactTopic } from "@/lib/x-drafts/facts";
 
-export const LIVE_SOURCES = ["stream", "channel", "videos", "releases", "colateral", "arcade"] as const;
+export const LIVE_SOURCES = ["stream", "streamNotes", "channel", "videos", "releases", "colateral", "arcade"] as const;
 export type LiveSource = (typeof LIVE_SOURCES)[number];
 
 export type SourceSnapshot = { at: string; ok: boolean; error?: string; facts: DatedFact[] };
@@ -67,6 +67,31 @@ export function streamFacts(records: StreamRecord[], toDate: (iso: string) => st
         "stream"
       )
     )
+  );
+}
+
+export type StreamRun = { name?: string; createdAt?: string; posts?: Array<{ platform?: string; text?: string }> };
+
+const MONEY = /[$€£]\s?\d|\bCA\$/;
+
+export function streamNoteFacts(runs: StreamRun[], toDate: (iso: string) => string, today: string): DatedFact[] {
+  const recent = runs
+    .filter((run) => run.createdAt && run.posts?.length && within(toDate(run.createdAt), today, COMMIT_DAYS))
+    .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))
+    .slice(0, 2);
+  return present(
+    recent.flatMap((run, index) => {
+      const day = run.name?.match(/\bday\s*(\d{1,4})\b/i)?.[1];
+      const label = day ? `On the Day ${day} stream` : "On a recent stream";
+      const posts = run.posts ?? [];
+      const preferred = [...posts.filter((post) => post.platform === "threads"), ...posts.filter((post) => post.platform === "x")];
+      const seen = new Set<string>();
+      return preferred
+        .map((post) => (post.text ?? "").replace(/\s+/g, " ").trim())
+        .filter((text) => text.length > 40 && !MONEY.test(text) && !seen.has(text.slice(0, 60)) && seen.add(text.slice(0, 60)))
+        .slice(0, index === 0 ? 3 : 1)
+        .map((text) => fact(toDate(run.createdAt!), `${label}, in his own words: ${text}`, "stream"));
+    })
   );
 }
 

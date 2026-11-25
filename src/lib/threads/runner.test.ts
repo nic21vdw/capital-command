@@ -610,3 +610,18 @@ describe("runDue reply delivery reliability", () => {
     expect(saved[0].postId).toBe("accepted");
   });
 });
+
+describe("runDue with media", () => {
+  it("resolves hosted media links at send time and passes them to the post", async () => {
+    const seen: unknown[] = [];
+    const post: ThreadsRunDeps["post"] = async (input) => {
+      seen.push(input.media);
+      return { containerId: "container-1", postId: "post-1" };
+    };
+    const { runDeps, state } = deps([item({ media: { kind: "video", keys: ["clips/a.mp4"] } })], post);
+    runDeps.resolveMedia = async (media) => media.keys.map((key) => `https://cdn.test/${key}`);
+    await runDue(new Date("2026-07-22T07:20:00Z"), { config: config(), deps: runDeps, log: silent });
+    expect(seen).toEqual([{ kind: "video", urls: ["https://cdn.test/clips/a.mp4"] }]);
+    expect(state.items[0].status).toBe("published");
+  });
+});

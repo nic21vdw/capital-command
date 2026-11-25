@@ -9,6 +9,7 @@ import {
   publicSafe,
   releaseFacts,
   streamFacts,
+  streamNoteFacts,
   subscriberFacts,
   videoFacts,
   type LiveFactsSnapshot
@@ -34,6 +35,35 @@ describe("stream facts", () => {
       { date: "2026-11-23", topic: "stream", text: "Day 103 of the nightly build stream." }
     ]);
     expect(facts.some((fact) => fact.text.includes("CA$"))).toBe(false);
+  });
+});
+
+describe("stream notes", () => {
+  it("takes the newest run's Threads posts as his own words, and drops money", () => {
+    const facts = streamNoteFacts(
+      [
+        {
+          name: "Basement | Day 104 | Generated Revenue CA$6,729.86",
+          createdAt: "2026-11-24T10:00:09Z",
+          posts: [
+            { platform: "x", text: "Day 104. $6,729.86 generated so far. Today's job was getting Donna to read chat." },
+            { platform: "x", text: "Lesson from today: an AI agent took 42 minutes to remove one panel. Budget for the slow parts." },
+            { platform: "threads", text: "One of my agents paused Claude until after the stream ended. I never told it to do that." },
+            { platform: "facebook", text: "On Day 104 of building CoLateral live, I spent the stream on Donna. Come watch." }
+          ]
+        },
+        { name: "Day 103", createdAt: "2026-11-23T10:00:00Z", posts: [{ platform: "threads", text: "Day 103 notes that are long enough to count as a note here." }, { platform: "threads", text: "A second Day 103 note that is also long enough to be kept." }] },
+        { name: "Day 90", createdAt: "2026-11-10T10:00:00Z", posts: [{ platform: "threads", text: "Old enough that it should be left out of the notes entirely." }] }
+      ],
+      toDate,
+      TODAY
+    );
+    expect(facts.map((fact) => fact.text)).toEqual([
+      "On the Day 104 stream, in his own words: One of my agents paused Claude until after the stream ended. I never told it to do that.",
+      "On the Day 104 stream, in his own words: Lesson from today: an AI agent took 42 minutes to remove one panel. Budget for the slow parts.",
+      "On the Day 103 stream, in his own words: Day 103 notes that are long enough to count as a note here."
+    ]);
+    expect(facts.every((fact) => fact.topic === "stream")).toBe(true);
   });
 });
 
@@ -140,6 +170,7 @@ describe("the live snapshot", () => {
     let written: LiveFactsSnapshot | null = null;
     const deps: LiveFactDeps = {
       streams: async () => [{ title: "Basement | Day 104", ingestedAt: "2026-11-24T12:00:00Z" }],
+      runs: async () => [],
       subscribers: async () => {
         throw new Error("YouTube quota saved for uploads");
       },

@@ -316,3 +316,26 @@ label, assigned version and offset, and nothing else.
    would post, without posting.
 7. `npm run threads:register` — registers the Task Scheduler entry that ticks
    every five minutes.
+
+## Instagram mirror and media posts
+
+Every tick also mirrors Instagram (`mirror.ts`, `mirrorService.ts`). A Reel or
+carousel that went live on Instagram in the last 12 hours is booked once on the
+first account's Threads queue, 20 minutes after it went live and 30 minutes
+clear of any other Threads post, with its caption minus hashtags and the same
+video or pictures. Private items, items without hosted media and anything that
+talks about engineering are skipped, and the reason is logged.
+
+The queue item stores the hosted object keys (`media`), not links. `media.ts`
+mints a public link for each key when the post is sent, through the same media
+host Instagram uses. A video or carousel container is polled until Threads says
+`FINISHED`; still processing is a transient error, so the container is kept and
+the next tick finishes it.
+
+Switches: `THREADS_MIRROR`, `THREADS_MIRROR_CAROUSELS`,
+`THREADS_MIRROR_OFFSET_MINUTES`, `THREADS_MIRROR_LOOKBACK_HOURS`,
+`THREADS_MIRROR_GAP_MINUTES`. The mirror is off under test unless
+`THREADS_MIRROR=on` is set.
+
+A Threads token and `threads_content_publish` cover media posts; no extra scope
+is needed.

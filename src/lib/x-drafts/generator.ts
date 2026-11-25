@@ -1,7 +1,7 @@
 import { runAi } from "@/lib/ai";
 import { brandPromptBlock, brandViolations } from "@/lib/brand/kit";
 import { humanize } from "@/lib/x-posts/voice";
-import { breaksPersona, namesAProduct, X_EXAMPLES, X_FACTS, X_VOICE_RULES } from "@/lib/x-drafts/voice";
+import { breaksPersona, endsOnCallToAction, namesAProduct, X_EXAMPLES, X_FACTS, X_VOICE_RULES } from "@/lib/x-drafts/voice";
 import { FACT_TOPICS, factTopics, type DatedFact, type FactTopic } from "@/lib/x-drafts/facts";
 import type { XDraft } from "@/lib/x-drafts/types";
 
@@ -20,6 +20,7 @@ export function draftProblem(text: string): string | null {
   if (breaksPersona(text)) return "talks about engineering work";
   const firstLine = text.split("\n")[0] ?? "";
   if (!namesAProduct(firstLine)) return "the hook names no model or product";
+  if (!endsOnCallToAction(text)) return "ends without a call to action";
   if (brandViolations(text, "x").some((violation) => BLOCKING_KINDS.has(violation.kind))) return "breaks a brand rule";
   return null;
 }
@@ -95,7 +96,7 @@ export const POST_MIX = [
 ];
 
 export const TOPIC_SLOTS: Record<FactTopic, string> = {
-  stream: "the nightly stream: build on the stream facts below (the day count, what he built)",
+  stream: "the nightly stream: build on the stream facts below (the day count, what he built, what he learned)",
   channel: "the road to 3,000 subscribers: build on the channel facts below",
   colateral: "something that just shipped in CoLateral: build on one CoLateral fact below",
   arcade: "something new in the CoLateral Arcade: build on one Arcade fact below",
@@ -103,13 +104,13 @@ export const TOPIC_SLOTS: Record<FactTopic, string> = {
 };
 
 const GENERAL_MIX = [
-  "model take: a comparison or power ranking",
-  "model take: usage limits, resets or money",
-  "a tip: how he actually uses Claude Code or Codex",
-  "an A or B question to the audience",
-  "model take: a cancel or switch story",
-  "model take: a hot take while he is live",
-  "an honest build log: what broke tonight"
+  "model take: a head to head comparison or power ranking",
+  "model take: usage limits, resets or money, compared across two plans",
+  "a tip: how he actually uses Claude Code or Codex, and where the other one is better",
+  "an A or B question to the audience: two models, pick one",
+  "model take: a cancel or switch story, from one product to another",
+  "model take: a hot take while he is live, comparing two tools he used tonight",
+  "an honest build log: what broke tonight and which agent fixed it"
 ];
 
 export const ANGLES = ["hot take", "head to head", "his own story", "a tip", "a prediction", "an A or B question", "a cancel or switch story"];
@@ -170,7 +171,7 @@ ${mix}
 
 ${topics.length ? "A post built on a fact below still opens on a hook that names a model or product (Claude Code, Codex, Opus 5.5, CoLateral, the CoLateral Arcade).\n\n" : ""}The same idea may come back from a different angle (${ANGLES.join(", ")}). What may never repeat is a hook, and no two posts in the set may take the same angle on the same idea.
 
-How his posts work:
+How his posts work. Every post hits all three Cs (controversial but not stupid, a comparison, a call to action) and teaches one thing:
 ${X_VOICE_RULES.map((rule) => `- ${rule}`).join("\n")}
 
 Facts you may use (nothing else about his life or results):

@@ -142,8 +142,9 @@ every draft also going out on Threads without him.
   switch `X_DRAFTS_WRITER`), falling back to the configured models.
 - There is NO idea-library fallback. A day the writer cannot fill stays empty
   and says why; stock copy must never go out under his name as a hot take.
-- `draftProblem` is the gate: a model or product named in the first line, no
-  link in the post, at most 480 characters (so the Threads copy is never cut),
+- `draftProblem` is the gate: a model or product named in the first line, a
+  call to action at the end (`endsOnCallToAction`, the third of the three Cs in
+  `voice.ts`), no link in the post, at most 480 characters (so the Threads copy is never cut),
   no brand-kit blocking violation, and `breaksPersona`: nothing that calls
   CoLateral engineering or structural software or talks about selling to
   engineering firms. His public persona and his engineering work stay apart.
@@ -543,6 +544,9 @@ both. Two accounts posting the same wording would read as mirrored spam.
   token failed 542 of 558 posts in three weeks. Do not route an auth failure
   back through the `failed` / `retrying` accounting in `runner.ts`. See
   "Platform health" below.
+- INSTAGRAM IS MIRRORED, NOT RE-BOOKED (`mirror.ts`, `mirrorService.ts`). Each tick reads the publish queue and books every Instagram leg published in the last `THREADS_MIRROR_LOOKBACK_HOURS` (12) onto the Threads queue once, keyed by `sourceItemId`, `THREADS_MIRROR_OFFSET_MINUTES` (20) after it went live and `THREADS_MIRROR_GAP_MINUTES` (30) clear of other Threads posts. It is a pull from the queue the app already owns, not a new publisher platform. Only public items with hosted media, and nothing `breaksPersona` catches. The item carries `media: { kind, keys }`, never a URL: `media.ts` mints the link at send time, because presigned links expire.
+- MEDIA POSTS WAIT FOR THE CONTAINER (`api.ts`). A video or carousel container is polled until `FINISHED` before `threads_publish`; still processing is `StillProcessingError` (transient), so the container is kept and the runner's backoff retries it. Carousels are at most 20 children.
+- PAUSING THREADS DOES NOT PAUSE X DRAFTS. The paused branch of `threadsTick` still starts `ensureXDraftsInBackground`; before that, pausing Threads quietly stopped the drafts too.
 - See `src/lib/threads/README.md`.
 
 ## Engagement inbox (`/inbox`, `src/lib/inbox`)

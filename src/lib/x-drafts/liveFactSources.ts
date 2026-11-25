@@ -18,12 +18,14 @@ import {
   mergeSnapshot,
   releaseFacts,
   streamFacts,
+  streamNoteFacts,
   subscriberFacts,
   videoFacts,
   type LiveFactsSnapshot,
   type LiveSource,
   type ReleaseEntry,
-  type SourceSnapshot
+  type SourceSnapshot,
+  type StreamRun
 } from "@/lib/x-drafts/liveFacts";
 
 export const LIVE_FACTS_FILE = "x-drafts-live-facts.json";
@@ -83,6 +85,7 @@ async function githubReleases(repo: string): Promise<ReleaseEntry[]> {
 
 export type LiveFactDeps = {
   streams: () => Promise<Array<{ title: string; ingestedAt: string; outcome?: string }>>;
+  runs: () => Promise<StreamRun[]>;
   subscribers: () => Promise<{ subscribers: number | null; hidden: boolean }>;
   videos: () => Promise<Array<{ title: string; publishedAt: string; visibility: string | null; views: number | null; format: string }>>;
   releases: () => Promise<ReleaseEntry[]>;
@@ -98,6 +101,11 @@ export function defaultLiveFactDeps(): LiveFactDeps {
   const releases = env("X_DRAFTS_RELEASES_REPO") || "nic21vdw/colateral-releases";
   return {
     streams: async () => (await readLedger()).records.filter((record) => record.outcome === "ready"),
+    runs: async () => {
+      const raw = await readJson<unknown>(dataPath("pipeline", "runs.json"));
+      const list = Array.isArray(raw) ? raw : raw && typeof raw === "object" && "runs" in raw ? (raw as { runs: unknown }).runs : [];
+      return (Array.isArray(list) ? list : Object.values(list ?? {})) as StreamRun[];
+    },
     subscribers: subscriberCount,
     videos: async () =>
       rowsFromStore(await readMetrics())
@@ -131,6 +139,7 @@ export async function collectLiveFacts(options: { now: Date; today: string; time
   const toDate = (iso: string) => localCalendarParts(iso, options.timeZone).dateKey;
   const builders: Record<LiveSource, () => Promise<DatedFact[]>> = {
     stream: async () => streamFacts(await deps.streams(), toDate, today),
+    streamNotes: async () => streamNoteFacts(await deps.runs(), toDate, today),
     channel: async () => subscriberFacts({ ...(await deps.subscribers()), goal: subscriberGoal(), date: today }),
     videos: async () => videoFacts(await deps.videos(), toDate, today),
     releases: async () => releaseFacts(await deps.releases(), toDate, today),
