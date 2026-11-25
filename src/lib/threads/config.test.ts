@@ -132,3 +132,22 @@ describe("threadsConfig", () => {
     expect(threadsConfig().postsPerDay).toBe(48);
   });
 });
+
+describe("the ten-a-day switches", () => {
+  afterEach(() => {
+    delete process.env.THREADS_DAILY_PACK;
+    delete process.env.THREADS_PLUG_SCOPE;
+  });
+
+  it("keeps today's behaviour when unset", () => {
+    expect(threadsConfig().dailyPack).toBe(true);
+    expect(threadsConfig().plugScope).toBe("all");
+  });
+
+  it("reads the daily pack and link reply scope from the environment", () => {
+    process.env.THREADS_DAILY_PACK = "off";
+    process.env.THREADS_PLUG_SCOPE = "CoLateral";
+    expect(threadsConfig().dailyPack).toBe(false);
+    expect(threadsConfig().plugScope).toBe("colateral");
+  });
+});
