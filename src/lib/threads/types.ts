@@ -20,6 +20,12 @@ import type { ThreadsVersion } from "@/lib/threads/config";
  *               never fired late, so coming back from a weekend offline can't
  *               dump a backlog into the feed.
  */
+/**
+ * Pictures or a video posted with the text, by hosted object key. The URL is
+ * minted at send time (presigned links expire). A carousel is 2 to 20 pictures.
+ */
+export type ThreadsMedia = { kind: "video" | "image" | "carousel"; keys: string[] };
+
 export type ThreadsPostStatus = "pending" | "published" | "failed" | "skipped";
 
 export type ThreadsQueueItem = {
@@ -63,6 +69,10 @@ export type ThreadsQueueItem = {
   sourceRunId?: string;
   /** The X draft this post was copied from (see src/lib/x-drafts). */
   sourceDraftId?: string;
+  /** The publish-queue post this mirrors from Instagram (see mirror.ts). */
+  sourceItemId?: string;
+  /** Media posted with the text; absent on a text post. */
+  media?: ThreadsMedia;
   /** Link reply posted under this one once it is live (see plug.ts). */
   plugText?: string;
   plugPostId?: string;

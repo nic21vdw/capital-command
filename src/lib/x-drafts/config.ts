@@ -9,6 +9,7 @@ export type XDraftsConfig = {
   maxDaysAhead: number;
   minLeadMinutes: number;
   retryAfterMinutes: number;
+  liveFacts: boolean;
 };
 
 function env(name: string): string {
@@ -39,6 +40,7 @@ export function xDraftsConfig(): XDraftsConfig {
     writeAheadHour: num("X_DRAFTS_WRITE_AHEAD_HOUR", 17, 0, 23),
     maxDaysAhead: num("X_DRAFTS_MAX_DAYS_AHEAD", 7, 1, 14),
     minLeadMinutes: num("X_DRAFTS_MIN_LEAD_MINUTES", 60, 5, 720),
-    retryAfterMinutes: num("X_DRAFTS_RETRY_MINUTES", 120, 15, 1440)
+    retryAfterMinutes: num("X_DRAFTS_RETRY_MINUTES", 120, 15, 1440),
+    liveFacts: env("X_DRAFTS_LIVE_FACTS").toLowerCase() === "on" || (env("X_DRAFTS_LIVE_FACTS").toLowerCase() !== "off" && env("NODE_ENV") !== "test")
   };
 }

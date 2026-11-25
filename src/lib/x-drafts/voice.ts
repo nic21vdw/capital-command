@@ -1,8 +1,14 @@
+export const THREE_CS = [
+  "Controversial, not stupid: take a clear side a smart reader could disagree with, and back it with one real reason or fact. Never a cheap shot, a fake number or a claim he could not defend on stream.",
+  "Compare: put two models or products side by side (Claude Code vs Codex, Opus 5.5 vs ChatGPT Pro, Claude Duet vs ChatGPT Dots) and say which wins at what and why. A post about his own build still compares the tools he used for it.",
+  "Call to action: the last line asks the reader to do something. Answer a direct question from their own experience, pick a side, or come watch tonight's stream. Never a link."
+];
+
 export const X_VOICE_RULES = [
   "Open on a spicy, controversial hook that names a model or product in the very first line (Grok Bot, ChatGPT Dots, Claude Duet, Opus 5.5, Claude Code, Codex, SuperGrok Heavy, ChatGPT Pro, Claude Max). A generic hook with no name in it is wrong.",
+  ...THREE_CS.map((rule, index) => `The three Cs, ${index + 1} of 3. ${rule}`),
+  "Teach one thing. The middle paragraph gives the reader something they can use: how he actually set it up, a limit he hit, a number from the facts, a mistake to avoid. Somewhat educational, never a lecture.",
   "Write short paragraphs of one or two sentences, separated by a blank line.",
-  "Take a side. Comparisons, power rankings, usage limits, resets, cancel and switch stories and hot takes are what work on this account.",
-  "End on a direct question people can answer from their own experience, like \"What's keeping you on Grok Bot?\".",
   "Never put a link, a domain or \"link below\" in the post. If CoLateral is relevant, the post stands on its own and the optional reply carries the plug.",
   "No hashtags, no emoji, no em dashes or en dashes.",
   "First person, Nic's voice: a builder who streams AI agents building software live from his mom's basement every night.",
@@ -44,3 +50,12 @@ const PERSONA_BREAKS = [
 export function breaksPersona(text: string): boolean {
   return PERSONA_BREAKS.some((pattern) => pattern.test(text));
 }
+
+const CALL_TO_ACTION =
+  /\b(tell me|let me know|fight me|change my mind|reply|comment|drop (it|yours|a)|pick (one|a side)|which (one|side|would|do|are)|vote|follow( along)?|come (watch|hang|build|hang out)|join (me|us)|watch (tonight|live)|what('s| is| do| would| are)|who('s| is)|how (do|are|would)|would you|are you|do you|have you)\b/i;
+
+export function endsOnCallToAction(text: string): boolean {
+  const last = text.trim().split(/\n\s*\n/).pop()?.trim() ?? "";
+  return last.endsWith("?") || CALL_TO_ACTION.test(last);
+}
+

@@ -1,3 +1,4 @@
+import type { LiveFactsSnapshot, LiveSource } from "@/lib/x-drafts/liveFacts";
 import type { XDraft } from "@/lib/x-drafts/types";
 
 export function slotLabel(time: string): string {
@@ -25,4 +26,30 @@ export function summarizeDrafts(drafts: XDraft[]): { waiting: number; postedOnX:
     postedOnX: drafts.filter((draft) => draft.status === "posted-x").length,
     onThreads: drafts.filter((draft) => draft.status !== "dismissed" && draft.threadsAt).length
   };
+}
+
+const SOURCE_LABELS: Record<LiveSource, string> = {
+  stream: "Stream day",
+  streamNotes: "What you said on stream",
+  channel: "Subscribers",
+  videos: "New videos",
+  releases: "Desktop releases",
+  colateral: "CoLateral changes",
+  arcade: "Arcade changes"
+};
+
+export type LiveSourceRow = { source: LiveSource; label: string; count: number; sample: string | null; problem: string | null };
+
+export function liveSourceRows(snapshot: LiveFactsSnapshot): LiveSourceRow[] {
+  return (Object.keys(SOURCE_LABELS) as LiveSource[]).map((source) => {
+    const entry = snapshot.sources[source];
+    const facts = entry?.facts ?? [];
+    return {
+      source,
+      label: SOURCE_LABELS[source],
+      count: facts.length,
+      sample: facts[0]?.text ?? null,
+      problem: !entry ? "Not read yet" : entry.ok ? null : facts.length ? "Using the last good read" : "Could not read"
+    };
+  });
 }

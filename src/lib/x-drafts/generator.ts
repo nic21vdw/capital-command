@@ -1,8 +1,8 @@
 import { runAi } from "@/lib/ai";
 import { brandPromptBlock, brandViolations } from "@/lib/brand/kit";
 import { humanize } from "@/lib/x-posts/voice";
-import { breaksPersona, namesAProduct, X_EXAMPLES, X_FACTS, X_VOICE_RULES } from "@/lib/x-drafts/voice";
-import type { DatedFact } from "@/lib/x-drafts/facts";
+import { breaksPersona, endsOnCallToAction, namesAProduct, X_EXAMPLES, X_FACTS, X_VOICE_RULES } from "@/lib/x-drafts/voice";
+import { FACT_TOPICS, factTopics, type DatedFact, type FactTopic } from "@/lib/x-drafts/facts";
 import type { XDraft } from "@/lib/x-drafts/types";
 
 export const X_DRAFT_MIN = 90;
@@ -20,6 +20,7 @@ export function draftProblem(text: string): string | null {
   if (breaksPersona(text)) return "talks about engineering work";
   const firstLine = text.split("\n")[0] ?? "";
   if (!namesAProduct(firstLine)) return "the hook names no model or product";
+  if (!endsOnCallToAction(text)) return "ends without a call to action";
   if (brandViolations(text, "x").some((violation) => BLOCKING_KINDS.has(violation.kind))) return "breaks a brand rule";
   return null;
 }
@@ -94,10 +95,62 @@ export const POST_MIX = [
   "an honest build log: what broke tonight"
 ];
 
+export const TOPIC_SLOTS: Record<FactTopic, string> = {
+  stream: "the nightly stream: build on the stream facts below (the day count, what he built, what he learned)",
+  channel: "the road to 3,000 subscribers: build on the channel facts below",
+  colateral: "something that just shipped in CoLateral: build on one CoLateral fact below",
+  arcade: "something new in the CoLateral Arcade: build on one Arcade fact below",
+  videos: "a video or Short he just posted: build on one video fact below"
+};
+
+const GENERAL_MIX = [
+  "model take: a head to head comparison or power ranking",
+  "model take: usage limits, resets or money, compared across two plans",
+  "a tip: how he actually uses Claude Code or Codex, and where the other one is better",
+  "an A or B question to the audience: two models, pick one",
+  "model take: a cancel or switch story, from one product to another",
+  "model take: a hot take while he is live, comparing two tools he used tonight",
+  "an honest build log: what broke tonight and which agent fixed it"
+];
+
 export const ANGLES = ["hot take", "head to head", "his own story", "a tip", "a prediction", "an A or B question", "a cancel or switch story"];
 
-export function mixFor(count: number): string[] {
-  return Array.from({ length: count }, (_, index) => POST_MIX[index % POST_MIX.length]);
+function dayNumber(date: string): number {
+  const parsed = Date.parse(`${date}T12:00:00Z`);
+  return Number.isFinite(parsed) ? Math.floor(parsed / 86_400_000) : 0;
+}
+
+export function mixFor(count: number, topics: FactTopic[] = [], date = ""): string[] {
+  if (topics.length === 0) return Array.from({ length: count }, (_, index) => POST_MIX[index % POST_MIX.length]);
+  const shift = dayNumber(date);
+  const rotated = topics.map((_, index) => topics[(index + shift) % topics.length]);
+  const general = GENERAL_MIX.map((_, index) => GENERAL_MIX[(index + shift) % GENERAL_MIX.length]);
+  const mix: string[] = [];
+  let topic = 0;
+  let other = 0;
+  for (let index = 0; index < count; index += 1) {
+    if (index % 2 === 1 && topic < rotated.length) mix.push(TOPIC_SLOTS[rotated[topic++]]);
+    else mix.push(general[other++ % general.length]);
+  }
+  return mix;
+}
+
+const TOPIC_HEADINGS: Record<FactTopic, string> = {
+  stream: "The nightly stream",
+  channel: "The channel and the 3,000 subscriber goal",
+  colateral: "CoLateral (what shipped)",
+  arcade: "The CoLateral Arcade (what went live)",
+  videos: "Videos and Shorts he just posted"
+};
+
+export function factsBlock(facts: DatedFact[]): string {
+  const line = (fact: DatedFact) => `- ${fact.date}: ${fact.text}`;
+  const general = facts.filter((fact) => !fact.topic);
+  const groups = FACT_TOPICS.map((topic) => ({ topic, facts: facts.filter((fact) => fact.topic === topic) })).filter((group) => group.facts.length);
+  return [
+    ...(general.length ? [general.map(line).join("\n")] : []),
+    ...groups.map((group) => `${TOPIC_HEADINGS[group.topic]}:\n${group.facts.map(line).join("\n")}`)
+  ].join("\n\n");
 }
 
 export function draftsPrompt(input: { date: string; count: number; recentOpenings: string[]; facts?: DatedFact[] }): { system: string; prompt: string } {
@@ -107,22 +160,24 @@ ${brandPromptBlock("x")}
 
 Output strict JSON only.`;
   const recent = input.recentOpenings.length ? input.recentOpenings.slice(0, 60).map((line) => `- ${line}`).join("\n") : "- (none yet)";
-  const dated = (input.facts ?? []).map((fact) => `- ${fact.date}: ${fact.text}`).join("\n");
-  const mix = mixFor(input.count).map((kind, index) => `${index + 1}. ${kind}`).join("\n");
+  const facts = input.facts ?? [];
+  const dated = factsBlock(facts);
+  const topics = factTopics(facts);
+  const mix = mixFor(input.count, topics, input.date).map((kind, index) => `${index + 1}. ${kind}`).join("\n");
   const prompt = `Write ${input.count + 3} new X posts for ${input.date}, in Nic's voice. Every post opens on its own hook.
 
 Put the first ${input.count} in this order, then 3 spares of any kind:
 ${mix}
 
-The same idea may come back from a different angle (${ANGLES.join(", ")}). What may never repeat is a hook, and no two posts in the set may take the same angle on the same idea.
+${topics.length ? "A post built on a fact below still opens on a hook that names a model or product (Claude Code, Codex, Opus 5.5, CoLateral, the CoLateral Arcade).\n\n" : ""}The same idea may come back from a different angle (${ANGLES.join(", ")}). What may never repeat is a hook, and no two posts in the set may take the same angle on the same idea.
 
-How his posts work:
+How his posts work. Every post hits all three Cs (controversial but not stupid, a comparison, a call to action) and teaches one thing:
 ${X_VOICE_RULES.map((rule) => `- ${rule}`).join("\n")}
 
 Facts you may use (nothing else about his life or results):
 ${X_FACTS.map((fact) => `- ${fact}`).join("\n")}${dated ? `
 
-Dated facts from the last two weeks (use them as written, never stretch a number or a date):
+Dated facts from the last two weeks (use them as written, never stretch a number or a date). They are what he is working on right now, so the set should touch several of these areas, not just one:
 ${dated}` : ""}
 
 Posts of his that did well, for voice only (never reuse their hooks):

@@ -142,8 +142,9 @@ every draft also going out on Threads without him.
   switch `X_DRAFTS_WRITER`), falling back to the configured models.
 - There is NO idea-library fallback. A day the writer cannot fill stays empty
   and says why; stock copy must never go out under his name as a hot take.
-- `draftProblem` is the gate: a model or product named in the first line, no
-  link in the post, at most 480 characters (so the Threads copy is never cut),
+- `draftProblem` is the gate: a model or product named in the first line, a
+  call to action at the end (`endsOnCallToAction`, the third of the three Cs in
+  `voice.ts`), no link in the post, at most 480 characters (so the Threads copy is never cut),
   no brand-kit blocking violation, and `breaksPersona`: nothing that calls
   CoLateral engineering or structural software or talks about selling to
   engineering firms. His public persona and his engineering work stay apart.
@@ -152,6 +153,16 @@ every draft also going out on Threads without him.
   (30) after its X slot, never sooner than `X_DRAFTS_MIN_LEAD_MINUTES` (60) from
   the write. It is not approved on booking: a review hold still holds it.
   "Don't post" skips its Threads item unless sending has started.
+- FACTS ARE READ, NOT REMEMBERED (`liveFacts.ts`, `liveFactSources.ts`). Before
+  each batch the writer reads the stream ledger, the subscriber count, the
+  analytics store's YouTube rows, the desktop releases on GitHub and merged
+  pull requests on `main` of the CoLateral and Arcade checkouts. Builders are
+  pure and tested; a source that fails keeps its last good read in
+  `data/x-drafts-live-facts.json`. `publicSafe` drops anything that names
+  engineering, VB&S, revenue or a secret before a fact reaches the prompt.
+  Hand-written `data/x-drafts-facts.json` entries still come first. `mixFor`
+  alternates model takes with one topic slot per fact topic, rotated by date,
+  so the feed covers several things he is doing and never one.
 - The phone page is static HTML uploaded to the media bucket at
   `x-drafts/<random key>/index.html` (`noindex`), rebuilt after every write and
   status change. It needs `S3_PUBLIC_BASE_URL`; without it the screen says so.
@@ -533,6 +544,9 @@ both. Two accounts posting the same wording would read as mirrored spam.
   token failed 542 of 558 posts in three weeks. Do not route an auth failure
   back through the `failed` / `retrying` accounting in `runner.ts`. See
   "Platform health" below.
+- INSTAGRAM IS MIRRORED, NOT RE-BOOKED (`mirror.ts`, `mirrorService.ts`). Each tick reads the publish queue and books every Instagram leg published in the last `THREADS_MIRROR_LOOKBACK_HOURS` (12) onto the Threads queue once, keyed by `sourceItemId`, `THREADS_MIRROR_OFFSET_MINUTES` (20) after it went live and `THREADS_MIRROR_GAP_MINUTES` (30) clear of other Threads posts. It is a pull from the queue the app already owns, not a new publisher platform. Only public items with hosted media, and nothing `breaksPersona` catches. The item carries `media: { kind, keys }`, never a URL: `media.ts` mints the link at send time, because presigned links expire.
+- MEDIA POSTS WAIT FOR THE CONTAINER (`api.ts`). A video or carousel container is polled until `FINISHED` before `threads_publish`; still processing is `StillProcessingError` (transient), so the container is kept and the runner's backoff retries it. Carousels are at most 20 children.
+- PAUSING THREADS DOES NOT PAUSE X DRAFTS. The paused branch of `threadsTick` still starts `ensureXDraftsInBackground`; before that, pausing Threads quietly stopped the drafts too.
 - See `src/lib/threads/README.md`.
 
 ## Engagement inbox (`/inbox`, `src/lib/inbox`)

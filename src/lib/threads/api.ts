@@ -3,10 +3,11 @@ import { attributeLinks } from "@/lib/publisher/attribution";
 import { THREADS_TEXT_LIMIT, threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 
 /**
- * Meta's Threads Graph API — text posts only.
+ * Meta's Threads Graph API: text posts, and text with a video, a picture or a
+ * carousel of pictures.
  *
- * Publishing is two calls: create a container for the text, then publish that
- * container. Every call is made as one specific account, so the two connected
+ * Publishing is two calls: create a container, then publish that container. A
+ * media container is polled until Threads says FINISHED before it is published. Every call is made as one specific account, so the two connected
  * profiles never share credentials.
  *
  * The access token travels in the request body or an Authorization header,
@@ -118,6 +119,71 @@ export async function publishContainer(
   return data.id;
 }
 
+export type ThreadsMediaUrls = { kind: "video" | "image" | "carousel"; urls: string[] };
+
+export const THREADS_CAROUSEL_MAX = 20;
+
+async function createContainer(account: ThreadsAccount, fields: Record<string, string>, config: ThreadsConfig, label: string): Promise<string> {
+  const userId = await accountUserId(account, config);
+  const data = await fetchJson<CreateResponse>(endpoint(config, `${encodeURIComponent(userId)}/threads`), {
+    label: `${label} (${account.label})`,
+    headers: FORM_HEADERS,
+    body: new URLSearchParams({ ...fields, access_token: account.accessToken })
+  });
+  if (!data.id) throw new PermanentError(`${label} returned no container id.`);
+  return data.id;
+}
+
+/** Creates the container for text with media. A carousel makes its child containers first. */
+export async function createMediaContainer(
+  account: ThreadsAccount,
+  text: string,
+  media: ThreadsMediaUrls,
+  config: ThreadsConfig = threadsConfig(),
+  attributionCode?: string
+): Promise<string> {
+  const caption = textWithinLimit(text, attributionCode);
+  if (media.urls.length === 0) throw new PermanentError("This Threads post has no media link to send.");
+  if (media.kind === "video") return createContainer(account, { media_type: "VIDEO", video_url: media.urls[0], text: caption }, config, "Threads video container");
+  if (media.kind === "image" || media.urls.length === 1) return createContainer(account, { media_type: "IMAGE", image_url: media.urls[0], text: caption }, config, "Threads image container");
+  if (media.urls.length > THREADS_CAROUSEL_MAX) throw new PermanentError(`Threads carousels hold at most ${THREADS_CAROUSEL_MAX} pictures; this post has ${media.urls.length}.`);
+  const children: string[] = [];
+  for (const url of media.urls) {
+    children.push(await createContainer(account, { media_type: "IMAGE", image_url: url, is_carousel_item: "true" }, config, "Threads carousel picture"));
+  }
+  return createContainer(account, { media_type: "CAROUSEL", children: children.join(","), text: caption }, config, "Threads carousel container");
+}
+
+export class StillProcessingError extends TransientError {}
+
+type StatusResponse = { status?: string; error_message?: string };
+
+/** Waits for Threads to finish fetching and processing a media container. */
+export async function waitForContainer(
+  account: ThreadsAccount,
+  containerId: string,
+  config: ThreadsConfig = threadsConfig(),
+  options: { polls?: number; delayMs?: number; sleep?: (ms: number) => Promise<void> } = {}
+): Promise<void> {
+  const polls = options.polls ?? 18;
+  const delayMs = options.delayMs ?? 10_000;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  for (let poll = 0; poll < polls; poll += 1) {
+    const data = await fetchJson<StatusResponse>(endpoint(config, `${encodeURIComponent(containerId)}?fields=status,error_message`), {
+      label: `Threads container status (${account.label})`,
+      method: "GET",
+      headers: { Authorization: `Bearer ${account.accessToken}` }
+    });
+    const status = (data.status ?? "").toUpperCase();
+    if (status === "FINISHED" || status === "PUBLISHED") return;
+    if (status === "ERROR" || status === "EXPIRED") {
+      throw new ContainerRejectedError(containerId, `Threads could not process the media (${status.toLowerCase()}${data.error_message ? `: ${data.error_message}` : ""}).`);
+    }
+    if (poll < polls - 1) await sleep(delayMs);
+  }
+  throw new StillProcessingError("Threads is still processing the media; it will be published on the next try.");
+}
+
 export type ThreadsPublishResult = { containerId: string; postId: string };
 
 export type ThreadsPublishInput = {
@@ -126,6 +192,10 @@ export type ThreadsPublishInput = {
   containerId?: string;
   replyToId?: string;
   attributionCode?: string;
+  /** Media sent with the text, as links Threads can fetch. */
+  media?: ThreadsMediaUrls;
+  /** Override the processing poll (tests). */
+  mediaPoll?: { polls?: number; delayMs?: number; sleep?: (ms: number) => Promise<void> };
   /** Persist a fresh handle before a publish call can put it on the feed. */
   onContainerCreated?: (containerId: string) => Promise<void>;
   /** Save a durable uncertain-send guard BEFORE the publish request. */
@@ -154,8 +224,11 @@ export async function postToThreads(
   // while the user turns the automation off.
   const account = { ...input.account, userId: await accountUserId(input.account, config) };
   await checkControl(input.containerId);
-  const containerId = input.containerId ?? await createTextContainer(account, input.text, config, input.replyToId, input.attributionCode);
+  const containerId = input.containerId ?? (input.media
+    ? await createMediaContainer(account, input.text, input.media, config, input.attributionCode)
+    : await createTextContainer(account, input.text, config, input.replyToId, input.attributionCode));
   if (!input.containerId) await input.onContainerCreated?.(containerId);
+  if (input.media) await waitForContainer(account, containerId, config, input.mediaPoll);
 
   await checkControl(containerId);
   await input.onBeforePublish?.(containerId);

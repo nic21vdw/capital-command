@@ -19,7 +19,8 @@ const config: XDraftsConfig = {
   writeAheadHour: 17,
   maxDaysAhead: 7,
   minLeadMinutes: 60,
-  retryAfterMinutes: 120
+  retryAfterMinutes: 120,
+  liveFacts: false
 };
 
 const threads = {
@@ -92,6 +93,8 @@ describe("what the writer is allowed to hand over", () => {
     expect(draftProblem(`${GOOD}\n\nTry it at colateralai.com`)).toMatch(/link/);
     expect(draftProblem("Most people are using agents wrong.\n\nOne task, one agent, then walk away. Who else learned this the hard way?")).toMatch(/names no/);
     expect(draftProblem(`Claude ${"x".repeat(500)}`)).toMatch(/too long/);
+    expect(draftProblem("Claude Code beats Codex at long refactors and it is not close.\n\nI ran both on the same repo tonight and only one finished.\n\nThat is all.")).toMatch(/call to action/);
+    expect(draftProblem("Claude Code beats Codex at long refactors and it is not close.\n\nI ran both on the same repo tonight and only one finished.\n\nCome watch tonight and see for yourself.")).toBeNull();
   });
 
   it("never lets a post call CoLateral engineering software or talk about selling to engineering firms", () => {
