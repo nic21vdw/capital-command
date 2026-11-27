@@ -1,3 +1,6 @@
+import { youtubeAccessToken } from "@/lib/publisher/adapters/youtube";
+import { fetchJson } from "@/lib/publisher/http";
+import { debitOrSkip } from "@/lib/youtube/quotaSpend";
 import { runAi } from "@/lib/ai";
 import { brandPromptBlock, brandViolations } from "@/lib/brand/kit";
 import { humanize } from "@/lib/x-posts/voice";
@@ -195,48 +198,12 @@ Respond with ONLY this JSON:
   return { system, prompt };
 }
 
-// The caller supplies an already verified public replay/clip and its fact-checked draft.
-export type VerifiedProofDraft = { text: string; url: string };
-
-export function applyVerifiedProof(
-  result: { drafts: XDraft[]; dropped: string[] },
-  input: { proof?: VerifiedProofDraft; times: string[]; date: string; now: Date; recentOpenings: string[]; newId?: () => string }
-): { drafts: XDraft[]; dropped: string[] } {
-  if (!input.proof || !input.times.length) return result;
-  const { text, url } = input.proof;
-  const problem = draftProblem(text);
-  // Accept only shareable YouTube artifacts; reject fragments, redirection, and lookalikes.
-  if (!/^https:\/\/(?:www\.youtube\.com\/watch\?v=[A-Za-z0-9_-]{11}(?:&t=\d+s?)?|(?:www\.youtube\.com\/shorts\/|youtu\.be\/)[A-Za-z0-9_-]{11}(?:\?t=\d+s?)?)$/.test(url)) {
-    return { ...result, dropped: [...result.dropped, "Proof draft: no valid public replay URL"] };
-  }
-  const retained = result.drafts.slice(0, input.times.length - 1);
-  const opening = normalize(text.split("\n")[0] ?? "");
-  if (problem || [...input.recentOpenings, ...retained.map((draft) => draft.text.split("\n")[0])].some((line) => normalize(line) === opening)) {
-    return { ...result, dropped: [...result.dropped, `Proof draft: ${problem ?? "repeats an earlier hook"}`] };
-  }
-  return {
-    ...result,
-    drafts: [...retained, {
-      id: input.newId?.() ?? `xdraft-${crypto.randomUUID()}`,
-      batchDate: input.date,
-      slot: retained.length + 1,
-      time: input.times[retained.length],
-      topic: "Build receipt",
-      text,
-      reply: `See the stream: ${url}`,
-      status: "new",
-      createdAt: input.now.toISOString()
-    }]
-  };
-}
-
 export async function writeDraftBatch(input: {
   date: string;
   times: string[];
   recentOpenings: string[];
   now: Date;
   facts?: DatedFact[];
-  proof?: VerifiedProofDraft;
 }): Promise<{ drafts: XDraft[]; dropped: string[] }> {
   const { system, prompt } = draftsPrompt({ date: input.date, count: input.times.length, recentOpenings: input.recentOpenings, facts: input.facts });
   const result = await runAi({
@@ -248,6 +215,37 @@ export async function writeDraftBatch(input: {
     writerSwitch: "X_DRAFTS_WRITER"
   });
   if (!result || result.refused || !result.text.trim()) throw new Error("the writer gave no answer");
-  const batch = parseDrafts({ raw: result.text, date: input.date, times: input.times, recentOpenings: input.recentOpenings, now: input.now });
-  return applyVerifiedProof(batch, input);
+  return parseDrafts({ raw: result.text, date: input.date, times: input.times, recentOpenings: input.recentOpenings, now: input.now });
+}
+
+type YoutubeProofResult = { items?: Array<{ id?: string; status?: { privacyStatus?: string; uploadStatus?: string } }> };
+async function readPublicVideo(id: string): Promise<YoutubeProofResult> {
+  await debitOrSkip(1, "channel");
+  const token = await youtubeAccessToken();
+  return fetchJson<YoutubeProofResult>("https://www.googleapis.com/youtube/v3/videos?part=status&id=" + id, {
+    label: "YouTube proof visibility", method: "GET", headers: { Authorization: "Bearer " + token }
+  });
+}
+
+// Not an XDraft, never returned by writeDraftBatch. Native YouTube /clip IDs
+// cannot be verified by videos.list; use the source video with a timestamp.
+export async function preparePrivateProofDraft(
+  input: { text: string; url: string; recentOpenings: string[] },
+  readVideo: typeof readPublicVideo = readPublicVideo
+): Promise<{ disposition: "private-preview-only"; text: string; reply: string } | null> {
+  const { text, url } = input;
+  const match = /^https:\/\/(?:www\.youtube\.com\/watch\?v=([A-Za-z0-9_-]{11})(?:&t=([a-z0-9]+))?|(?:www\.youtube\.com\/(?:live|shorts)\/|youtu\.be\/)([A-Za-z0-9_-]{11})(?:\?t=([a-z0-9]+))?)$/.exec(url);
+  if (!match || match[0] !== url || draftProblem(text)) return null;
+  const timestamp = match[2] ?? match[4];
+  if (timestamp && !/^(?:\d+s?|(?=\d)(?:\d+h)?(?:\d+m)?(?:\d+s)?)$/.test(timestamp)) return null;
+  const opening = normalize(text.split("\n")[0] ?? "");
+  if (input.recentOpenings.some((line) => normalize(line) === opening)) return null;
+  try {
+    const id = match[1] ?? match[3];
+    const actual = (await readVideo(id)).items?.find((item) => item.id === id);
+    if (actual?.status?.privacyStatus !== "public" || actual.status.uploadStatus !== "processed") return null;
+    return { disposition: "private-preview-only", text, reply: "See the stream: " + url };
+  } catch {
+    return null;
+  }
 }
