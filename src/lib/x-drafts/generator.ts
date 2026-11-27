@@ -195,12 +195,48 @@ Respond with ONLY this JSON:
   return { system, prompt };
 }
 
+// The caller supplies an already verified public replay/clip and its fact-checked draft.
+export type VerifiedProofDraft = { text: string; url: string };
+
+export function applyVerifiedProof(
+  result: { drafts: XDraft[]; dropped: string[] },
+  input: { proof?: VerifiedProofDraft; times: string[]; date: string; now: Date; recentOpenings: string[]; newId?: () => string }
+): { drafts: XDraft[]; dropped: string[] } {
+  if (!input.proof || !input.times.length) return result;
+  const { text, url } = input.proof;
+  const problem = draftProblem(text);
+  // Accept only shareable YouTube artifacts; reject fragments, redirection, and lookalikes.
+  if (!/^https:\/\/(?:www\.youtube\.com\/watch\?v=[A-Za-z0-9_-]{11}(?:&t=\d+s?)?|(?:www\.youtube\.com\/shorts\/|youtu\.be\/)[A-Za-z0-9_-]{11}(?:\?t=\d+s?)?)$/.test(url)) {
+    return { ...result, dropped: [...result.dropped, "Proof draft: no valid public replay URL"] };
+  }
+  const retained = result.drafts.slice(0, input.times.length - 1);
+  const opening = normalize(text.split("\n")[0] ?? "");
+  if (problem || [...input.recentOpenings, ...retained.map((draft) => draft.text.split("\n")[0])].some((line) => normalize(line) === opening)) {
+    return { ...result, dropped: [...result.dropped, `Proof draft: ${problem ?? "repeats an earlier hook"}`] };
+  }
+  return {
+    ...result,
+    drafts: [...retained, {
+      id: input.newId?.() ?? `xdraft-${crypto.randomUUID()}`,
+      batchDate: input.date,
+      slot: retained.length + 1,
+      time: input.times[retained.length],
+      topic: "Build receipt",
+      text,
+      reply: `See the stream: ${url}`,
+      status: "new",
+      createdAt: input.now.toISOString()
+    }]
+  };
+}
+
 export async function writeDraftBatch(input: {
   date: string;
   times: string[];
   recentOpenings: string[];
   now: Date;
   facts?: DatedFact[];
+  proof?: VerifiedProofDraft;
 }): Promise<{ drafts: XDraft[]; dropped: string[] }> {
   const { system, prompt } = draftsPrompt({ date: input.date, count: input.times.length, recentOpenings: input.recentOpenings, facts: input.facts });
   const result = await runAi({
@@ -212,5 +248,6 @@ export async function writeDraftBatch(input: {
     writerSwitch: "X_DRAFTS_WRITER"
   });
   if (!result || result.refused || !result.text.trim()) throw new Error("the writer gave no answer");
-  return parseDrafts({ raw: result.text, date: input.date, times: input.times, recentOpenings: input.recentOpenings, now: input.now });
+  const batch = parseDrafts({ raw: result.text, date: input.date, times: input.times, recentOpenings: input.recentOpenings, now: input.now });
+  return applyVerifiedProof(batch, input);
 }
