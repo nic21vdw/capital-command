@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- Finished slide images can now be booked into the publish queue exactly as they are, without the app repainting them: `POST /api/publish/images` takes the picture files in order, a caption, a time and Instagram, Facebook and/or LinkedIn (Instagram alone with `pairFacebook: false`), and the queue still refuses same-day slots, duplicates and posts without media hosting.
+
 ## 2026-11-24
 
 - Threads can now run on X Drafts alone, at up to 10 posts a day in your X voice. `THREADS_DAILY_PACK=off` stops the generic daily pack, `THREADS_PLUG_SCOPE=colateral` keeps the CoLateral link reply to posts that name CoLateral instead of every post, and the writer now takes a dated facts list (`data/x-drafts-facts.json`, kept 14 days), orders the day by post type, and may revisit an idea from a new angle but never reuses a hook.
