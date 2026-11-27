@@ -36,6 +36,7 @@ export type QueueWriter =
   | "enqueue"
   | "enqueue-image"
   | "api-carousel-book"
+  | "api-image-post-book"
   | "pipeline-queue-outputs"
   | "api-publish-rename"
   | "api-publish-edit"
