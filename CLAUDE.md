@@ -426,6 +426,30 @@ pipeline's booking sheet, the ingest scan, the CLI, `/api/publish`).
   matching audit is `GET /api/publish/youtube-channel/duplicates`, which reports
   repeated titles on the channel and repeats on the queue, and changes nothing.
 
+## Winner multiplier (`src/lib/winners`, `npm run winners:scan`)
+
+A post that beats its platform's median by 2x gets remade, with a NEW hook, as
+a Short script, a Threads post and a tweet draft, plus a retest inside 7 days.
+Drafts only: it never posts, books or touches a queue.
+
+- `detect.ts` is pure and tested. Each post is compared with the same
+  platform, account and format AT THE SAME AGE (`metricsAtAge`, capped at 7
+  days), against posts from the last 120 days; only the last 30 days can win,
+  nothing under a day old, at least 10 peers, and a floor of 200 views or 10
+  engagements so two likes against a median of one is not a winner. Platforms
+  with no view counts (Instagram and Facebook without insights) are judged on
+  engagements. One clip that won on two platforms is one idea.
+- X IS NEVER READ (Nic, 2026-11-27). X winners come only from
+  `data/winners/x-posts.json`, which Nic fills by hand. No scraping, no browser
+  automation, no X API.
+- `remix.ts` holds the prompt and every gate: the tweet must pass the X Drafts
+  `draftProblem`, the Threads post stays under 500 characters with no link and
+  opens differently from the tweet, the Short is under 45 seconds spoken, no
+  hook repeats the original or each other, and nothing breaks the persona.
+- The writer is Opus through `claude -p` (`WINNERS_WRITER=off` to skip). An
+  idea drafted once is never redrafted; `data/winners/winners.json` is the
+  record and `report.md` beside it is the readable copy.
+
 ## Experiments and learned posting times (`src/lib/experiments`, `analytics/bestTimes.ts`)
 
 Both read the analytics store (`data/analytics/metrics.json`) and neither ever acts on its own.
