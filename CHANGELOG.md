@@ -14,6 +14,9 @@ already shipped.
 
 ## Unreleased
 
+- Retry now reopens the original upload when a clip job stops before choosing any clips. If that upload is missing, the job tells you to upload the video again.
+- Opening two clip pages immediately after startup now shows the saved jobs on both pages. If the job list cannot be read, changes wait until it can be loaded again.
+
 - Finished slide images can now be booked into the publish queue exactly as they are, without the app repainting them: `POST /api/publish/images` takes the picture files in order, a caption, a time and Instagram, Facebook and/or LinkedIn (Instagram alone with `pairFacebook: false`), and the queue still refuses same-day slots, duplicates and posts without media hosting.
 
 ## 2026-11-24
