@@ -5,7 +5,9 @@ export function winnersReport(entries: WinnerEntry[]): string {
   for (const entry of entries) {
     out.push(`## ${entry.title}`, "");
     for (const item of entry.evidence) {
-      out.push(`- ${item.platform}: ${item.value} ${item.metric} at ${item.ageDays} days, ${item.ratio}x the median of ${item.peers} posts`);
+      const age = item.ageDays > 0 ? ` at ${item.ageDays} days` : "";
+      const peers = item.peers > 0 ? ` of ${item.peers} posts` : "";
+      out.push(`- ${item.platform}: ${item.value} ${item.metric}${age}, ${item.ratio}x the median${peers}`);
     }
     out.push("");
     if (!entry.remix) {
