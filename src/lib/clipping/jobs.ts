@@ -77,38 +77,42 @@ async function settingsOutputQuality(): Promise<OutputQuality> {
 // route and the status routes.
 type JobsGlobal = typeof globalThis & {
   __clipJobs?: Map<string, ClipJob>;
-  __clipJobsLoaded?: boolean;
+  __clipJobsReady?: Promise<void>;
 };
 const g = globalThis as JobsGlobal;
 const jobs = (g.__clipJobs ??= new Map<string, ClipJob>());
 
-async function loadJobs() {
-  if (g.__clipJobsLoaded) return;
-  g.__clipJobsLoaded = true;
-  try {
-    let parsed: ClipJob[] = [];
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        // Parsing this file is seconds of blocked event loop, so it happens
-        // once — never a second time just to validate the read.
-        parsed = JSON.parse(await readFile(jobsFile, "utf8")) as ClipJob[];
-        break;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-        if (attempt === 2) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 40));
+function loadJobs(): Promise<void> {
+  // All routes share the initial read. On failure, let the next request retry
+  // and keep callers from persisting an empty or partially loaded inventory.
+  return (g.__clipJobsReady ??= restoreJobs().catch((error) => {
+    delete g.__clipJobsReady;
+    throw error;
+  }));
+}
+
+async function restoreJobs() {
+  let parsed: ClipJob[] = [];
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      parsed = JSON.parse(await readFile(jobsFile, "utf8"));
+      if (!Array.isArray(parsed) || parsed.some((job) => !job || typeof job.id !== "string" || !job.id)) {
+        throw new Error("Could not read the saved clip job list.");
       }
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      if (attempt === 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 40));
     }
-    for (const job of parsed) {
-      // Anything mid-flight when the server stopped can't resume.
-      if (job.status === "processing" || job.status === "queued") {
-        job.status = "error";
-        job.error = "The server restarted while this job was processing. Paste the link again.";
-      }
-      jobs.set(job.id, job);
+  }
+  for (const job of parsed) {
+    // Anything mid-flight when the server stopped can't resume.
+    if (job.status === "processing" || job.status === "queued") {
+      job.status = "error";
+      job.error = "The server restarted while this job was processing. Paste the link again.";
     }
-  } catch {
-    // First run — no jobs file yet.
+    jobs.set(job.id, job);
   }
 }
 
@@ -196,12 +200,17 @@ export async function retryMissingRenders(id: string): Promise<ClipJob | undefin
   // re-render, so re-rendering nothing reported success and left the run
   // exactly as broken as it was. It has to start again from the source.
   if (job.clips.length === 0) {
-    if (!job.sourceUrl) {
+    const upload = job.sourceId ? await readSourceMeta(job.sourceId) : null;
+    if (job.sourceId && !upload) {
+      throw new Error("The uploaded source file for this job is gone. Upload the video again.");
+    }
+    if (!upload && !job.sourceUrl) {
       throw new Error("This job planned no clips and has no source link to start from. Paste the link again.");
     }
     await assertEnoughDiskSpace();
     await update(job, { status: "queued", stage: "downloading", progress: 2, error: undefined, notices: [] });
-    void runPipeline(job, job.sourceUrl).catch((error) => failJob(job, error));
+    const retry = upload ? runLocalPipeline(job, upload) : runPipeline(job, job.sourceUrl);
+    void retry.catch((error) => failJob(job, error));
     return job;
   }
 

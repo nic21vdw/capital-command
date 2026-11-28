@@ -1,7 +1,8 @@
 import { mkdir, writeFile } from "fs/promises";
 import path from "path";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { dataPath } from "@/lib/paths";
+import * as download from "@/lib/clipping/download";
 import { getJob, retryMissingRenders } from "@/lib/clipping/jobs";
 
 // A server that stops mid-job leaves the record on "error" with every clip
@@ -45,10 +46,21 @@ beforeAll(async () => {
         error: undefined,
         clips: [{ id: "c1", start: 0, end: 30, file: "clip-01-ready.mp4" }]
       },
-      { ...base, id: "no-clips", stage: "analyzing", clips: [] }
+      { ...base, id: "no-clips", stage: "analyzing", clips: [] },
+      { ...base, id: "local", sourceId: "original", sourceUrl: "upload://original", clips: [] },
+      { ...base, id: "missing-local", sourceId: "removed", sourceUrl: "upload://removed", clips: [] },
+      { ...base, id: "remote", sourceUrl: "https://example.test/stream", clips: [] }
     ]),
     "utf8"
   );
+  const source = dataPath("clips", "sources", "original");
+  await mkdir(source, { recursive: true });
+  await writeFile(path.join(source, "meta.json"), JSON.stringify({ id: "original", storedName: "source.mp4", durationSec: 10 }));
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe("retryMissingRenders", () => {
@@ -69,5 +81,28 @@ describe("retryMissingRenders", () => {
 
   it("refuses a job that planned no clips and has no source to start from", async () => {
     await expect(retryMissingRenders("no-clips")).rejects.toThrow(/no source link/i);
+  });
+
+  it("reopens the stored upload locally when selection was interrupted", async () => {
+    vi.stubEnv("RENDER_MIN_FREE_GB", "0");
+    const fetchMeta = vi.spyOn(download, "fetchVideoMeta").mockRejectedValue(new Error("Unexpected URL download"));
+    await retryMissingRenders("local");
+    await vi.waitFor(async () => expect((await getJob("local"))?.error).toMatch(/video is shorter than 20 seconds/i));
+    expect(fetchMeta).not.toHaveBeenCalled();
+  });
+
+  it("leaves an unavailable upload recoverable and never sends its marker to the downloader", async () => {
+    const fetchMeta = vi.spyOn(download, "fetchVideoMeta").mockRejectedValue(new Error("Unexpected URL download"));
+    await expect(retryMissingRenders("missing-local")).rejects.toThrow(/upload the video again/i);
+    expect((await getJob("missing-local"))?.error).toBe(base.error);
+    expect(fetchMeta).not.toHaveBeenCalled();
+  });
+
+  it("still retries a pasted VOD through the remote pipeline", async () => {
+    vi.stubEnv("RENDER_MIN_FREE_GB", "0");
+    const fetchMeta = vi.spyOn(download, "fetchVideoMeta").mockRejectedValue(new Error("VOD unavailable"));
+    await retryMissingRenders("remote");
+    await vi.waitFor(async () => expect((await getJob("remote"))?.error).toBe("VOD unavailable"));
+    expect(fetchMeta).toHaveBeenCalledWith("https://example.test/stream");
   });
 });
